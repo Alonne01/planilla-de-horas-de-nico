@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
+import { useEffect, useState } from 'react';
+import api from '@/services/api';
 import '@/stores/themeStore'; // initialize theme on load
 import LoginPage from '@/pages/auth/LoginPage';
 import ChangePasswordPage from '@/pages/auth/ChangePasswordPage';
@@ -24,6 +26,8 @@ import RolesPage from '@/pages/admin/RolesPage';
 import CierrePage from '@/pages/admin/CierrePage';
 import VacacionSaldosPage from '@/pages/admin/VacacionSaldosPage';
 import AprobacionesPage from '@/pages/aprobaciones/AprobacionesPage';
+import MensajesPage from '@/pages/MensajesPage';
+import { Loader2 } from 'lucide-react';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,6 +42,41 @@ function PrivateRoute() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <Outlet />;
+}
+
+function AuthInitializer({ children }: { children: React.ReactNode }) {
+  const [ready, setReady] = useState(false);
+  const { user, accessToken, updateToken, clearAuth, setAuth } = useAuthStore();
+
+  useEffect(() => {
+    // If we have a persisted user but no accessToken, try to refresh
+    if (user && !accessToken) {
+      api.post('/auth/refresh')
+        .then((res) => {
+          updateToken(res.data.accessToken);
+          // Update user data in case it changed
+          if (res.data.user) {
+            setAuth(res.data.user, res.data.accessToken);
+          }
+        })
+        .catch(() => {
+          clearAuth();
+        })
+        .finally(() => setReady(true));
+    } else {
+      setReady(true);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!ready) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  return <>{children}</>;
 }
 
 function PublicOnlyRoute() {
@@ -57,7 +96,8 @@ function RequirePrimerLogin() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <AuthInitializer>
+        <BrowserRouter>
         <Routes>
           {/* Public routes */}
           <Route element={<PublicOnlyRoute />}>
@@ -80,6 +120,7 @@ export default function App() {
               <Route path="/vacaciones" element={<VacacionesPage />} />
               <Route path="/ausencias" element={<AusenciasPage />} />
               <Route path="/aprobaciones" element={<AprobacionesPage />} />
+              <Route path="/mensajes" element={<MensajesPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               {/* Admin routes — Phase 2 */}
               <Route path="/admin/usuarios" element={<UsuariosPage />} />
@@ -99,6 +140,7 @@ export default function App() {
           <Route path="*" element={<CatchAll />} />
         </Routes>
       </BrowserRouter>
+      </AuthInitializer>
     </QueryClientProvider>
   );
 }

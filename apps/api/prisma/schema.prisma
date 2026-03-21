@@ -110,6 +110,7 @@ model Empresa {
   tiposCapacitacion     TipoCapacitacion[]
   alertasConfig         AlertaConfig[]
   roles                 RolConfig[]
+  mensajes              Mensaje[]
 
   @@map("empresas")
 }
@@ -420,6 +421,9 @@ model Usuario {
   capacitaciones     EmpleadoCapacitacion[]
   passwordResetTokens PasswordResetToken[]
   vacacionSaldos     VacacionSaldo[]
+  mensajesEnviados   Mensaje[]            @relation("mensajesEnviados")
+  mensajesRecibidos  MensajeDestinatario[] @relation("mensajesRecibidos")
+  respuestasMensaje  MensajeRespuesta[]   @relation("respuestasMensaje")
 
   @@map("usuarios")
 }
@@ -853,4 +857,60 @@ model AlertaConfig {
   empresa Empresa @relation(fields: [empresaId], references: [id])
 
   @@map("alertas_config")
+}
+
+// ═══════════════════════════════════════════════════════
+// MENSAJERÍA INTERNA
+// ═══════════════════════════════════════════════════════
+
+model Mensaje {
+  id              String   @id @default(uuid())
+  empresaId       String   @map("empresa_id")
+  remitenteId     String   @map("remitente_id")
+  asunto          String
+  cuerpo          String
+  archivoUrl      String?  @map("archivo_url")
+  archivoNombre   String?  @map("archivo_nombre")
+  permiteRespuesta Boolean @default(false) @map("permite_respuesta")
+  esDifusion      Boolean  @default(false) @map("es_difusion")
+  destinoTipo     String?  @map("destino_tipo")
+  destinoValor    String?  @map("destino_valor")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  empresa       Empresa                @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  remitente     Usuario                @relation("mensajesEnviados", fields: [remitenteId], references: [id], onDelete: Cascade)
+  destinatarios MensajeDestinatario[]
+  respuestas    MensajeRespuesta[]
+
+  @@map("mensajes")
+}
+
+model MensajeDestinatario {
+  id        String    @id @default(uuid())
+  mensajeId String    @map("mensaje_id")
+  usuarioId String    @map("usuario_id")
+  leido     Boolean   @default(false)
+  leidoAt   DateTime? @map("leido_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  mensaje Mensaje @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
+  usuario Usuario @relation("mensajesRecibidos", fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([mensajeId, usuarioId])
+  @@map("mensaje_destinatarios")
+}
+
+model MensajeRespuesta {
+  id            String   @id @default(uuid())
+  mensajeId     String   @map("mensaje_id")
+  usuarioId     String   @map("usuario_id")
+  cuerpo        String
+  archivoUrl    String?  @map("archivo_url")
+  archivoNombre String?  @map("archivo_nombre")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  mensaje Mensaje @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
+  usuario Usuario @relation("respuestasMensaje", fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@map("mensaje_respuestas")
 }

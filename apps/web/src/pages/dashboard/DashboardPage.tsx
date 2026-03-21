@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Clock, Palmtree, AlertTriangle,
   Loader2, TrendingUp, FileText, CheckCircle2,
-  ArrowRight, MapPin, Send
+  ArrowRight, MapPin, Send, CalendarCheck2, Shield
 } from 'lucide-react';
 
 interface DashboardData {
@@ -21,6 +21,7 @@ interface DashboardData {
     registrosCount: number;
   } | null;
   vacaciones: { saldo: number; usados: number; pendientes: number };
+  compensatorios: { disponible: number; acumulados: number; usados: number; pendientes: number };
   ausencias: { tipo: string; dias: number; count: number }[];
   planillasRecientes: {
     id: string;
@@ -47,14 +48,16 @@ export default function DashboardPage() {
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ['dashboard'],
     queryFn: async () => {
-      const [planillasRes, saldoRes, ausenciasRes] = await Promise.all([
+      const [planillasRes, saldoRes, ausenciasRes, compSaldoRes] = await Promise.all([
         api.get('/planillas'),
         api.get('/vacaciones/saldo').catch(() => ({ data: { disponible: 0, usados: 0, pendiente: 0 } })),
         api.get('/ausencias').catch(() => ({ data: [] })),
+        api.get('/vacacion-saldos/mi-saldo').catch(() => ({ data: { compensatoriosDisponible: 0, compensatoriosAcumulados: 0, compensatoriosUsados: 0, compensatoriosPendientes: 0 } })),
       ]);
 
       const planillas = planillasRes.data;
       const saldo = saldoRes.data;
+      const compSaldo = compSaldoRes.data;
 
       // Find current period planilla (most recent borrador or enviada)
       const planillaActual = planillas.find((p: { estado: string }) =>
@@ -78,6 +81,12 @@ export default function DashboardPage() {
           saldo: saldo.disponible,
           usados: saldo.usados,
           pendientes: saldo.pendiente,
+        },
+        compensatorios: {
+          disponible: compSaldo.compensatoriosDisponible ?? 0,
+          acumulados: compSaldo.compensatoriosAcumulados ?? 0,
+          usados: compSaldo.compensatoriosUsados ?? 0,
+          pendientes: compSaldo.compensatoriosPendientes ?? 0,
         },
         ausencias: Object.entries(ausMap).map(([tipo, v]) => ({ tipo, ...v })),
         planillasRecientes: planillas.slice(0, 5),
@@ -108,6 +117,7 @@ export default function DashboardPage() {
     FALTA_JUSTIFICADA: 'Justificada',
     FALTA_INJUSTIFICADA: 'Injustificada',
     LICENCIA_ESPECIAL: 'Lic. Especial',
+    FRANCO_COMPENSATORIO: 'Franco Comp.',
   };
 
   return (
@@ -117,13 +127,20 @@ export default function DashboardPage() {
         <h1 className="text-2xl lg:text-3xl font-bold text-foreground">
           {getGreeting()}, {user?.nombre} 👋
         </h1>
-        <p className="text-muted-foreground mt-1">
-          Acá tenés un resumen de tu actividad
-        </p>
+        <div className="flex items-center gap-3 mt-1 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+            <Shield className="h-3 w-3" /> {user?.rol}
+          </span>
+          {user?.sectorNombre && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-medium">
+              <MapPin className="h-3 w-3" /> {user.sectorNombre}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Planilla actual */}
         <button
           onClick={() => pa && navigate(`/planillas/${pa.id}`)}
@@ -187,6 +204,22 @@ export default function DashboardPage() {
           <p className="text-xs text-muted-foreground mt-1">
             días disponibles · {data?.vacaciones.usados ?? 0} usados
             {(data?.vacaciones.pendientes ?? 0) > 0 && <span className="text-amber-400"> · {data?.vacaciones.pendientes} pendientes</span>}
+          </p>
+        </button>
+
+        {/* Compensatorios */}
+        <button
+          onClick={() => navigate('/ausencias')}
+          className="rounded-xl border border-border bg-card p-5 hover:border-primary/30 transition-colors text-left"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-medium text-muted-foreground">Compensatorios</span>
+            <CalendarCheck2 className="h-5 w-5 text-cyan-400" />
+          </div>
+          <p className="text-2xl font-bold text-cyan-400">{data?.compensatorios.disponible ?? 0}</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            disponibles · {data?.compensatorios.acumulados ?? 0} acum.
+            {(data?.compensatorios.pendientes ?? 0) > 0 && <span className="text-amber-400"> · {data?.compensatorios.pendientes} pend.</span>}
           </p>
         </button>
 

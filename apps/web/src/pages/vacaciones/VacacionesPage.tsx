@@ -53,7 +53,10 @@ export default function VacacionesPage() {
 
   const enviarMutation = useMutation({
     mutationFn: (id: string) => api.post(`/vacaciones/${id}/enviar`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['vacaciones'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vacaciones'] });
+      queryClient.invalidateQueries({ queryKey: ['vacaciones-saldo'] });
+    },
   });
 
   const canCreate = ['OPERADOR', 'SUPERVISOR', 'COORDINADOR', 'GERENTE'].includes(user?.rol ?? '');
@@ -149,7 +152,8 @@ export default function VacacionesPage() {
           onClose={() => setShowForm(false)}
           onSuccess={() => {
             setShowForm(false);
-            queryClient.invalidateQueries({ queryKey: ['vacaciones', 'vacaciones-saldo'] });
+            queryClient.invalidateQueries({ queryKey: ['vacaciones'] });
+            queryClient.invalidateQueries({ queryKey: ['vacaciones-saldo'] });
           }}
         />
       )}

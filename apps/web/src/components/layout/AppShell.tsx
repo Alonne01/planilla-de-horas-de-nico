@@ -25,6 +25,7 @@ import {
   Shield,
   CheckCircle2,
   RefreshCw,
+  MessageSquare,
 } from 'lucide-react';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -42,6 +43,7 @@ const navItems: NavItem[] = [
   { label: 'Vacaciones', path: '/vacaciones', icon: Palmtree },
   { label: 'Ausencias', path: '/ausencias', icon: FileX },
   { label: 'Aprobaciones', path: '/aprobaciones', icon: CheckCircle2 },
+  { label: 'Mensajes', path: '/mensajes', icon: MessageSquare },
   { label: 'Analytics', path: '/analytics', icon: FileBarChart },
 ];
 

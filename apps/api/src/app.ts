@@ -29,11 +29,12 @@ app.use(cors({
     // Allow no-origin requests (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
 
-    // En desarrollo, permitir IPs privadas RFC-1918
+    // En desarrollo, permitir IPs privadas RFC-1918 y localhost
     if (process.env.NODE_ENV === 'development') {
       try {
         const host = new URL(origin).hostname;
         const isPrivate =
+          host === 'localhost' || host === '127.0.0.1' ||
           /^192\.168\.\d{1,3}\.\d{1,3}$/.test(host) ||
           /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
           /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host);
@@ -55,8 +56,14 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Access-Control-Request-Private-Network'],
 }));
+
+// Private Network Access: Chrome requires this header for LAN → localhost requests
+app.use((_req, res, next) => {
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  next();
+});
 
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
@@ -101,8 +108,8 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 // ─── Iniciar servidor ────────────────────────────
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 API Planilla de Horas corriendo en http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🚀 API Planilla de Horas corriendo en http://0.0.0.0:${PORT}`);
   console.log(`📋 Health check: http://localhost:${PORT}/api/v1/health`);
   console.log(`🔑 Login: POST http://localhost:${PORT}/api/v1/auth/login\n`);
 

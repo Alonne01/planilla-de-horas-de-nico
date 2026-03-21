@@ -149,7 +149,12 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
 
     const usuario = await prisma.usuario.findUnique({
       where: { id: userId },
-      select: { id: true, empresaId: true, rol: true, email: true, activo: true },
+      select: {
+        id: true, empresaId: true, rol: true, email: true, activo: true,
+        nombre: true, apellido: true, sectorId: true, primerLogin: true,
+        empresa: { select: { nombre: true } },
+        sector: { select: { nombre: true } },
+      },
     });
 
     if (!usuario || !usuario.activo) {
@@ -183,7 +188,22 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
       path: '/',
     });
 
-    res.json({ accessToken });
+    res.json({
+      accessToken,
+      user: {
+        id: usuario.id,
+        nombre: usuario.nombre,
+        apellido: usuario.apellido,
+        email: usuario.email,
+        rol: usuario.rol,
+        rolNivel,
+        empresaId: usuario.empresaId,
+        empresaNombre: usuario.empresa.nombre,
+        sectorId: usuario.sectorId,
+        sectorNombre: usuario.sector?.nombre ?? null,
+        primerLogin: usuario.primerLogin,
+      },
+    });
   } catch (error) {
     console.error('Error en refresh:', error);
     res.status(500).json({ error: 'Error interno del servidor' });

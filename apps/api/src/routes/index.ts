@@ -19,6 +19,7 @@ import exportacionesRoutes from './exportaciones.routes.js';
 import vacacionSaldosRoutes from './vacacion-saldos.routes.js';
 import aprobacionesRoutes from './aprobaciones.routes.js';
 import backupRoutes from './backup.routes.js';
+import mensajesRoutes from './mensajes.routes.js';
 
 const router = Router();
 
@@ -41,6 +42,9 @@ router.use('/vacaciones', vacacionesRoutes);
 router.use('/vacacion-saldos', vacacionSaldosRoutes);
 router.use('/aprobaciones', aprobacionesRoutes);
 router.use('/ausencias', ausenciasRoutes);
+
+// Mensajes
+router.use('/mensajes', mensajesRoutes);
 
 // Analytics
 router.use('/analytics', analyticsRoutes);

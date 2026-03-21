@@ -18,6 +18,8 @@ type LoginForm = z.infer<typeof loginSchema>;
 export default function LoginPage() {
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
+  const rememberMe = useAuthStore((s) => s.rememberMe);
+  const setRememberMe = useAuthStore((s) => s.setRememberMe);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
@@ -126,7 +128,16 @@ export default function LoginPage() {
               )}
             </div>
 
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="h-4 w-4 rounded border-input bg-background text-primary accent-primary"
+                />
+                <span className="text-xs text-muted-foreground">Recuérdame</span>
+              </label>
               <Link
                 to="/forgot-password"
                 className="text-xs text-muted-foreground hover:text-primary transition-colors"
