@@ -65,10 +65,45 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       ? { usuarioId: { in: approvableUserIds } }
       : { usuario: { empresaId } };
 
+    const userRol = req.user!.rol;
+
+    // ── Period filter (optional) ──────────────────────────────────
+    const qPeriodoInicio = req.query.periodoInicio as string | undefined;
+    const qPeriodoFin = req.query.periodoFin as string | undefined;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const planillaPeriodFilter: any = {};
+    if (qPeriodoInicio) planillaPeriodFilter.periodoInicio = { gte: new Date(qPeriodoInicio) };
+    if (qPeriodoFin) {
+      const fin = new Date(qPeriodoFin); fin.setHours(23, 59, 59, 999);
+      planillaPeriodFilter.periodoFin = { lte: fin };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fechaPeriodFilter: any = {};
+    if (qPeriodoInicio && qPeriodoFin) {
+      const fin = new Date(qPeriodoFin); fin.setHours(23, 59, 59, 999);
+      fechaPeriodFilter.fechaInicio = {
+        gte: new Date(qPeriodoInicio),
+        lte: fin,
+      };
+    }
+
+    // Helper: returns true if the item's current approval step matches the user's role
+    const matchesCurrentStep = (item: { flujoId?: string | null; pasoActual: number; flujo?: { pasos: { orden: number; rolAprobador: string }[] } | null }) => {
+      if (!item.flujo || !item.flujoId) return true; // no flujo → legacy behavior
+      const paso = item.flujo.pasos.find(p => p.orden === item.pasoActual);
+      if (!paso) return true; // safety fallback
+      return paso.rolAprobador === userRol;
+    };
+
+    const flujoInclude = { flujo: { include: { pasos: { orderBy: { orden: 'asc' as const } } } } };
+
     // ── Pending planillas ─────────────────────────────────────────
-    const planillasPendientes = await prisma.planilla.findMany({
+    const planillasRaw = await prisma.planilla.findMany({
       where: {
         ...userFilter,
+        ...planillaPeriodFilter,
         estado: { in: ['ENVIADA', 'EN_REVISION'] },
       },
       include: {
@@ -78,14 +113,17 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
             sector: { select: { nombre: true } },
           },
         },
+        ...flujoInclude,
       },
       orderBy: { enviadaAt: 'asc' },
     });
+    const planillasPendientes = planillasRaw.filter(matchesCurrentStep);
 
     // ── Pending vacaciones ────────────────────────────────────────
-    const vacacionesPendientes = await prisma.vacacion.findMany({
+    const vacacionesRaw = await prisma.vacacion.findMany({
       where: {
         ...userFilter,
+        ...fechaPeriodFilter,
         estado: { in: ['PENDIENTE', 'EN_REVISION'] },
       },
       include: {
@@ -95,14 +133,17 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
             sector: { select: { nombre: true } },
           },
         },
+        ...flujoInclude,
       },
       orderBy: { createdAt: 'asc' },
     });
+    const vacacionesPendientes = vacacionesRaw.filter(matchesCurrentStep);
 
     // ── Pending ausencias ──────────────────────────────────────
-    const ausenciasPendientes = await prisma.ausencia.findMany({
+    const ausenciasRaw = await prisma.ausencia.findMany({
       where: {
         ...userFilter,
+        ...fechaPeriodFilter,
         estado: { in: ['PENDIENTE', 'EN_REVISION'] },
       },
       include: {
@@ -113,20 +154,23 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
           },
         },
         cargadaPor: { select: { nombre: true, apellido: true } },
+        ...flujoInclude,
       },
       orderBy: { createdAt: 'asc' },
     });
+    const ausenciasPendientes = ausenciasRaw.filter(matchesCurrentStep);
 
     // ── Pending compensatorios ──────────────────────────────────
     const planillaFilter = approvableUserIds
       ? { usuarioId: { in: approvableUserIds } }
       : { usuario: { empresaId } };
 
-    const compensatoriosPendientes = await prisma.registroHoras.findMany({
+    const compensatoriosRaw = await prisma.registroHoras.findMany({
       where: {
         esFrancoCompensatorio: true,
         planilla: {
           ...planillaFilter,
+          ...planillaPeriodFilter,
           estado: { in: ['ENVIADA', 'EN_REVISION'] },
         },
       },
@@ -139,16 +183,19 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
                 sector: { select: { nombre: true } },
               },
             },
+            ...flujoInclude,
           },
         },
       },
       orderBy: { fecha: 'asc' },
     });
+    const compensatoriosPendientes = compensatoriosRaw.filter(c => matchesCurrentStep(c.planilla));
 
     // ── Recent history (last 30 items) ────────────────────────────
     const planillasHistory = await prisma.planilla.findMany({
       where: {
         ...userFilter,
+        ...planillaPeriodFilter,
         estado: { in: ['APROBADA', 'RECHAZADA', 'CERRADA'] },
       },
       include: {
@@ -161,6 +208,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const vacacionesHistory = await prisma.vacacion.findMany({
       where: {
         ...userFilter,
+        ...fechaPeriodFilter,
         estado: { in: ['APROBADA', 'RECHAZADA'] },
       },
       include: {
@@ -173,6 +221,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const ausenciasHistory = await prisma.ausencia.findMany({
       where: {
         ...userFilter,
+        ...fechaPeriodFilter,
         estado: { in: ['APROBADA', 'RECHAZADA'] },
       },
       include: {

@@ -6,8 +6,9 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import {
   CheckCircle2, XCircle, Loader2, Clock, Palmtree, Calendar,
-  History, AlertCircle, ChevronRight, X, Send, AlertTriangle
+  History, AlertCircle, ChevronRight, X, Send, AlertTriangle, Filter
 } from 'lucide-react';
+import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 
 // ─── Types ───────────────────────────────────────
 interface PlanillaItem {
@@ -84,16 +85,41 @@ export default function AprobacionesPage() {
   const [rechazandoId, setRechazandoId] = useState<string | null>(null);
   const [rechazandoTipo, setRechazandoTipo] = useState<'planilla' | 'vacacion' | 'ausencia'>('planilla');
   const [motivoRechazo, setMotivoRechazo] = useState('');
+  const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
+  const [confirmandoTipo, setConfirmandoTipo] = useState<'planilla' | 'vacacion' | 'ausencia'>('planilla');
+  const [confirmandoNombre, setConfirmandoNombre] = useState('');
+  const [filterSector, setFilterSector] = useState('');
+  const [periodo, setPeriodo] = useState(getCurrentPeriod());
+
+  interface Sector { id: string; nombre: string; }
+  const { data: sectores = [] } = useQuery<Sector[]>({
+    queryKey: ['sectores-aprobaciones'],
+    queryFn: async () => (await api.get('/analytics/sectores')).data,
+  });
 
   const { data, isLoading, refetch } = useQuery<AprobacionesData>({
-    queryKey: ['aprobaciones'],
-    queryFn: () => api.get('/aprobaciones').then(r => r.data),
+    queryKey: ['aprobaciones', periodo.inicio, periodo.fin],
+    queryFn: () => api.get(`/aprobaciones?periodoInicio=${encodeURIComponent(periodo.inicio)}&periodoFin=${encodeURIComponent(periodo.fin)}`).then(r => r.data),
     refetchInterval: 30000, // auto-refresh every 30s
   });
 
+  const filterBySector = <T extends { usuario: { sector?: { nombre: string } | null } }>(items: T[]) =>
+    filterSector ? items.filter(i => i.usuario.sector?.nombre === filterSector) : items;
+
+  const filterCompBySector = (items: CompensatorioItem[]) =>
+    filterSector ? items.filter(i => i.planilla.usuario.sector?.nombre === filterSector) : items;
+
+  const filteredPlanillas = filterBySector(data?.planillasPendientes ?? []);
+  const filteredVacaciones = filterBySector(data?.vacacionesPendientes ?? []);
+  const filteredAusencias = filterBySector(data?.ausenciasPendientes ?? []);
+  const filteredCompensatorios = filterCompBySector(data?.compensatoriosPendientes ?? []);
+  const filteredHistPlanillas = filterBySector(data?.historial.planillas ?? []);
+  const filteredHistVacaciones = filterBySector(data?.historial.vacaciones ?? []);
+  const filteredHistAusencias = filterBySector(data?.historial.ausencias ?? []);
+
   const aprobarPlanillaMutation = useMutation({
     mutationFn: (id: string) => api.post(`/planillas/${id}/avanzar`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setConfirmandoId(null); },
   });
 
   const rechazarPlanillaMutation = useMutation({
@@ -104,7 +130,7 @@ export default function AprobacionesPage() {
 
   const aprobarVacacionMutation = useMutation({
     mutationFn: (id: string) => api.post(`/vacaciones/${id}/avanzar`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setConfirmandoId(null); },
   });
 
   const rechazarVacacionMutation = useMutation({
@@ -115,7 +141,7 @@ export default function AprobacionesPage() {
 
   const aprobarAusenciaMutation = useMutation({
     mutationFn: (id: string) => api.post(`/ausencias/${id}/avanzar`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setConfirmandoId(null); },
   });
 
   const rechazarAusenciaMutation = useMutation({
@@ -124,10 +150,10 @@ export default function AprobacionesPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setRechazandoId(null); setMotivoRechazo(''); },
   });
 
-  const planillasPendienteCount = data?.planillasPendientes.length ?? 0;
-  const vacacionesPendienteCount = data?.vacacionesPendientes.length ?? 0;
-  const ausenciasPendienteCount = data?.ausenciasPendientes?.length ?? 0;
-  const compensatoriosPendienteCount = data?.compensatoriosPendientes?.length ?? 0;
+  const planillasPendienteCount = filteredPlanillas.length;
+  const vacacionesPendienteCount = filteredVacaciones.length;
+  const ausenciasPendienteCount = filteredAusencias.length;
+  const compensatoriosPendienteCount = filteredCompensatorios.length;
   const pendingTotal = planillasPendienteCount + vacacionesPendienteCount + ausenciasPendienteCount + compensatoriosPendienteCount;
 
   if ((user?.rolNivel ?? 0) < 60) {
@@ -152,6 +178,26 @@ export default function AprobacionesPage() {
         <button onClick={() => refetch()} className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground">
           <Loader2 className={cn('h-4 w-4', isLoading && 'animate-spin')} />
         </button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <PeriodSelector value={periodo} onChange={setPeriodo} />
+        {sectores.length > 0 && (
+        <div className="flex items-center gap-2">
+          <Filter className="h-4 w-4 text-muted-foreground" />
+          <select
+            className="h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm"
+            value={filterSector}
+            onChange={(e) => setFilterSector(e.target.value)}
+          >
+            <option value="">Todos los sectores</option>
+            {sectores.map((s) => (
+              <option key={s.id} value={s.nombre}>{s.nombre}</option>
+            ))}
+          </select>
+        </div>
+      )}
       </div>
 
       {/* Tabs */}
@@ -228,15 +274,15 @@ export default function AprobacionesPage() {
       ) : tab === 'planillas' ? (
         <div className="space-y-4">
           {/* Planillas */}
-          {(data?.planillasPendientes.length ?? 0) > 0 && (
+          {filteredPlanillas.length > 0 && (
             <section>
               <div className="flex items-center gap-2 mb-2">
                 <Clock className="h-4 w-4 text-blue-400" />
                 <h2 className="text-sm font-semibold text-foreground">Planillas de horas</h2>
-                <span className="text-xs text-muted-foreground">({data!.planillasPendientes.length})</span>
+                <span className="text-xs text-muted-foreground">({filteredPlanillas.length})</span>
               </div>
               <div className="space-y-2">
-                {data!.planillasPendientes.map((p) => (
+                {filteredPlanillas.map((p) => (
                   <div key={p.id} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -259,7 +305,7 @@ export default function AprobacionesPage() {
                         <ChevronRight className="h-4 w-4" />
                       </button>
                       <button
-                        onClick={() => aprobarPlanillaMutation.mutate(p.id)}
+                        onClick={() => { setConfirmandoId(p.id); setConfirmandoTipo('planilla'); setConfirmandoNombre(`${p.usuario.apellido}, ${p.usuario.nombre}`); }}
                         disabled={aprobarPlanillaMutation.isPending}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                       >
@@ -287,7 +333,7 @@ export default function AprobacionesPage() {
         </div>
       ) : tab === 'vacaciones' ? (
         <div className="space-y-4">
-          {(data?.vacacionesPendientes ?? []).map((v) => (
+          {filteredVacaciones.map((v) => (
             <div key={v.id} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -305,7 +351,7 @@ export default function AprobacionesPage() {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
-                  onClick={() => aprobarVacacionMutation.mutate(v.id)}
+                  onClick={() => { setConfirmandoId(v.id); setConfirmandoTipo('vacacion'); setConfirmandoNombre(`${v.usuario.apellido}, ${v.usuario.nombre}`); }}
                   disabled={aprobarVacacionMutation.isPending}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                 >
@@ -329,7 +375,7 @@ export default function AprobacionesPage() {
         </div>
       ) : tab === 'ausencias' ? (
         <div className="space-y-4">
-          {(data?.ausenciasPendientes ?? []).map((a) => (
+          {filteredAusencias.map((a) => (
             <div key={a.id} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -355,7 +401,7 @@ export default function AprobacionesPage() {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
-                  onClick={() => aprobarAusenciaMutation.mutate(a.id)}
+                  onClick={() => { setConfirmandoId(a.id); setConfirmandoTipo('ausencia'); setConfirmandoNombre(`${a.usuario.apellido}, ${a.usuario.nombre}`); }}
                   disabled={aprobarAusenciaMutation.isPending}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                 >
@@ -379,18 +425,18 @@ export default function AprobacionesPage() {
         </div>
       ) : tab === 'compensatorios' ? (
         <div className="space-y-4">
-          {(data?.compensatoriosPendientes ?? []).length > 0 && (
+          {filteredCompensatorios.length > 0 && (
             <section>
               <div className="flex items-center gap-2 mb-2">
                 <Calendar className="h-4 w-4 text-purple-400" />
                 <h2 className="text-sm font-semibold text-foreground">Días compensatorios pendientes</h2>
-                <span className="text-xs text-muted-foreground">({data!.compensatoriosPendientes.length})</span>
+                <span className="text-xs text-muted-foreground">({filteredCompensatorios.length})</span>
               </div>
               <p className="text-xs text-muted-foreground mb-3">
                 Los compensatorios se aprueban junto con su planilla. Esta vista es informativa.
               </p>
               <div className="space-y-2">
-                {data!.compensatoriosPendientes.map((c) => (
+                {filteredCompensatorios.map((c) => (
                   <div key={c.id} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -430,14 +476,14 @@ export default function AprobacionesPage() {
       ) : (
         <div className="space-y-4">
           {/* Planillas historial */}
-          {(data?.historial.planillas.length ?? 0) > 0 && (
+          {filteredHistPlanillas.length > 0 && (
             <section>
               <div className="flex items-center gap-2 mb-2">
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <h2 className="text-sm font-semibold text-foreground">Planillas recientes</h2>
               </div>
               <div className="space-y-1.5">
-                {data!.historial.planillas.map((p) => (
+                {filteredHistPlanillas.map((p) => (
                   <div key={p.id}
                     onClick={() => navigate(`/planillas/${p.id}`)}
                     className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3 cursor-pointer hover:bg-muted/10 transition-colors"
@@ -461,14 +507,14 @@ export default function AprobacionesPage() {
           )}
 
           {/* Vacaciones historial */}
-          {(data?.historial.vacaciones.length ?? 0) > 0 && (
+          {filteredHistVacaciones.length > 0 && (
             <section>
               <div className="flex items-center gap-2 mb-2">
                 <Palmtree className="h-4 w-4 text-muted-foreground" />
                 <h2 className="text-sm font-semibold text-foreground">Vacaciones recientes</h2>
               </div>
               <div className="space-y-1.5">
-                {data!.historial.vacaciones.map((v) => (
+                {filteredHistVacaciones.map((v) => (
                   <div key={v.id} className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -489,14 +535,14 @@ export default function AprobacionesPage() {
           )}
 
           {/* Ausencias historial */}
-          {(data?.historial.ausencias?.length ?? 0) > 0 && (
+          {filteredHistAusencias.length > 0 && (
             <section>
               <div className="flex items-center gap-2 mb-2">
                 <AlertTriangle className="h-4 w-4 text-muted-foreground" />
                 <h2 className="text-sm font-semibold text-foreground">Ausencias recientes</h2>
               </div>
               <div className="space-y-1.5">
-                {data!.historial.ausencias.map((a) => (
+                {filteredHistAusencias.map((a) => (
                   <div key={a.id} className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -516,12 +562,54 @@ export default function AprobacionesPage() {
             </section>
           )}
 
-          {((data?.historial.planillas.length ?? 0) + (data?.historial.vacaciones.length ?? 0) + (data?.historial.ausencias?.length ?? 0)) === 0 && (
+          {(filteredHistPlanillas.length + filteredHistVacaciones.length + filteredHistAusencias.length) === 0 && (
             <div className="text-center py-16 text-muted-foreground">
               <History className="h-10 w-10 mx-auto mb-3 opacity-30" />
               <p className="text-sm">Sin historial todavía</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Confirmación de aprobación */}
+      {confirmandoId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-card shadow-2xl p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                Confirmar aprobación
+              </h3>
+              <button onClick={() => setConfirmandoId(null)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              ¿Estás seguro de que querés aprobar {confirmandoTipo === 'planilla' ? 'la planilla' : confirmandoTipo === 'vacacion' ? 'la solicitud de vacaciones' : 'la ausencia'} de <span className="font-medium text-foreground">{confirmandoNombre}</span>?
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmandoId(null)}
+                className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent">
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  if (confirmandoTipo === 'planilla') {
+                    aprobarPlanillaMutation.mutate(confirmandoId);
+                  } else if (confirmandoTipo === 'vacacion') {
+                    aprobarVacacionMutation.mutate(confirmandoId);
+                  } else {
+                    aprobarAusenciaMutation.mutate(confirmandoId);
+                  }
+                }}
+                disabled={aprobarPlanillaMutation.isPending || aprobarVacacionMutation.isPending || aprobarAusenciaMutation.isPending}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {(aprobarPlanillaMutation.isPending || aprobarVacacionMutation.isPending || aprobarAusenciaMutation.isPending)
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <CheckCircle2 className="h-4 w-4" />}
+                Aprobar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

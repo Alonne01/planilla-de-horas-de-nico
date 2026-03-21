@@ -26,6 +26,10 @@ const updateConfigSchema = z.object({
   tarifaViajeSinManejar: z.number().min(0).optional(),
   zonaHoraria: z.string().max(50).optional(),
   moneda: z.string().max(10).optional(),
+  viandaUmbral1: z.number().int().min(0).max(24).optional(),
+  viandaUmbral2: z.number().int().min(0).max(24).optional(),
+  viandaCantidad1: z.number().int().min(0).max(10).optional(),
+  viandaCantidad2: z.number().int().min(0).max(10).optional(),
 });
 
 // ─── GET /admin/config ───────────────────────────

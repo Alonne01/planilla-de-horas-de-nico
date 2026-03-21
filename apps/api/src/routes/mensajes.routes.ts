@@ -202,7 +202,8 @@ router.post('/', requireLevel(LEVEL_RRHH), upload.single('archivo'), async (req:
       userIds = users.map(u => u.id);
     } else if (destinoTipo === 'USUARIO') {
       if (!destinoValor) { res.status(400).json({ error: 'Se requiere el usuario' }); return; }
-      userIds = [destinoValor];
+      // Support comma-separated user IDs for multi-select
+      userIds = destinoValor.split(',').map(id => id.trim()).filter(Boolean);
     }
 
     if (userIds.length === 0) {
@@ -222,7 +223,7 @@ router.post('/', requireLevel(LEVEL_RRHH), upload.single('archivo'), async (req:
         archivoUrl,
         archivoNombre,
         permiteRespuesta,
-        esDifusion: destinoTipo !== 'USUARIO',
+        esDifusion: destinoTipo !== 'USUARIO' || userIds.length > 1,
         destinoTipo,
         destinoValor: destinoValor ?? null,
         destinatarios: {

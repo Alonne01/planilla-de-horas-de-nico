@@ -596,6 +596,7 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
   const [cuerpo, setCuerpo] = useState('');
   const [destinoTipo, setDestinoTipo] = useState<string>('TODOS');
   const [destinoValor, setDestinoValor] = useState('');
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [permiteRespuesta, setPermiteRespuesta] = useState(false);
   const [archivo, setArchivo] = useState<File | null>(null);
   const [userSearch, setUserSearch] = useState('');
@@ -604,7 +605,7 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
   // Fetch sectores
   const { data: sectores } = useQuery<Sector[]>({
     queryKey: ['sectores-for-mensajes'],
-    queryFn: () => api.get('/admin/sectores').then(r => r.data),
+    queryFn: () => api.get('/analytics/sectores').then(r => r.data),
     enabled: destinoTipo === 'SECTOR',
   });
 
@@ -634,7 +635,11 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
       formData.append('asunto', asunto);
       formData.append('cuerpo', cuerpo);
       formData.append('destinoTipo', destinoTipo);
-      if (destinoValor) formData.append('destinoValor', destinoValor);
+      if (destinoTipo === 'USUARIO') {
+        formData.append('destinoValor', selectedUserIds.join(','));
+      } else if (destinoValor) {
+        formData.append('destinoValor', destinoValor);
+      }
       formData.append('permiteRespuesta', String(permiteRespuesta));
       if (archivo) formData.append('archivo', archivo);
       return api.post('/mensajes', formData, {
@@ -668,7 +673,7 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
             <button
               key={opt.value}
               type="button"
-              onClick={() => { setDestinoTipo(opt.value); setDestinoValor(''); }}
+              onClick={() => { setDestinoTipo(opt.value); setDestinoValor(''); setSelectedUserIds([]); }}
               className={cn(
                 'flex items-center gap-2 px-3 py-2 rounded-lg text-sm border transition-colors',
                 destinoTipo === opt.value
@@ -718,7 +723,28 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
 
       {destinoTipo === 'USUARIO' && (
         <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">Usuario</label>
+          <label className="block text-sm font-medium text-foreground mb-1.5">
+            Usuarios ({selectedUserIds.length} seleccionado{selectedUserIds.length !== 1 ? 's' : ''})
+          </label>
+          {selectedUserIds.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {selectedUserIds.map(uid => {
+                const u = (usuarios ?? []).find(x => x.id === uid);
+                if (!u) return null;
+                return (
+                  <span key={uid} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary border border-primary/20">
+                    {u.nombre} {u.apellido}
+                    <button type="button" onClick={() => setSelectedUserIds(prev => prev.filter(id => id !== uid))} className="hover:text-red-400">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                );
+              })}
+              <button type="button" onClick={() => setSelectedUserIds([])} className="text-[10px] text-muted-foreground hover:text-red-400 ml-1">
+                Limpiar
+              </button>
+            </div>
+          )}
           <input
             type="text"
             value={userSearch}
@@ -730,27 +756,39 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
             {filteredUsers.length === 0 ? (
               <p className="text-xs text-muted-foreground p-3 text-center">Sin resultados</p>
             ) : (
-              filteredUsers.slice(0, 20).map((u) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  onClick={() => setDestinoValor(u.id)}
-                  className={cn(
-                    'w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
-                    destinoValor === u.id
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-foreground hover:bg-accent'
-                  )}
-                >
-                  <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
-                    {u.nombre.charAt(0)}{u.apellido.charAt(0)}
-                  </div>
-                  <span className="truncate">{u.nombre} {u.apellido}</span>
-                  {u.legajo && <span className="text-xs text-muted-foreground shrink-0">#{u.legajo}</span>}
-                  <span className="text-[10px] text-muted-foreground shrink-0">{u.rol}</span>
-                  {destinoValor === u.id && <Check className="h-4 w-4 text-primary shrink-0 ml-auto" />}
-                </button>
-              ))
+              filteredUsers.slice(0, 30).map((u) => {
+                const isSelected = selectedUserIds.includes(u.id);
+                return (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedUserIds(prev =>
+                        isSelected ? prev.filter(id => id !== u.id) : [...prev, u.id]
+                      );
+                    }}
+                    className={cn(
+                      'w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                      isSelected
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-foreground hover:bg-accent'
+                    )}
+                  >
+                    <div className={cn(
+                      'w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors',
+                      isSelected ? 'bg-primary border-primary' : 'border-input'
+                    )}>
+                      {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
+                    </div>
+                    <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
+                      {u.nombre.charAt(0)}{u.apellido.charAt(0)}
+                    </div>
+                    <span className="truncate">{u.nombre} {u.apellido}</span>
+                    {u.legajo && <span className="text-xs text-muted-foreground shrink-0">#{u.legajo}</span>}
+                    <span className="text-[10px] text-muted-foreground shrink-0">{u.rol}</span>
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
@@ -847,7 +885,8 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
           disabled={
             !asunto.trim() ||
             !cuerpo.trim() ||
-            (destinoTipo !== 'TODOS' && !destinoValor) ||
+            (destinoTipo === 'USUARIO' && selectedUserIds.length === 0) ||
+            (destinoTipo !== 'TODOS' && destinoTipo !== 'USUARIO' && !destinoValor) ||
             sendMutation.isPending
           }
           className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"

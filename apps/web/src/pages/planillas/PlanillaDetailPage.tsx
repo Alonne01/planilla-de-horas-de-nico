@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import {
   ArrowLeft, Send, CheckCircle2, XCircle, Loader2,
-  Clock, MapPin, Car, Moon, AlertCircle, X, Download, CalendarClock, Lock
+  Clock, MapPin, Car, Moon, AlertCircle, AlertTriangle, X, Download, CalendarClock, Lock
 } from 'lucide-react';
 
 // ─── Argentine public holidays (fixed + movable approx.) ─────────────────────
@@ -30,6 +30,27 @@ function buildArgHolidays(year: number): Set<string> {
     fixed.push(fmt(em, ed));   // Domingo Pascua
   }
   return new Set(fixed);
+}
+
+// Días no laborables: el empleador decide si se trabaja o no (distinto de feriado)
+function buildDiasNoLaborables(year: number): Set<string> {
+  const fmt = (m: number, d: number) =>
+    `${year}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  // Easter-based
+  const easterOffsets: Record<number, [number,number]> = {
+    2024:[3,29], 2025:[4,18], 2026:[4,3], 2027:[3,26], 2028:[4,14],
+  };
+  const easter = easterOffsets[year];
+  const dias = [
+    fmt(3,23), // Puente día no laborable (previo al 24/3)
+    fmt(12,24), // Nochebuena (no laborable desde mediodía)
+    fmt(12,31), // Fin de año (no laborable desde mediodía)
+  ];
+  if (easter) {
+    const [em, ed] = easter;
+    dias.push(fmt(em, ed-1)); // Jueves Santo (no laborable)
+  }
+  return new Set(dias);
 }
 
 // ─── Diagrama types ───────────────────────────────
@@ -186,6 +207,7 @@ export default function PlanillaDetailPage() {
   const [motivoRechazo, setMotivoRechazo] = useState('');
   const [showRechazo, setShowRechazo] = useState(false);
   const [applyingDiagram, setApplyingDiagram] = useState(false);
+  const [diasFaltantes, setDiasFaltantes] = useState<string[]>([]);
 
   // Form state for the day editor
   const [formData, setFormData] = useState({
@@ -198,12 +220,13 @@ export default function PlanillaDetailPage() {
     maneja: false,
     horasViajeInput: '0',
     esFeriado: false,
+    esNoLaborable: false,
     esFrancoTrabajado: false,
     esFrancoCompensatorio: false,
     observaciones: '',
   });
 
-  const LAST_TIMES_KEY = 'planilla-last-times';
+  const LAST_DEFAULTS_KEY = 'planilla-last-defaults';
 
   const { data: planilla, isLoading } = useQuery<PlanillaDetalle>({
     queryKey: ['planilla', id],
@@ -225,7 +248,15 @@ export default function PlanillaDetailPage() {
 
   const enviarMutation = useMutation({
     mutationFn: () => api.post(`/planillas/${id}/enviar`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['planilla', id] }),
+    onSuccess: () => {
+      setDiasFaltantes([]);
+      queryClient.invalidateQueries({ queryKey: ['planilla', id] });
+    },
+    onError: (err: any) => {
+      if (err.response?.status === 400 && err.response?.data?.diasFaltantes) {
+        setDiasFaltantes(err.response.data.diasFaltantes);
+      }
+    },
   });
 
   const avanzarMutation = useMutation({
@@ -337,7 +368,9 @@ export default function PlanillaDetailPage() {
     const [y, m, d] = key.split('-').map(Number);
     const dayDate = new Date(y, m - 1, d, 12, 0, 0);
     const holidays = buildArgHolidays(y);
+    const noLaborables = buildDiasNoLaborables(y);
     const autoFeriado = holidays.has(key);
+    const autoNoLaborable = noLaborables.has(key);
     const autoFranco = isFranco(dayDate);
 
     const existing = registroMap[key];
@@ -356,24 +389,30 @@ export default function PlanillaDetailPage() {
         viaje: parseFloat(existing.horasViajeInput || '0') > 0,
         distanciaViaje: existing.distanciaViaje || '',
         esFeriado: existing.esFeriado || autoFeriado,
+        esNoLaborable: autoNoLaborable,
         esFrancoTrabajado: existing.esFrancoTrabajado,
         esFrancoCompensatorio: existing.esFrancoCompensatorio,
         observaciones: existing.observaciones || '',
       });
     } else {
-      // Remember last used times
+      // Remember last used defaults (times + location)
       let lastEntry = '07:00';
       let lastExit = '15:00';
+      let lastLugar = 'CAMPO';
+      let lastPernocte = 'NO';
       try {
-        const saved = JSON.parse(localStorage.getItem(LAST_TIMES_KEY) || '{}');
+        const saved = JSON.parse(localStorage.getItem(LAST_DEFAULTS_KEY) || '{}');
         if (saved.entrada) lastEntry = saved.entrada;
         if (saved.salida) lastExit = saved.salida;
+        if (saved.lugarTrabajo) lastLugar = saved.lugarTrabajo;
+        if (saved.pernocte) lastPernocte = saved.pernocte;
       } catch { /* ignore */ }
       setFormData({
         entradaTurno1: lastEntry, salidaTurno1: lastExit,
-        lugarTrabajo: 'CAMPO', pernocte: 'NO',
+        lugarTrabajo: lastLugar, pernocte: lastPernocte,
         viaje: false, distanciaViaje: '', maneja: false, horasViajeInput: '0',
         esFeriado: autoFeriado,
+        esNoLaborable: autoNoLaborable,
         esFrancoTrabajado: autoFranco,
         esFrancoCompensatorio: false, observaciones: '',
       });
@@ -391,13 +430,17 @@ export default function PlanillaDetailPage() {
       return new Date(y, m - 1, d, h, min, 0).toISOString();
     };
 
-    // Save last used times for next entry
-    try {
-      localStorage.setItem(LAST_TIMES_KEY, JSON.stringify({
-        entrada: formData.entradaTurno1,
-        salida: formData.salidaTurno1,
-      }));
-    } catch { /* ignore */ }
+    // Save last used defaults for next entry (skip if franco compensatorio)
+    if (!formData.esFrancoCompensatorio) {
+      try {
+        localStorage.setItem(LAST_DEFAULTS_KEY, JSON.stringify({
+          entrada: formData.entradaTurno1,
+          salida: formData.salidaTurno1,
+          lugarTrabajo: formData.lugarTrabajo,
+          pernocte: formData.pernocte,
+        }));
+      } catch { /* ignore */ }
+    }
 
     saveRegistroMutation.mutate({
       fecha: fecha.toISOString(),
@@ -405,7 +448,7 @@ export default function PlanillaDetailPage() {
       salidaTurno1: toIso(formData.salidaTurno1),
       entradaTurno2: null,
       salidaTurno2: null,
-      lugarTrabajo: formData.lugarTrabajo,
+      lugarTrabajo: formData.esFrancoCompensatorio ? 'FRANCO' : formData.lugarTrabajo,
       pernocte: formData.pernocte,
       maneja: formData.maneja,
       horasViajeInput: formData.esFrancoCompensatorio || !formData.viaje ? 0 : (parseFloat(formData.horasViajeInput) || 0),
@@ -448,6 +491,21 @@ export default function PlanillaDetailPage() {
           <div>
             <p className="text-sm font-medium text-red-400">Rechazada</p>
             <p className="text-sm text-muted-foreground">{planilla.obsRechazo}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Missing days warning banner */}
+      {diasFaltantes.length > 0 && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 flex items-start gap-2">
+          <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-red-400">
+              Faltan completar {diasFaltantes.length} día(s) para enviar la planilla
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Los días incompletos están marcados en rojo. Completá todos los días del período antes de enviar.
+            </p>
           </div>
         </div>
       )}
@@ -532,6 +590,9 @@ export default function PlanillaDetailPage() {
               const hasData = !!reg;
               const francoDay = isFranco(day); // from diagram cycle
               const isLocked = reg?.bloqueado === true;
+              const isFaltante = diasFaltantes.includes(key);
+              const isFeriado = buildArgHolidays(day.getFullYear()).has(key);
+              const isNoLaborable = buildDiasNoLaborables(day.getFullYear()).has(key);
 
               return (
                 <button
@@ -544,6 +605,7 @@ export default function PlanillaDetailPage() {
                     !isLocked && francoDay && !hasData && 'bg-orange-500/5',
                     !isLocked && isWeekend && !hasData && !francoDay && 'bg-muted/10',
                     isToday && 'ring-1 ring-primary/40',
+                    isFaltante && 'border-l-2 border-l-red-500 bg-red-500/5',
                   )}
                 >
                   {/* Day number */}
@@ -568,12 +630,27 @@ export default function PlanillaDetailPage() {
                           {reg?.esFrancoTrabajado ? 'FT' : 'F'}
                         </span>
                       )}
-                      {reg?.lugarTrabajo && (
+                      {reg?.lugarTrabajo && !reg?.esFrancoCompensatorio && (
                         <span className={cn(
                           'text-[9px] font-medium px-1 rounded',
                           reg.lugarTrabajo === 'CAMPO' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-400',
                         )}>
                           {reg.lugarTrabajo === 'CAMPO' ? 'C' : 'B'}
+                        </span>
+                      )}
+                      {reg?.esFrancoCompensatorio && (
+                        <span className="text-[8px] font-bold px-1 rounded bg-blue-500/20 text-blue-400">
+                          CC
+                        </span>
+                      )}
+                      {isFeriado && (
+                        <span className="text-[8px] font-bold px-1 rounded bg-red-500/20 text-red-400">
+                          FE
+                        </span>
+                      )}
+                      {isNoLaborable && !isFeriado && (
+                        <span className="text-[8px] font-bold px-1 rounded bg-amber-500/20 text-amber-400">
+                          NL
                         </span>
                       )}
                     </div>
@@ -624,6 +701,13 @@ export default function PlanillaDetailPage() {
                   {!hasData && canEdit && (
                     <div className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <span className="text-[10px] text-muted-foreground/50">+ agregar</span>
+                    </div>
+                  )}
+
+                  {/* Missing day badge */}
+                  {isFaltante && (
+                    <div className="mt-1">
+                      <span className="text-[8px] font-semibold text-red-400">⚠️ Incompleto</span>
                     </div>
                   )}
                 </button>
@@ -817,6 +901,13 @@ export default function PlanillaDetailPage() {
                   </span>
                 )}
 
+                {/* Día no laborable: auto-detected */}
+                {formData.esNoLaborable && !formData.esFeriado && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    📋 Día no laborable
+                  </span>
+                )}
+
                 {/* Franco trabajado: read-only indicator (auto-set when opening a franco day) */}
                 {formData.esFrancoTrabajado && (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30">
@@ -830,14 +921,27 @@ export default function PlanillaDetailPage() {
                     <input type="checkbox" checked={formData.esFrancoCompensatorio}
                       onChange={(e) => {
                         const checked = e.target.checked;
-                        setFormData({
-                          ...formData,
-                          esFrancoCompensatorio: checked,
-                          ...(checked ? {
+                        if (checked) {
+                          setFormData({
+                            ...formData,
+                            esFrancoCompensatorio: true,
                             entradaTurno1: '00:00', salidaTurno1: '00:00',
-                            entradaTurno2: '', salidaTurno2: '',
-                          } : {}),
-                        });
+                          });
+                        } else {
+                          // Restore last used defaults
+                          let lastEntry = '07:00';
+                          let lastExit = '15:00';
+                          try {
+                            const saved = JSON.parse(localStorage.getItem(LAST_DEFAULTS_KEY) || '{}');
+                            if (saved.entrada) lastEntry = saved.entrada;
+                            if (saved.salida) lastExit = saved.salida;
+                          } catch { /* ignore */ }
+                          setFormData({
+                            ...formData,
+                            esFrancoCompensatorio: false,
+                            entradaTurno1: lastEntry, salidaTurno1: lastExit,
+                          });
+                        }
                       }}
                       className="rounded border-input" />
                     <span className="text-sm text-blue-400">Franco comp.</span>

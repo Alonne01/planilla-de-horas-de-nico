@@ -705,6 +705,10 @@ model EmpresaConfig {
   tarifaViajeManeja     Decimal  @default(0) @map("tarifa_viaje_maneja") @db.Decimal(8, 2)
   tarifaViajeSinManejar Decimal  @default(0) @map("tarifa_viaje_sin_manejar") @db.Decimal(8, 2)
   descuentoAlmuerzoMinutos Int   @default(60) @map("descuento_almuerzo_minutos")
+  viandaUmbral1          Int      @default(6) @map("vianda_umbral_1")
+  viandaUmbral2          Int      @default(10) @map("vianda_umbral_2")
+  viandaCantidad1        Int      @default(1) @map("vianda_cantidad_1")
+  viandaCantidad2        Int      @default(2) @map("vianda_cantidad_2")
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
 

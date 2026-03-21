@@ -7,8 +7,9 @@ import CalendarRangePicker from '@/components/layout/CalendarRangePicker';
 import {
   AlertTriangle, Plus, Trash2, Loader2, X,
   Calendar, FileText, CheckCircle2, Send, Upload,
-  Clock, XCircle, UserCheck, RotateCcw
+  Clock, XCircle, UserCheck, RotateCcw, Filter
 } from 'lucide-react';
+import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 
 interface Ausencia {
   id: string;
@@ -24,7 +25,7 @@ interface Ausencia {
   estado: string;
   archivoUrl: string | null;
   usuarioId: string;
-  usuario: { id: string; nombre: string; apellido: string };
+  usuario: { id: string; nombre: string; apellido: string; sector?: { id: string; nombre: string } | null };
   cargadaPor?: { id: string; nombre: string; apellido: string } | null;
 }
 
@@ -81,14 +82,26 @@ export default function AusenciasPage() {
   const [showForm, setShowForm] = useState(false);
   const [showCompForm, setShowCompForm] = useState(false);
   const [filterTipo, setFilterTipo] = useState('');
+  const [filterSector, setFilterSector] = useState('');
+  const [periodo, setPeriodo] = useState(getCurrentPeriod());
+  const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
+
+  interface Sector { id: string; nombre: string; }
+  const { data: sectores = [] } = useQuery<Sector[]>({
+    queryKey: ['sectores-ausencias'],
+    queryFn: async () => (await api.get('/analytics/sectores')).data,
+    enabled: isRRHH,
+  });
 
   const isSuperior = (user?.rolNivel ?? 0) >= 60;
 
   const { data: ausencias = [], isLoading } = useQuery<Ausencia[]>({
-    queryKey: ['ausencias', filterTipo],
+    queryKey: ['ausencias', filterTipo, periodo.inicio, periodo.fin],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filterTipo) params.set('tipo', filterTipo);
+      params.set('periodoInicio', periodo.inicio);
+      params.set('periodoFin', periodo.fin);
       return (await api.get(`/ausencias?${params.toString()}`)).data;
     },
   });
@@ -120,6 +133,12 @@ export default function AusenciasPage() {
   });
 
   const totalDias = ausencias.reduce((acc, a) => acc + a.diasAusencia, 0);
+
+  const filteredAusencias = filterSector
+    ? ausencias.filter(a => a.usuario.sector?.id === filterSector)
+    : ausencias;
+
+  const filteredTotalDias = filteredAusencias.reduce((acc, a) => acc + a.diasAusencia, 0);
 
   const canRevocar = (a: Ausencia) => {
     if (a.tipo !== 'FRANCO_COMPENSATORIO') return false;
@@ -154,7 +173,7 @@ export default function AusenciasPage() {
             <AlertTriangle className="h-6 w-6 text-amber-400" /> Ausencias
           </h1>
           <p className="text-sm text-muted-foreground">
-            {ausencias.length} registro{ausencias.length !== 1 ? 's' : ''} — {totalDias} días total
+            {filteredAusencias.length} registro{filteredAusencias.length !== 1 ? 's' : ''} — {filteredTotalDias} días total
           </p>
         </div>
         <div className="flex gap-2">
@@ -173,6 +192,26 @@ export default function AusenciasPage() {
             </button>
           )}
         </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <PeriodSelector value={periodo} onChange={setPeriodo} />
+        {isRRHH && sectores.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <select
+              className="h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm"
+              value={filterSector}
+              onChange={(e) => setFilterSector(e.target.value)}
+            >
+              <option value="">Todos los sectores</option>
+              {sectores.map((s) => (
+                <option key={s.id} value={s.id}>{s.nombre}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Filter chips */}
@@ -196,14 +235,14 @@ export default function AusenciasPage() {
         <div className="flex items-center justify-center h-32">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      ) : ausencias.length === 0 ? (
+      ) : filteredAusencias.length === 0 ? (
         <div className="text-center py-16">
           <AlertTriangle className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
           <p className="text-muted-foreground">No hay ausencias registradas</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {ausencias.map((a) => (
+          {filteredAusencias.map((a) => (
             <div key={a.id} className="rounded-xl border border-border bg-card p-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex-1">

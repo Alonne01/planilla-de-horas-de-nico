@@ -94,6 +94,14 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     if (estado) where.estado = estado;
 
+    const periodoInicio = req.query.periodoInicio as string | undefined;
+    const periodoFin = req.query.periodoFin as string | undefined;
+    if (periodoInicio) where.periodoInicio = { gte: new Date(periodoInicio) };
+    if (periodoFin) {
+      const fin = new Date(periodoFin); fin.setHours(23, 59, 59, 999);
+      where.periodoFin = { lte: fin };
+    }
+
     const planillas = await prisma.planilla.findMany({
       where,
       include: {
@@ -262,6 +270,38 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
     }
     if (planilla.estado !== 'BORRADOR' && planilla.estado !== 'RECHAZADA') {
       res.status(400).json({ error: 'Solo se puede enviar una planilla en BORRADOR o RECHAZADA' });
+      return;
+    }
+
+    // Validate completeness: all days in period must have a registro
+    const registros = await prisma.registroHoras.findMany({
+      where: { planillaId },
+      select: { fecha: true, bloqueado: true, lugarTrabajo: true, horasTrabajadas: true, entradaTurno1: true },
+    });
+
+    const inicio = new Date(planilla.periodoInicio);
+    const fin = new Date(planilla.periodoFin);
+    const diasFaltantes: string[] = [];
+
+    for (let d = new Date(inicio); d <= fin; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+      const reg = registros.find(r => {
+        const rDate = new Date(r.fecha).toISOString().split('T')[0];
+        return rDate === dateStr;
+      });
+
+      if (!reg) {
+        diasFaltantes.push(dateStr);
+      } else if (!reg.bloqueado && !reg.lugarTrabajo && !reg.entradaTurno1) {
+        diasFaltantes.push(dateStr);
+      }
+    }
+
+    if (diasFaltantes.length > 0) {
+      res.status(400).json({
+        error: `Faltan completar ${diasFaltantes.length} día(s) en la planilla`,
+        diasFaltantes,
+      });
       return;
     }
 

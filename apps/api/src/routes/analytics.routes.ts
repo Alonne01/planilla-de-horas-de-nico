@@ -95,6 +95,22 @@ router.get('/usuario/:uid', async (req: AuthRequest, res: Response): Promise<voi
   }
 });
 
+// ─── GET /analytics/sectores (read-only list for filters) ───
+
+router.get('/sectores', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const sectores = await prisma.sector.findMany({
+      where: { empresaId: req.user!.empresaId, activo: true },
+      select: { id: true, nombre: true },
+      orderBy: { nombre: 'asc' },
+    });
+    res.json(sectores);
+  } catch (error) {
+    console.error('Error listing sectores:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ─── GET /analytics/sector/:id ───────────────────
 
 router.get('/sector/:sid', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -195,18 +211,46 @@ router.get('/empresa', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
   try {
     const empresaId = req.user!.empresaId;
 
-    // Users in the company
-    const totalUsuarios = await prisma.usuario.count({ where: { empresaId, activo: true } });
+    const qPeriodoInicio = req.query.periodoInicio as string | undefined;
+    const qPeriodoFin = req.query.periodoFin as string | undefined;
+    const qSectorId = req.query.sectorId as string | undefined;
 
-    // Get all user IDs for this empresa
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const planillaPeriodFilter: any = {};
+    if (qPeriodoInicio) planillaPeriodFilter.periodoInicio = { gte: new Date(qPeriodoInicio) };
+    if (qPeriodoFin) {
+      const fin = new Date(qPeriodoFin);
+      fin.setHours(23, 59, 59, 999);
+      planillaPeriodFilter.periodoFin = { lte: fin };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fechaPeriodFilter: any = {};
+    if (qPeriodoInicio && qPeriodoFin) {
+      const fin = new Date(qPeriodoFin);
+      fin.setHours(23, 59, 59, 999);
+      fechaPeriodFilter.fechaInicio = {
+        gte: new Date(qPeriodoInicio),
+        lte: fin,
+      };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const userWhere: any = { empresaId, activo: true };
+    if (qSectorId) userWhere.sectorId = qSectorId;
+
+    // Users in the company (or sector)
+    const totalUsuarios = await prisma.usuario.count({ where: userWhere });
+
+    // Get all user IDs for this empresa (or sector)
     const userIds = (await prisma.usuario.findMany({
-      where: { empresaId, activo: true },
+      where: userWhere,
       select: { id: true },
     })).map((u) => u.id);
 
     // Global aggregates
     const planillaAgg = await prisma.planilla.aggregate({
-      where: { usuarioId: { in: userIds } },
+      where: { usuarioId: { in: userIds }, ...planillaPeriodFilter },
       _sum: {
         totalHorasNormales: true,
         totalHorasExtra50: true,
@@ -221,7 +265,7 @@ router.get('/empresa', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
     // Planillas by state
     const estadosCounts = await prisma.planilla.groupBy({
       by: ['estado'],
-      where: { usuarioId: { in: userIds } },
+      where: { usuarioId: { in: userIds }, ...planillaPeriodFilter },
       _count: true,
     });
 
@@ -239,7 +283,7 @@ router.get('/empresa', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
         })).map((u) => u.id);
 
         const agg = await prisma.planilla.aggregate({
-          where: { usuarioId: { in: sectorUserIds } },
+          where: { usuarioId: { in: sectorUserIds }, ...planillaPeriodFilter },
           _sum: {
             totalHorasNormales: true,
             totalHorasExtra50: true,
@@ -264,15 +308,155 @@ router.get('/empresa', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
     // Ausencias global
     const ausencias = await prisma.ausencia.groupBy({
       by: ['tipo'],
-      where: { usuarioId: { in: userIds } },
+      where: { usuarioId: { in: userIds }, ...fechaPeriodFilter },
       _sum: { diasAusencia: true },
       _count: true,
     });
 
     // Vacaciones global
     const vacacionesPendientes = await prisma.vacacion.count({
-      where: { usuarioId: { in: userIds }, estado: { in: ['PENDIENTE', 'EN_REVISION'] } },
+      where: { usuarioId: { in: userIds }, ...fechaPeriodFilter, estado: { in: ['PENDIENTE', 'EN_REVISION'] } },
     });
+
+    // ─── Top employees by overtime ───
+    const userPlanillas = await prisma.planilla.groupBy({
+      by: ['usuarioId'],
+      where: { usuarioId: { in: userIds }, ...planillaPeriodFilter },
+      _sum: { totalHorasExtra50: true, totalHorasExtra100: true, totalHorasNormales: true },
+    });
+
+    const topExtrasRaw = userPlanillas
+      .map((up) => ({
+        usuarioId: up.usuarioId,
+        extra50: Number(up._sum.totalHorasExtra50 ?? 0),
+        extra100: Number(up._sum.totalHorasExtra100 ?? 0),
+        normales: Number(up._sum.totalHorasNormales ?? 0),
+        totalExtra: Number(up._sum.totalHorasExtra50 ?? 0) + Number(up._sum.totalHorasExtra100 ?? 0),
+      }))
+      .sort((a, b) => b.totalExtra - a.totalExtra)
+      .slice(0, 10);
+
+    const topUserIds = topExtrasRaw.map((t) => t.usuarioId);
+    const topUsers = await prisma.usuario.findMany({
+      where: { id: { in: topUserIds } },
+      select: { id: true, nombre: true, apellido: true, legajo: true, sector: { select: { nombre: true } } },
+    });
+    const userMap = new Map(topUsers.map((u) => [u.id, u]));
+
+    const topExtras = topExtrasRaw.map((t) => ({
+      usuario: userMap.get(t.usuarioId),
+      extra50: t.extra50,
+      extra100: t.extra100,
+      normales: t.normales,
+      totalExtra: t.totalExtra,
+    }));
+
+    // ─── Registro-level aggregates ───
+    const registros = await prisma.registroHoras.findMany({
+      where: {
+        planilla: {
+          usuarioId: { in: userIds },
+          ...planillaPeriodFilter,
+        },
+      },
+      select: {
+        lugarTrabajo: true,
+        pernocte: true,
+        esFeriado: true,
+        esFrancoTrabajado: true,
+        esFrancoCompensatorio: true,
+        maneja: true,
+        horasViajeCalc: true,
+        horasNormales: true,
+        horasExtra50: true,
+        horasExtra100: true,
+        planilla: { select: { usuario: { select: { sectorId: true } } } },
+      },
+    });
+
+    const campoVsBase = {
+      campo: registros.filter((r) => r.lugarTrabajo === 'CAMPO').length,
+      base: registros.filter((r) => r.lugarTrabajo === 'BASE').length,
+      franco: registros.filter((r) => r.lugarTrabajo === 'FRANCO').length,
+    };
+
+    const pernoctes = {
+      hotel: registros.filter((r) => r.pernocte === 'HOTEL').length,
+      trailer: registros.filter((r) => r.pernocte === 'TRAILER').length,
+      sinPernocte: registros.filter((r) => r.pernocte === 'NO' || !r.pernocte).length,
+    };
+
+    const feriadosFrancos = {
+      feriadosTrabajados: registros.filter((r) => r.esFeriado).length,
+      francosTrabajados: registros.filter((r) => r.esFrancoTrabajado).length,
+      francosCompensatorios: registros.filter((r) => r.esFrancoCompensatorio).length,
+    };
+
+    const horasViaje = {
+      maneja: registros.filter((r) => r.maneja).reduce((sum, r) => sum + Number(r.horasViajeCalc ?? 0), 0),
+      noManeja: registros.filter((r) => !r.maneja).reduce((sum, r) => sum + Number(r.horasViajeCalc ?? 0), 0),
+    };
+
+    // ─── Ausencias grouped by sector ───
+    const ausenciasBySectorData = await prisma.ausencia.findMany({
+      where: { usuarioId: { in: userIds }, ...fechaPeriodFilter },
+      select: {
+        diasAusencia: true,
+        tipo: true,
+        usuario: { select: { sector: { select: { nombre: true } } } },
+      },
+    });
+
+    const ausenciasBySectorMap: Record<string, number> = {};
+    for (const a of ausenciasBySectorData) {
+      const sName = a.usuario.sector?.nombre ?? 'Sin sector';
+      ausenciasBySectorMap[sName] = (ausenciasBySectorMap[sName] ?? 0) + a.diasAusencia;
+    }
+    const ausenciasBySector = Object.entries(ausenciasBySectorMap)
+      .map(([sector, dias]) => ({ sector, dias }))
+      .sort((a, b) => b.dias - a.dias);
+
+    // ─── Compensatorios balance ───
+    const anio = new Date().getFullYear();
+    const compensatoriosSaldos = await prisma.vacacionSaldo.findMany({
+      where: { usuarioId: { in: userIds }, anio },
+      select: { compensatoriosAcumulados: true, compensatoriosUsados: true, compensatoriosPendientes: true },
+    });
+
+    const compensatorios = compensatoriosSaldos.reduce(
+      (acc, s) => ({
+        acumulados: acc.acumulados + s.compensatoriosAcumulados,
+        usados: acc.usados + s.compensatoriosUsados,
+        pendientes: acc.pendientes + s.compensatoriosPendientes,
+      }),
+      { acumulados: 0, usados: 0, pendientes: 0 },
+    );
+
+    // ─── Trend data: last 6 cycles ───
+    const trendPlanillas = await prisma.planilla.findMany({
+      where: { usuarioId: { in: userIds } },
+      select: {
+        periodoInicio: true,
+        totalHorasNormales: true,
+        totalHorasExtra50: true,
+        totalHorasExtra100: true,
+        totalHorasViaje: true,
+      },
+      orderBy: { periodoInicio: 'asc' },
+    });
+
+    const trendMap: Record<string, { normales: number; extra50: number; extra100: number; viaje: number }> = {};
+    for (const p of trendPlanillas) {
+      const label = new Date(p.periodoInicio).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' });
+      if (!trendMap[label]) trendMap[label] = { normales: 0, extra50: 0, extra100: 0, viaje: 0 };
+      trendMap[label].normales += Number(p.totalHorasNormales ?? 0);
+      trendMap[label].extra50 += Number(p.totalHorasExtra50 ?? 0);
+      trendMap[label].extra100 += Number(p.totalHorasExtra100 ?? 0);
+      trendMap[label].viaje += Number(p.totalHorasViaje ?? 0);
+    }
+    const trend = Object.entries(trendMap)
+      .map(([periodo, vals]) => ({ periodo, ...vals }))
+      .slice(-8);
 
     res.json({
       totalUsuarios,
@@ -289,6 +473,14 @@ router.get('/empresa', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
       sectorBreakdown,
       ausencias: ausencias.map((a) => ({ tipo: a.tipo, dias: a._sum.diasAusencia, count: a._count })),
       vacacionesPendientes,
+      topExtras,
+      campoVsBase,
+      pernoctes,
+      feriadosFrancos,
+      horasViaje,
+      ausenciasBySector,
+      compensatorios,
+      trend,
     });
   } catch (error) {
     console.error('Error analytics empresa:', error);

@@ -5,8 +5,9 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import {
   Palmtree, Plus, Send, XCircle,
-  Loader2, X, Calendar, ChevronLeft, ChevronRight
+  Loader2, X, Calendar, ChevronLeft, ChevronRight, Filter
 } from 'lucide-react';
+import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 
 
 interface Vacacion {
@@ -18,7 +19,7 @@ interface Vacacion {
   estado: string;
   motivo: string | null;
   obsRechazo: string | null;
-  usuario: { nombre: string; apellido: string };
+  usuario: { nombre: string; apellido: string; sector?: { id: string; nombre: string } | null };
 }
 
 interface Saldo {
@@ -40,10 +41,20 @@ export default function VacacionesPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const [showForm, setShowForm] = useState(false);
+  const [filterSector, setFilterSector] = useState('');
+  const [periodo, setPeriodo] = useState(getCurrentPeriod());
+  const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
+
+  interface Sector { id: string; nombre: string; }
+  const { data: sectores = [] } = useQuery<Sector[]>({
+    queryKey: ['sectores-vacaciones'],
+    queryFn: async () => (await api.get('/analytics/sectores')).data,
+    enabled: isRRHH,
+  });
 
   const { data: vacaciones = [], isLoading } = useQuery<Vacacion[]>({
-    queryKey: ['vacaciones'],
-    queryFn: async () => (await api.get('/vacaciones')).data,
+    queryKey: ['vacaciones', periodo.inicio, periodo.fin],
+    queryFn: async () => (await api.get(`/vacaciones?periodoInicio=${encodeURIComponent(periodo.inicio)}&periodoFin=${encodeURIComponent(periodo.fin)}`)).data,
   });
 
   const { data: saldo } = useQuery<Saldo>({
@@ -59,6 +70,10 @@ export default function VacacionesPage() {
     },
   });
 
+  const filteredVacaciones = filterSector
+    ? vacaciones.filter(v => v.usuario.sector?.id === filterSector)
+    : vacaciones;
+
   const canCreate = ['OPERADOR', 'SUPERVISOR', 'COORDINADOR', 'GERENTE'].includes(user?.rol ?? '');
 
   return (
@@ -68,7 +83,25 @@ export default function VacacionesPage() {
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Palmtree className="h-6 w-6 text-emerald-400" /> Vacaciones
           </h1>
-          <p className="text-sm text-muted-foreground">{vacaciones.length} solicitud{vacaciones.length !== 1 ? 'es' : ''}</p>
+          <p className="text-sm text-muted-foreground">{filteredVacaciones.length} solicitud{filteredVacaciones.length !== 1 ? 'es' : ''}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <PeriodSelector value={periodo} onChange={setPeriodo} />
+          {isRRHH && sectores.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <select
+                className="h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm"
+                value={filterSector}
+                onChange={(e) => setFilterSector(e.target.value)}
+              >
+                <option value="">Todos los sectores</option>
+                {sectores.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
         {canCreate && (
           <button
@@ -105,14 +138,14 @@ export default function VacacionesPage() {
       {/* List */}
       {isLoading ? (
         <div className="flex items-center justify-center h-32"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-      ) : vacaciones.length === 0 ? (
+      ) : filteredVacaciones.length === 0 ? (
         <div className="text-center py-16">
           <Palmtree className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
           <p className="text-muted-foreground">No hay solicitudes de vacaciones</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {vacaciones.map((v) => (
+          {filteredVacaciones.map((v) => (
             <div key={v.id} className="rounded-xl border border-border bg-card p-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex-1">

@@ -126,10 +126,27 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       where = { usuarioId: userId };
     }
 
+    const periodoInicio = req.query.periodoInicio as string | undefined;
+    const periodoFin = req.query.periodoFin as string | undefined;
+    if (periodoInicio && periodoFin) {
+      const fin = new Date(periodoFin); fin.setHours(23, 59, 59, 999);
+      where = {
+        AND: [
+          where,
+          {
+            fechaInicio: {
+              gte: new Date(periodoInicio),
+              lte: fin,
+            },
+          },
+        ],
+      };
+    }
+
     const vacaciones = await prisma.vacacion.findMany({
       where,
       include: {
-        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true, rol: true } },
+        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true, rol: true, sector: { select: { id: true, nombre: true } } } },
       },
       orderBy: { createdAt: 'desc' },
     });

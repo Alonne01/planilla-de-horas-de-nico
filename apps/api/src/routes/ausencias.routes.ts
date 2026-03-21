@@ -103,6 +103,16 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const tipo = req.query.tipo as string | undefined;
     if (tipo) where.tipo = tipo;
 
+    const periodoInicio = req.query.periodoInicio as string | undefined;
+    const periodoFin = req.query.periodoFin as string | undefined;
+    if (periodoInicio && periodoFin) {
+      const fin = new Date(periodoFin); fin.setHours(23, 59, 59, 999);
+      where.fechaInicio = {
+        gte: new Date(periodoInicio),
+        lte: fin,
+      };
+    }
+
     const ausencias = await prisma.ausencia.findMany({
       where,
       include: {

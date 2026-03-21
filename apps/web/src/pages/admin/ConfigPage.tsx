@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
-import { Settings, Save, Loader2, Clock, Calendar, MapPin } from 'lucide-react';
+import { Settings, Save, Loader2, Clock, Calendar, MapPin, UtensilsCrossed } from 'lucide-react';
 
 interface EmpresaConfig {
   id: string;
@@ -16,6 +16,10 @@ interface EmpresaConfig {
   redondeoMinutos: number;
   tarifaViajeManeja: number;
   tarifaViajeSinManejar: number;
+  viandaUmbral1: number;
+  viandaUmbral2: number;
+  viandaCantidad1: number;
+  viandaCantidad2: number;
   zonaHoraria: string;
   moneda: string;
 }
@@ -181,6 +185,45 @@ export default function ConfigPage() {
         </div>
         <p className="text-xs text-muted-foreground mt-2">
           Las tarifas se usan para calcular el costo del viaje según si el empleado maneja o no.
+        </p>
+      </Section>
+
+      {/* Viandas */}
+      <Section title="Viandas" icon={<UtensilsCrossed className="h-4 w-4" />}>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <Field label="Umbral 1ª vianda (hs)">
+            <input
+              type="number" min="0" max="24" step="1" className={inputClass}
+              value={currentConfig.viandaUmbral1 ?? 6}
+              onChange={(e) => handleChange('viandaUmbral1', parseInt(e.target.value))}
+            />
+          </Field>
+          <Field label="Cantidad viandas">
+            <input
+              type="number" min="0" max="10" step="1" className={inputClass}
+              value={currentConfig.viandaCantidad1 ?? 1}
+              onChange={(e) => handleChange('viandaCantidad1', parseInt(e.target.value))}
+            />
+          </Field>
+          <Field label="Umbral 2ª vianda (hs)">
+            <input
+              type="number" min="0" max="24" step="1" className={inputClass}
+              value={currentConfig.viandaUmbral2 ?? 10}
+              onChange={(e) => handleChange('viandaUmbral2', parseInt(e.target.value))}
+            />
+          </Field>
+          <Field label="Cantidad viandas">
+            <input
+              type="number" min="0" max="10" step="1" className={inputClass}
+              value={currentConfig.viandaCantidad2 ?? 2}
+              onChange={(e) => handleChange('viandaCantidad2', parseInt(e.target.value))}
+            />
+          </Field>
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Si trabaja ≥{currentConfig.viandaUmbral1 ?? 6}h → {currentConfig.viandaCantidad1 ?? 1} vianda(s) · 
+          Si trabaja ≥{currentConfig.viandaUmbral2 ?? 10}h → {currentConfig.viandaCantidad2 ?? 2} vianda(s) · 
+          Francos y ausencias sin trabajo = 0 viandas.
         </p>
       </Section>
 
