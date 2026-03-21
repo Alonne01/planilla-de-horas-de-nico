@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
-import { authenticate, requireLevel, AuthRequest, LEVEL_ADMIN } from '../middleware/auth.middleware.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
+import { requireLevel, LEVEL_ADMIN } from '../middleware/roles.middleware.js';
 import {
   runBackup,
   listBackups,
@@ -8,10 +9,11 @@ import {
 } from '../utils/backup.service.js';
 
 const router = Router();
-router.use(authenticate);
+router.use(authMiddleware);
+router.use(requireLevel(LEVEL_ADMIN));
 
 // ─── GET /backup/status — List backups + last backup info ────
-router.get('/status', requireLevel(LEVEL_ADMIN), async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/status', async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const backups = await listBackups();
     const primaryCount = backups.filter((b) => b.location === 'primary').length;
@@ -43,7 +45,7 @@ router.get('/status', requireLevel(LEVEL_ADMIN), async (_req: AuthRequest, res: 
 });
 
 // ─── POST /backup/trigger — Run manual backup ───────────────
-router.post('/trigger', requireLevel(LEVEL_ADMIN), async (_req: AuthRequest, res: Response): Promise<void> => {
+router.post('/trigger', async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const result = await runBackup();
     if (result.ok) {
@@ -62,7 +64,7 @@ router.post('/trigger', requireLevel(LEVEL_ADMIN), async (_req: AuthRequest, res
 });
 
 // ─── POST /backup/restore — Restore from latest backup ──────
-router.post('/restore', requireLevel(LEVEL_ADMIN), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/restore', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { fileName } = req.body ?? {};
     let result;
