@@ -218,6 +218,7 @@ export function formatTipoAusencia(tipo: string): string {
     FALTA_JUSTIFICADA: 'Falta justificada',
     FALTA_INJUSTIFICADA: 'Falta injustificada',
     LICENCIA_ESPECIAL: 'Licencia especial',
+    FRANCO_COMPENSATORIO: 'Franco compensatorio',
   };
   return map[tipo] ?? tipo;
 }

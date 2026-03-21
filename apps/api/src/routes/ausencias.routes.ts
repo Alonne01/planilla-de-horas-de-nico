@@ -158,6 +158,102 @@ router.get('/subordinados', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
   }
 });
 
+// ─── POST /ausencias/compensatorio — User requests compensatorio days for themselves
+router.post('/compensatorio', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const empresaId = req.user!.empresaId;
+
+    const schema = z.object({
+      fechaInicio: z.string(),
+      fechaFin: z.string(),
+      diasAusencia: z.number().int().min(1),
+      descripcion: z.string().max(500).optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+
+    // Check compensatorio balance
+    const anio = new Date().getFullYear();
+    const saldo = await prisma.vacacionSaldo.findUnique({
+      where: { usuarioId_anio: { usuarioId: userId, anio } },
+    });
+
+    const disponible = (saldo?.compensatoriosAcumulados ?? 0) - (saldo?.compensatoriosUsados ?? 0) - (saldo?.compensatoriosPendientes ?? 0);
+    if (parsed.data.diasAusencia > disponible) {
+      res.status(400).json({ error: `Saldo de compensatorios insuficiente. Disponible: ${disponible} días` });
+      return;
+    }
+
+    // Find COMPENSATORIO approval flow
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: userId },
+      select: { sectorId: true },
+    });
+
+    const flujoAsignacion = await prisma.flujoAsignacion.findFirst({
+      where: {
+        tipoDocumento: 'COMPENSATORIO',
+        activo: true,
+        flujo: { empresaId },
+        OR: [
+          { usuarioId: userId },
+          { sectorId: usuario?.sectorId ?? undefined },
+          { sectorId: null, usuarioId: null },
+        ],
+      },
+    });
+
+    const ausencia = await prisma.ausencia.create({
+      data: {
+        usuarioId: userId,
+        cargadaPorId: userId,
+        tipo: 'FRANCO_COMPENSATORIO',
+        estado: 'PENDIENTE',
+        pasoActual: 1,
+        fechaInicio: new Date(parsed.data.fechaInicio),
+        fechaFin: new Date(parsed.data.fechaFin),
+        diasAusencia: parsed.data.diasAusencia,
+        descripcion: parsed.data.descripcion ?? null,
+        descuentaSueldo: false,
+        requiereAprobacion: true,
+        aprobada: false,
+        flujoId: flujoAsignacion?.flujoId ?? null,
+      },
+    });
+
+    await prisma.ausenciaHistorial.create({
+      data: {
+        ausenciaId: ausencia.id,
+        usuarioId: userId,
+        estadoNuevo: 'PENDIENTE',
+        comentario: 'Solicitud de franco compensatorio',
+      },
+    });
+
+    // Update compensatoriosPendientes
+    await prisma.vacacionSaldo.upsert({
+      where: { usuarioId_anio: { usuarioId: userId, anio } },
+      update: { compensatoriosPendientes: { increment: parsed.data.diasAusencia } },
+      create: {
+        usuarioId: userId,
+        anio,
+        diasCorrespondientes: 14,
+        compensatoriosPendientes: parsed.data.diasAusencia,
+      },
+    });
+
+    res.status(201).json(ausencia);
+  } catch (error) {
+    console.error('Error creating compensatorio request:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ─── POST /ausencias ─────────────────────────────
 // Superior creates absence for a subordinate
 
@@ -412,6 +508,18 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         motivoBloqueo: ausencia.tipo,
         observaciones: `${tipoLabel}${ausencia.descripcion ? ` — ${ausencia.descripcion}` : ''}`,
       });
+
+      // FRANCO_COMPENSATORIO: move from pendientes to usados
+      if (ausencia.tipo === 'FRANCO_COMPENSATORIO') {
+        const anio = new Date(ausencia.fechaInicio).getFullYear();
+        await prisma.vacacionSaldo.update({
+          where: { usuarioId_anio: { usuarioId: ausencia.usuario.id, anio } },
+          data: {
+            compensatoriosPendientes: { decrement: ausencia.diasAusencia },
+            compensatoriosUsados: { increment: ausencia.diasAusencia },
+          },
+        });
+      }
     }
 
     res.json(updated);
@@ -457,9 +565,119 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       },
     });
 
+    // FRANCO_COMPENSATORIO: restore pendientes on rejection
+    if (ausencia.tipo === 'FRANCO_COMPENSATORIO') {
+      const anio = new Date(ausencia.fechaInicio).getFullYear();
+      await prisma.vacacionSaldo.update({
+        where: { usuarioId_anio: { usuarioId: ausencia.usuarioId, anio } },
+        data: { compensatoriosPendientes: { decrement: ausencia.diasAusencia } },
+      });
+    }
+
     res.json(updated);
   } catch (error) {
     console.error('Error al rechazar ausencia:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /ausencias/:id/revocar — User self-revokes their own compensatorio
+router.post('/:id/revocar', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const ausId = req.params.id as string;
+    const userId = req.user!.userId;
+
+    const ausencia = await prisma.ausencia.findUnique({
+      where: { id: ausId },
+      include: { usuario: { select: { id: true, empresaId: true } } },
+    });
+
+    if (!ausencia || ausencia.usuario.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Ausencia no encontrada' });
+      return;
+    }
+
+    if (ausencia.usuarioId !== userId) {
+      res.status(403).json({ error: 'Solo podés revocar tus propios compensatorios' });
+      return;
+    }
+
+    if (ausencia.tipo !== 'FRANCO_COMPENSATORIO') {
+      res.status(400).json({ error: 'Solo se pueden revocar francos compensatorios' });
+      return;
+    }
+
+    if (!['PENDIENTE', 'EN_REVISION', 'APROBADA'].includes(ausencia.estado)) {
+      res.status(400).json({ error: 'No se puede revocar en este estado' });
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (new Date(ausencia.fechaInicio) < today) {
+      res.status(400).json({ error: 'No se puede revocar un compensatorio cuya fecha ya pasó' });
+      return;
+    }
+
+    const wasApproved = ausencia.estado === 'APROBADA';
+    const anio = new Date(ausencia.fechaInicio).getFullYear();
+
+    await prisma.ausencia.update({
+      where: { id: ausId },
+      data: { estado: 'RECHAZADA', obsRechazo: 'Revocado por el usuario', aprobada: false },
+    });
+
+    await prisma.ausenciaHistorial.create({
+      data: {
+        ausenciaId: ausId,
+        usuarioId: userId,
+        estadoAnterior: ausencia.estado as AusenciaEstado,
+        estadoNuevo: 'RECHAZADA',
+        comentario: req.body?.motivo || 'Revocado por el usuario',
+      },
+    });
+
+    if (wasApproved) {
+      await prisma.vacacionSaldo.update({
+        where: { usuarioId_anio: { usuarioId: userId, anio } },
+        data: { compensatoriosUsados: { decrement: ausencia.diasAusencia } },
+      });
+
+      // Remove locked days from planilla
+      const fechaInicio = new Date(ausencia.fechaInicio);
+      const fechaFin = new Date(ausencia.fechaFin);
+
+      const planillas = await prisma.planilla.findMany({
+        where: { usuarioId: userId },
+        select: { id: true },
+      });
+
+      if (planillas.length > 0) {
+        await prisma.registroHoras.updateMany({
+          where: {
+            planillaId: { in: planillas.map(p => p.id) },
+            fecha: { gte: fechaInicio, lte: fechaFin },
+            bloqueado: true,
+            motivoBloqueo: 'FRANCO_COMPENSATORIO',
+          },
+          data: {
+            bloqueado: false,
+            motivoBloqueo: null,
+            esFrancoCompensatorio: false,
+            observaciones: 'Franco compensatorio revocado por el usuario',
+          },
+        });
+      }
+    } else {
+      await prisma.vacacionSaldo.update({
+        where: { usuarioId_anio: { usuarioId: userId, anio } },
+        data: { compensatoriosPendientes: { decrement: ausencia.diasAusencia } },
+      });
+    }
+
+    res.json({ message: 'Compensatorio revocado exitosamente' });
+  } catch (error) {
+    console.error('Error revocando compensatorio:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
