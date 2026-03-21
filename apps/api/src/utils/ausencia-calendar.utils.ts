@@ -1,0 +1,223 @@
+/**
+ * Utility to inject locked (bloqueado) RegistroHoras entries when an
+ * absence or vacation is approved. Also used when a new planilla is
+ * created to back-fill any previously-approved absences/vacations.
+ */
+import { PrismaClient, Decimal } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+const ZERO = new Decimal(0);
+
+interface AusenciaRange {
+  usuarioId: string;
+  fechaInicio: Date;
+  fechaFin: Date;
+  motivoBloqueo: string;
+  observaciones: string;
+}
+
+/**
+ * For each day in the range, find the planilla that covers it and upsert
+ * a locked RegistroHoras entry. If no planilla exists for a day, that day
+ * is silently skipped (it will be back-filled when the planilla is created).
+ */
+export async function inyectarDiasBloqueados(range: AusenciaRange): Promise<void> {
+  const days = buildDaysBetween(range.fechaInicio, range.fechaFin);
+
+  // Find all planillas that overlap the range for this user
+  const planillas = await prisma.planilla.findMany({
+    where: {
+      usuarioId: range.usuarioId,
+      periodoInicio: { lte: range.fechaFin },
+      periodoFin: { gte: range.fechaInicio },
+    },
+    select: { id: true, periodoInicio: true, periodoFin: true },
+  });
+
+  for (const day of days) {
+    const planilla = planillas.find(
+      (p) => day >= p.periodoInicio && day <= p.periodoFin
+    );
+    if (!planilla) continue;
+
+    await prisma.registroHoras.upsert({
+      where: {
+        planillaId_fecha: { planillaId: planilla.id, fecha: day },
+      },
+      update: {
+        bloqueado: true,
+        motivoBloqueo: range.motivoBloqueo,
+        observaciones: range.observaciones,
+        // Zero out hours — absence days have no worked hours
+        entradaTurno1: null,
+        salidaTurno1: null,
+        entradaTurno2: null,
+        salidaTurno2: null,
+        horasTrabajadas: ZERO,
+        horasNormales: ZERO,
+        horasExtra50: ZERO,
+        horasExtra100: ZERO,
+        horasViajeCalc: ZERO,
+        lugarTrabajo: null,
+      },
+      create: {
+        planillaId: planilla.id,
+        fecha: day,
+        bloqueado: true,
+        motivoBloqueo: range.motivoBloqueo,
+        observaciones: range.observaciones,
+        horasTrabajadas: ZERO,
+        horasNormales: ZERO,
+        horasExtra50: ZERO,
+        horasExtra100: ZERO,
+        horasViajeCalc: ZERO,
+        horasViajeInput: ZERO,
+      },
+    });
+  }
+}
+
+/**
+ * When a new planilla is created, check for approved ausencias and vacaciones
+ * that fall within the period and create locked entries.
+ */
+export async function backfillAusenciasEnPlanilla(
+  planillaId: string,
+  usuarioId: string,
+  periodoInicio: Date,
+  periodoFin: Date,
+): Promise<void> {
+  // Approved ausencias in period
+  const ausencias = await prisma.ausencia.findMany({
+    where: {
+      usuarioId,
+      estado: 'APROBADA',
+      fechaInicio: { lte: periodoFin },
+      fechaFin: { gte: periodoInicio },
+    },
+  });
+
+  // Approved vacaciones in period
+  const vacaciones = await prisma.vacacion.findMany({
+    where: {
+      usuarioId,
+      estado: 'APROBADA',
+      fechaInicio: { lte: periodoFin },
+      fechaFin: { gte: periodoInicio },
+    },
+  });
+
+  for (const aus of ausencias) {
+    const tipoLabel = formatTipoAusencia(aus.tipo);
+    const days = buildDaysBetween(
+      clampDate(aus.fechaInicio, periodoInicio),
+      clampDate(aus.fechaFin, periodoFin, true),
+    );
+
+    for (const day of days) {
+      await prisma.registroHoras.upsert({
+        where: { planillaId_fecha: { planillaId, fecha: day } },
+        update: {
+          bloqueado: true,
+          motivoBloqueo: aus.tipo,
+          observaciones: `${tipoLabel}${aus.descripcion ? ` — ${aus.descripcion}` : ''}`,
+          horasTrabajadas: ZERO,
+          horasNormales: ZERO,
+          horasExtra50: ZERO,
+          horasExtra100: ZERO,
+          horasViajeCalc: ZERO,
+          lugarTrabajo: null,
+          entradaTurno1: null,
+          salidaTurno1: null,
+          entradaTurno2: null,
+          salidaTurno2: null,
+        },
+        create: {
+          planillaId,
+          fecha: day,
+          bloqueado: true,
+          motivoBloqueo: aus.tipo,
+          observaciones: `${tipoLabel}${aus.descripcion ? ` — ${aus.descripcion}` : ''}`,
+          horasTrabajadas: ZERO,
+          horasNormales: ZERO,
+          horasExtra50: ZERO,
+          horasExtra100: ZERO,
+          horasViajeCalc: ZERO,
+          horasViajeInput: ZERO,
+        },
+      });
+    }
+  }
+
+  for (const vac of vacaciones) {
+    const days = buildDaysBetween(
+      clampDate(vac.fechaInicio, periodoInicio),
+      clampDate(vac.fechaFin, periodoFin, true),
+    );
+
+    for (const day of days) {
+      await prisma.registroHoras.upsert({
+        where: { planillaId_fecha: { planillaId, fecha: day } },
+        update: {
+          bloqueado: true,
+          motivoBloqueo: 'VACACION',
+          observaciones: `Vacaciones${vac.motivo ? ` — ${vac.motivo}` : ''}`,
+          horasTrabajadas: ZERO,
+          horasNormales: ZERO,
+          horasExtra50: ZERO,
+          horasExtra100: ZERO,
+          horasViajeCalc: ZERO,
+          lugarTrabajo: null,
+          entradaTurno1: null,
+          salidaTurno1: null,
+          entradaTurno2: null,
+          salidaTurno2: null,
+        },
+        create: {
+          planillaId,
+          fecha: day,
+          bloqueado: true,
+          motivoBloqueo: 'VACACION',
+          observaciones: `Vacaciones${vac.motivo ? ` — ${vac.motivo}` : ''}`,
+          horasTrabajadas: ZERO,
+          horasNormales: ZERO,
+          horasExtra50: ZERO,
+          horasExtra100: ZERO,
+          horasViajeCalc: ZERO,
+          horasViajeInput: ZERO,
+        },
+      });
+    }
+  }
+}
+
+// ─── Helpers ─────────────────────────────────────
+
+function buildDaysBetween(start: Date, end: Date): Date[] {
+  const days: Date[] = [];
+  const cur = new Date(start);
+  cur.setHours(0, 0, 0, 0);
+  const last = new Date(end);
+  last.setHours(0, 0, 0, 0);
+  while (cur <= last) {
+    days.push(new Date(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return days;
+}
+
+function clampDate(d: Date, boundary: Date, isMax = false): Date {
+  if (isMax) return d > boundary ? boundary : d;
+  return d < boundary ? boundary : d;
+}
+
+export function formatTipoAusencia(tipo: string): string {
+  const map: Record<string, string> = {
+    CERTIFICADO_MEDICO: 'Certificado médico',
+    FALTA_JUSTIFICADA: 'Falta justificada',
+    FALTA_INJUSTIFICADA: 'Falta injustificada',
+    LICENCIA_ESPECIAL: 'Licencia especial',
+  };
+  return map[tipo] ?? tipo;
+}

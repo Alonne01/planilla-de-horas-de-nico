@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import {
   ArrowLeft, Send, CheckCircle2, XCircle, Loader2,
-  Clock, MapPin, Car, Moon, AlertCircle, X, Download, CalendarClock
+  Clock, MapPin, Car, Moon, AlertCircle, X, Download, CalendarClock, Lock
 } from 'lucide-react';
 
 // ─── Argentine public holidays (fixed + movable approx.) ─────────────────────
@@ -86,6 +86,8 @@ interface Registro {
   horasExtra100: string;
   horasViajeCalc: string;
   observaciones: string | null;
+  bloqueado: boolean;
+  motivoBloqueo: string | null;
 }
 
 interface PlanillaDetalle {
@@ -505,16 +507,18 @@ export default function PlanillaDetailPage() {
               const hrs = reg ? Number(reg.horasTrabajadas) : 0;
               const hasData = !!reg;
               const francoDay = isFranco(day); // from diagram cycle
+              const isLocked = reg?.bloqueado === true;
 
               return (
                 <button
                   key={di}
-                  onClick={() => canEdit ? openDay(key) : (hasData ? openDay(key) : undefined)}
+                  onClick={() => isLocked ? undefined : (canEdit ? openDay(key) : (hasData ? openDay(key) : undefined))}
                   className={cn(
                     'min-h-[80px] p-1.5 text-left transition-all relative group',
                     'hover:bg-primary/5 focus:outline-none focus:ring-1 focus:ring-primary/30 focus:z-10',
-                    francoDay && !hasData && 'bg-orange-500/5',
-                    isWeekend && !hasData && !francoDay && 'bg-muted/10',
+                    isLocked && 'bg-violet-500/10 cursor-not-allowed hover:bg-violet-500/10',
+                    !isLocked && francoDay && !hasData && 'bg-orange-500/5',
+                    !isLocked && isWeekend && !hasData && !francoDay && 'bg-muted/10',
                     isToday && 'ring-1 ring-primary/40',
                   )}
                 >
@@ -552,7 +556,7 @@ export default function PlanillaDetailPage() {
                   </div>
 
                   {/* Hour data */}
-                  {hasData && (
+                  {hasData && !isLocked && (
                     <div className="mt-1 space-y-0.5">
                       <p className="text-sm font-bold text-foreground leading-none">{hrs.toFixed(1)}h</p>
                       <div className="flex gap-1 flex-wrap">
@@ -567,6 +571,28 @@ export default function PlanillaDetailPage() {
                         )}
                       </div>
                       {reg.maneja && <Car className="h-3 w-3 text-muted-foreground/50" />}
+                    </div>
+                  )}
+
+                  {/* Locked day (ausencia/vacación) */}
+                  {isLocked && (
+                    <div className="mt-1 space-y-0.5">
+                      <div className="flex items-center gap-1">
+                        <Lock className="h-3 w-3 text-violet-400" />
+                        <span className="text-[9px] font-semibold text-violet-400 leading-tight">
+                          {reg.motivoBloqueo === 'VACACION' ? 'Vacaciones'
+                            : reg.motivoBloqueo === 'CERTIFICADO_MEDICO' ? 'Cert. Médico'
+                            : reg.motivoBloqueo === 'FALTA_JUSTIFICADA' ? 'Falta Just.'
+                            : reg.motivoBloqueo === 'FALTA_INJUSTIFICADA' ? 'Falta Inj.'
+                            : reg.motivoBloqueo === 'LICENCIA_ESPECIAL' ? 'Licencia'
+                            : reg.motivoBloqueo ?? 'Ausencia'}
+                        </span>
+                      </div>
+                      {reg.observaciones && (
+                        <p className="text-[8px] text-muted-foreground leading-tight truncate max-w-full">
+                          {reg.observaciones}
+                        </p>
+                      )}
                     </div>
                   )}
 
@@ -601,7 +627,20 @@ export default function PlanillaDetailPage() {
             </div>
 
             <div className="p-4 space-y-4">
+              {/* Locked day notice */}
+              {registroMap[selectedDate]?.bloqueado && (
+                <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-4 text-center space-y-1">
+                  <Lock className="h-6 w-6 mx-auto text-violet-400" />
+                  <p className="text-sm font-semibold text-violet-400">Día bloqueado</p>
+                  <p className="text-xs text-muted-foreground">
+                    {registroMap[selectedDate].observaciones ?? registroMap[selectedDate].motivoBloqueo ?? 'Ausencia / Vacación'}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-2">Este día no se puede modificar.</p>
+                </div>
+              )}
+
               {/* Time pickers */}
+              {!registroMap[selectedDate]?.bloqueado && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground mb-2 block">Entrada</label>
@@ -747,8 +786,10 @@ export default function PlanillaDetailPage() {
                 </div>
               )}
 
+              )}
+
               {/* Actions */}
-              {canEdit && (
+              {canEdit && !registroMap[selectedDate]?.bloqueado && (
                 <div className="flex gap-2 pt-2">
                   <button onClick={handleSaveDay}
                     disabled={saveRegistroMutation.isPending}

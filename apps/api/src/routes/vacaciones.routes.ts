@@ -3,6 +3,7 @@ import { PrismaClient, VacacionEstado } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
+import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -351,6 +352,15 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
           diasCorrespondientes: 14, // fallback, should already exist
           diasUsados: vacacion.diasTotales,
         },
+      });
+
+      // Inject locked days into employee planilla
+      await inyectarDiasBloqueados({
+        usuarioId: vacacion.usuario.id,
+        fechaInicio: vacacion.fechaInicio,
+        fechaFin: vacacion.fechaFin,
+        motivoBloqueo: 'VACACION',
+        observaciones: `Vacaciones${vacacion.motivo ? ` — ${vacacion.motivo}` : ''}`,
       });
     }
 

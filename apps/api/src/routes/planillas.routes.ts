@@ -10,6 +10,7 @@ import {
   recalcularTotalesPlanilla,
   getPeriodoActual,
 } from '../utils/calculo.utils.js';
+import { backfillAusenciasEnPlanilla } from '../utils/ausencia-calendar.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -188,6 +189,9 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
         estadoNuevo: 'BORRADOR',
       },
     });
+
+    // Back-fill locked entries for approved absences/vacations in this period
+    await backfillAusenciasEnPlanilla(planilla.id, userId, periodoInicio, periodoFin);
 
     res.status(201).json(planilla);
   } catch (error) {
@@ -558,6 +562,13 @@ router.put('/:id/registros/:rid', async (req: AuthRequest, res: Response): Promi
       return;
     }
 
+    // Check if the registro is locked (ausencia/vacación)
+    const existingReg = await prisma.registroHoras.findUnique({ where: { id: rid } });
+    if (existingReg?.bloqueado) {
+      res.status(403).json({ error: `Este día está bloqueado: ${existingReg.motivoBloqueo ?? 'ausencia/vacación'}` });
+      return;
+    }
+
     const config = await getEmpresaConfig(planilla.usuario.empresaId);
     const calculo = calcularHorasRegistro(
       {
@@ -616,6 +627,13 @@ router.delete('/:id/registros/:rid', async (req: AuthRequest, res: Response): Pr
     });
     if (!planilla || (planilla.estado !== 'BORRADOR' && planilla.estado !== 'RECHAZADA')) {
       res.status(400).json({ error: 'Solo se pueden eliminar registros en BORRADOR o RECHAZADA' });
+      return;
+    }
+
+    // Check if the registro is locked (ausencia/vacación)
+    const regToDelete = await prisma.registroHoras.findUnique({ where: { id: rid } });
+    if (regToDelete?.bloqueado) {
+      res.status(403).json({ error: `Este día está bloqueado: ${regToDelete.motivoBloqueo ?? 'ausencia/vacación'}` });
       return;
     }
 

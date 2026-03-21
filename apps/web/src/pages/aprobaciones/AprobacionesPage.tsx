@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import {
   CheckCircle2, XCircle, Loader2, Clock, Palmtree,
-  History, AlertCircle, ChevronRight, X, Send
+  History, AlertCircle, ChevronRight, X, Send, AlertTriangle
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────
@@ -30,12 +30,25 @@ interface VacacionItem {
   usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
 }
 
+interface AusenciaItem {
+  id: string;
+  tipo: string;
+  fechaInicio: string;
+  fechaFin: string;
+  diasAusencia: number;
+  estado: string;
+  descripcion: string | null;
+  usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
+}
+
 interface AprobacionesData {
   planillasPendientes: PlanillaItem[];
   vacacionesPendientes: VacacionItem[];
+  ausenciasPendientes: AusenciaItem[];
   historial: {
     planillas: PlanillaItem[];
     vacaciones: VacacionItem[];
+    ausencias: AusenciaItem[];
   };
 }
 
@@ -53,9 +66,9 @@ export default function AprobacionesPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
-  const [tab, setTab] = useState<'planillas' | 'vacaciones' | 'historial'>('planillas');
+  const [tab, setTab] = useState<'planillas' | 'vacaciones' | 'ausencias' | 'historial'>('planillas');
   const [rechazandoId, setRechazandoId] = useState<string | null>(null);
-  const [rechazandoTipo, setRechazandoTipo] = useState<'planilla' | 'vacacion'>('planilla');
+  const [rechazandoTipo, setRechazandoTipo] = useState<'planilla' | 'vacacion' | 'ausencia'>('planilla');
   const [motivoRechazo, setMotivoRechazo] = useState('');
 
   const { data, isLoading, refetch } = useQuery<AprobacionesData>({
@@ -86,9 +99,21 @@ export default function AprobacionesPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setRechazandoId(null); setMotivoRechazo(''); },
   });
 
+  const aprobarAusenciaMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/ausencias/${id}/avanzar`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); },
+  });
+
+  const rechazarAusenciaMutation = useMutation({
+    mutationFn: ({ id, motivo }: { id: string; motivo: string }) =>
+      api.post(`/ausencias/${id}/rechazar`, { motivo }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setRechazandoId(null); setMotivoRechazo(''); },
+  });
+
   const planillasPendienteCount = data?.planillasPendientes.length ?? 0;
   const vacacionesPendienteCount = data?.vacacionesPendientes.length ?? 0;
-  const pendingTotal = planillasPendienteCount + vacacionesPendienteCount;
+  const ausenciasPendienteCount = data?.ausenciasPendientes?.length ?? 0;
+  const pendingTotal = planillasPendienteCount + vacacionesPendienteCount + ausenciasPendienteCount;
 
   if ((user?.rolNivel ?? 0) < 60) {
     return (
@@ -141,6 +166,20 @@ export default function AprobacionesPage() {
           {vacacionesPendienteCount > 0 && (
             <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
               {vacacionesPendienteCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setTab('ausencias')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all',
+            tab === 'ausencias' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <AlertTriangle className="h-4 w-4" /> Ausencias
+          {ausenciasPendienteCount > 0 && (
+            <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
+              {ausenciasPendienteCount}
             </span>
           )}
         </button>
@@ -259,6 +298,56 @@ export default function AprobacionesPage() {
             </div>
           )}
         </div>
+      ) : tab === 'ausencias' ? (
+        <div className="space-y-4">
+          {(data?.ausenciasPendientes ?? []).map((a) => (
+            <div key={a.id} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="font-medium text-sm">{a.usuario.apellido}, {a.usuario.nombre}</span>
+                  <span className="text-xs text-muted-foreground">{a.usuario.sector?.nombre ?? a.usuario.rol}</span>
+                  <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[a.estado])}>
+                    {a.estado === 'EN_REVISION' ? 'En revisión' : a.estado.charAt(0) + a.estado.slice(1).toLowerCase()}
+                  </span>
+                  <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium',
+                    a.tipo === 'CERTIFICADO_MEDICO' ? 'bg-blue-500/20 text-blue-400' :
+                    a.tipo === 'FALTA_JUSTIFICADA' ? 'bg-amber-500/20 text-amber-400' :
+                    a.tipo === 'FALTA_INJUSTIFICADA' ? 'bg-red-500/20 text-red-400' :
+                    'bg-purple-500/20 text-purple-400'
+                  )}>
+                    {a.tipo.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(a.fechaInicio).toLocaleDateString('es-AR')} — {new Date(a.fechaFin).toLocaleDateString('es-AR')}
+                  {' · '}<span className="font-medium">{a.diasAusencia} día{a.diasAusencia !== 1 ? 's' : ''}</span>
+                </p>
+                {a.descripcion && <p className="text-xs text-muted-foreground mt-0.5">«{a.descripcion}»</p>}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => aprobarAusenciaMutation.mutate(a.id)}
+                  disabled={aprobarAusenciaMutation.isPending}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
+                </button>
+                <button
+                  onClick={() => { setRechazandoId(a.id); setRechazandoTipo('ausencia'); setMotivoRechazo(''); }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" /> Rechazar
+                </button>
+              </div>
+            </div>
+          ))}
+          {ausenciasPendienteCount === 0 && (
+            <div className="text-center py-16 text-muted-foreground">
+              <AlertTriangle className="h-10 w-10 mx-auto mb-3 opacity-30 text-amber-400" />
+              <p className="text-sm">No hay ausencias pendientes de aprobación</p>
+            </div>
+          )}
+        </div>
       ) : (
         /* Historial */
         <div className="space-y-4">
@@ -321,7 +410,35 @@ export default function AprobacionesPage() {
             </section>
           )}
 
-          {((data?.historial.planillas.length ?? 0) + (data?.historial.vacaciones.length ?? 0)) === 0 && (
+          {/* Ausencias historial */}
+          {(data?.historial.ausencias?.length ?? 0) > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold text-foreground">Ausencias recientes</h2>
+              </div>
+              <div className="space-y-1.5">
+                {data!.historial.ausencias.map((a) => (
+                  <div key={a.id} className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{a.usuario.apellido}, {a.usuario.nombre}</span>
+                        <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[a.estado])}>
+                          {a.estado.charAt(0) + a.estado.slice(1).toLowerCase()}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{a.diasAusencia}d</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(a.fechaInicio).toLocaleDateString('es-AR')} — {new Date(a.fechaFin).toLocaleDateString('es-AR')}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {((data?.historial.planillas.length ?? 0) + (data?.historial.vacaciones.length ?? 0) + (data?.historial.ausencias?.length ?? 0)) === 0 && (
             <div className="text-center py-16 text-muted-foreground">
               <History className="h-10 w-10 mx-auto mb-3 opacity-30" />
               <p className="text-sm">Sin historial todavía</p>
@@ -358,14 +475,16 @@ export default function AprobacionesPage() {
                   if (!motivoRechazo.trim()) return;
                   if (rechazandoTipo === 'planilla') {
                     rechazarPlanillaMutation.mutate({ id: rechazandoId, motivo: motivoRechazo });
-                  } else {
+                  } else if (rechazandoTipo === 'vacacion') {
                     rechazarVacacionMutation.mutate({ id: rechazandoId, motivo: motivoRechazo });
+                  } else {
+                    rechazarAusenciaMutation.mutate({ id: rechazandoId, motivo: motivoRechazo });
                   }
                 }}
-                disabled={!motivoRechazo.trim() || rechazarPlanillaMutation.isPending || rechazarVacacionMutation.isPending}
+                disabled={!motivoRechazo.trim() || rechazarPlanillaMutation.isPending || rechazarVacacionMutation.isPending || rechazarAusenciaMutation.isPending}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
               >
-                {(rechazarPlanillaMutation.isPending || rechazarVacacionMutation.isPending)
+                {(rechazarPlanillaMutation.isPending || rechazarVacacionMutation.isPending || rechazarAusenciaMutation.isPending)
                   ? <Loader2 className="h-4 w-4 animate-spin" />
                   : <Send className="h-4 w-4" />}
                 Rechazar

@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/authStore';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import NotificationBell from './NotificationBell';
+import ThemeSwitcher from './ThemeSwitcher';
 import {
   LayoutDashboard,
   Clock,
@@ -231,6 +232,10 @@ export default function AppShell() {
             <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
             {isRefreshing ? 'Actualizando...' : 'Actualizar datos'}
           </button>
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-xs text-muted-foreground">Tema</span>
+            <ThemeSwitcher />
+          </div>
           <button
             onClick={handleLogout}
             id="logout-button"

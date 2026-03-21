@@ -99,6 +99,24 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       orderBy: { createdAt: 'asc' },
     });
 
+    // ── Pending ausencias ──────────────────────────────────────
+    const ausenciasPendientes = await prisma.ausencia.findMany({
+      where: {
+        ...userFilter,
+        estado: { in: ['PENDIENTE', 'EN_REVISION'] },
+      },
+      include: {
+        usuario: {
+          select: {
+            id: true, nombre: true, apellido: true, legajo: true, rol: true,
+            sector: { select: { nombre: true } },
+          },
+        },
+        cargadaPor: { select: { nombre: true, apellido: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
     // ── Recent history (last 30 items) ────────────────────────────
     const planillasHistory = await prisma.planilla.findMany({
       where: {
@@ -124,12 +142,26 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       take: 15,
     });
 
+    const ausenciasHistory = await prisma.ausencia.findMany({
+      where: {
+        ...userFilter,
+        estado: { in: ['APROBADA', 'RECHAZADA'] },
+      },
+      include: {
+        usuario: { select: { id: true, nombre: true, apellido: true } },
+      },
+      orderBy: { aprobadaAt: 'desc' },
+      take: 15,
+    });
+
     res.json({
       planillasPendientes,
       vacacionesPendientes,
+      ausenciasPendientes,
       historial: {
         planillas: planillasHistory,
         vacaciones: vacacionesHistory,
+        ausencias: ausenciasHistory,
       },
     });
   } catch (error) {

@@ -269,6 +269,7 @@ function CreateFlujoModal({ onClose, onSuccess }: { onClose: () => void; onSucce
               <select className={inputClass} value={tipoDocumento} onChange={(e) => setTipoDocumento(e.target.value)}>
                 <option value="PLANILLA">Planilla</option>
                 <option value="VACACION">Vacación</option>
+                <option value="AUSENCIA">Ausencia</option>
               </select>
             </div>
           </div>
@@ -524,6 +525,8 @@ export default function FlujosPage() {
                       'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
                       f.tipoDocumento === 'PLANILLA'
                         ? 'bg-blue-500/20 text-blue-400'
+                        : f.tipoDocumento === 'AUSENCIA'
+                        ? 'bg-amber-500/20 text-amber-400'
                         : 'bg-emerald-500/20 text-emerald-400'
                     )}>
                       {f.tipoDocumento}

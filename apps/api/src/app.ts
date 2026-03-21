@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
+import path from 'path';
 import routes from './routes/index.js';
 
 const app = express();
@@ -78,6 +79,10 @@ const forgotPasswordLimiter = rateLimit({
 });
 
 app.use('/api/v1/auth/forgot-password', forgotPasswordLimiter);
+
+// ─── Archivos estáticos (uploads) ────────────────
+
+app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
 
 // ─── Rutas ───────────────────────────────────────
 

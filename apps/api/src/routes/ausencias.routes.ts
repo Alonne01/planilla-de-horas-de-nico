@@ -1,8 +1,10 @@
 import { Router, Response } from 'express';
-import { PrismaClient, AusenciaTipo } from '@prisma/client';
+import { PrismaClient, AusenciaTipo, AusenciaEstado } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
-import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { upload } from '../middleware/upload.middleware.js';
+import { inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -12,6 +14,7 @@ router.use(authMiddleware);
 // ─── Schemas ─────────────────────────────────────
 
 const createAusenciaSchema = z.object({
+  usuarioId: z.string().uuid(),
   tipo: z.nativeEnum(AusenciaTipo),
   fechaInicio: z.string(),
   fechaFin: z.string(),
@@ -34,20 +37,67 @@ const updateAusenciaSchema = z.object({
   aprobada: z.boolean().optional(),
 });
 
+// ─── Helper: check if user can manage target employee ────
+
+async function canManageUser(actorId: string, actorNivel: number, targetUserId: string, empresaId: string): Promise<boolean> {
+  if (actorNivel >= 90) return true; // RRHH/ADMIN can manage anyone
+
+  const target = await prisma.usuario.findUnique({
+    where: { id: targetUserId },
+    select: { empresaId: true, supervisorId: true, coordinadorId: true, sectorId: true },
+  });
+  if (!target || target.empresaId !== empresaId) return false;
+
+  // Direct supervisor or coordinator
+  if (target.supervisorId === actorId || target.coordinadorId === actorId) return true;
+
+  // Same sector for COORDINADOR+
+  if (actorNivel >= 70 && target.sectorId) {
+    const actor = await prisma.usuario.findUnique({ where: { id: actorId }, select: { sectorId: true } });
+    if (actor?.sectorId === target.sectorId) return true;
+  }
+
+  return false;
+}
+
 // ─── GET /ausencias ──────────────────────────────
 
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const userRole = req.user!.rol;
     const userId = req.user!.userId;
+    const empresaId = req.user!.empresaId;
+    const userNivel = req.user!.rolNivel ?? 0;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: any = {};
 
-    if (['OPERADOR', 'SUPERVISOR', 'COORDINADOR', 'GERENTE'].includes(userRole)) {
-      where.usuarioId = userId;
+    if (userNivel >= 90) {
+      // RRHH/ADMIN: all company
+      where.usuario = { empresaId };
+    } else if (userNivel >= 60) {
+      // SUPERVISOR/COORDINADOR/GERENTE: own + subordinates + sector
+      const subordinados = await prisma.usuario.findMany({
+        where: {
+          empresaId, activo: true,
+          OR: [{ supervisorId: userId }, { coordinadorId: userId }],
+        },
+        select: { id: true },
+      });
+      const subIds = subordinados.map(u => u.id);
+
+      const me = await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } });
+      if (me?.sectorId) {
+        const sectorUsers = await prisma.usuario.findMany({
+          where: { sectorId: me.sectorId, empresaId, activo: true },
+          select: { id: true },
+        });
+        sectorUsers.forEach(u => { if (!subIds.includes(u.id)) subIds.push(u.id); });
+      }
+      if (!subIds.includes(userId)) subIds.push(userId);
+      where.usuarioId = { in: subIds };
     } else {
-      where.usuario = { empresaId: req.user!.empresaId };
+      // OPERADOR: only own
+      where.usuarioId = userId;
     }
 
     const tipo = req.query.tipo as string | undefined;
@@ -56,7 +106,8 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const ausencias = await prisma.ausencia.findMany({
       where,
       include: {
-        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true } },
+        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true, sector: { select: { nombre: true } } } },
+        cargadaPor: { select: { id: true, nombre: true, apellido: true } },
       },
       orderBy: { fechaInicio: 'desc' },
     });
@@ -67,9 +118,50 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   }
 });
 
-// ─── POST /ausencias ─────────────────────────────
+// ─── GET /ausencias/subordinados ─────────────────
+// Returns list of employees the current user can create absences for
 
-router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/subordinados', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const empresaId = req.user!.empresaId;
+    const userNivel = req.user!.rolNivel ?? 0;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let where: any;
+
+    if (userNivel >= 90) {
+      where = { empresaId, activo: true };
+    } else {
+      const conditions = [
+        { supervisorId: userId },
+        { coordinadorId: userId },
+      ];
+      const me = await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } });
+      if (me?.sectorId && userNivel >= 70) {
+        conditions.push({ sectorId: me.sectorId } as any);
+      }
+      where = { empresaId, activo: true, OR: conditions };
+    }
+
+    const subordinados = await prisma.usuario.findMany({
+      where,
+      select: { id: true, nombre: true, apellido: true, legajo: true, sector: { select: { nombre: true } } },
+      orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
+    });
+
+    // Filter out the current user
+    res.json(subordinados.filter(u => u.id !== userId));
+  } catch (error) {
+    console.error('Error listing subordinados:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /ausencias ─────────────────────────────
+// Superior creates absence for a subordinate
+
+router.post('/', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const parsed = createAusenciaSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -77,12 +169,26 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
       return;
     }
 
-    const userId = req.user!.userId;
+    const actorId = req.user!.userId;
+    const actorNivel = req.user!.rolNivel ?? 0;
+    const empresaId = req.user!.empresaId;
+    const targetUserId = parsed.data.usuarioId;
+
+    // Validate hierarchy
+    const allowed = await canManageUser(actorId, actorNivel, targetUserId, empresaId);
+    if (!allowed) {
+      res.status(403).json({ error: 'No tiene permisos para cargar ausencias de este empleado' });
+      return;
+    }
+
+    const isCertMedico = parsed.data.tipo === 'CERTIFICADO_MEDICO';
 
     const ausencia = await prisma.ausencia.create({
       data: {
-        usuarioId: userId,
+        usuarioId: targetUserId,
+        cargadaPorId: actorId,
         tipo: parsed.data.tipo,
+        estado: isCertMedico ? 'APROBADA' : 'BORRADOR',
         fechaInicio: new Date(parsed.data.fechaInicio),
         fechaFin: new Date(parsed.data.fechaFin),
         diasAusencia: parsed.data.diasAusencia,
@@ -90,10 +196,33 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
         numeroCertificado: parsed.data.numeroCertificado ?? null,
         descuentaSueldo: parsed.data.descuentaSueldo ?? false,
         porcentajeDescuento: parsed.data.porcentajeDescuento ?? 0,
-        requiereAprobacion: parsed.data.tipo !== 'CERTIFICADO_MEDICO',
-        aprobada: parsed.data.tipo === 'CERTIFICADO_MEDICO', // Auto-approve cert médico
+        requiereAprobacion: !isCertMedico,
+        aprobada: isCertMedico,
+        ...(isCertMedico ? { aprobadaPorId: actorId, aprobadaAt: new Date() } : {}),
       },
     });
+
+    // Create initial history entry
+    await prisma.ausenciaHistorial.create({
+      data: {
+        ausenciaId: ausencia.id,
+        usuarioId: actorId,
+        estadoNuevo: isCertMedico ? 'APROBADA' : 'BORRADOR',
+        comentario: `Cargada por superior`,
+      },
+    });
+
+    // Auto-approved cert médico → inject locked days into planilla
+    if (isCertMedico) {
+      const tipoLabel = formatTipoAusencia(parsed.data.tipo);
+      await inyectarDiasBloqueados({
+        usuarioId: targetUserId,
+        fechaInicio: new Date(parsed.data.fechaInicio),
+        fechaFin: new Date(parsed.data.fechaFin),
+        motivoBloqueo: parsed.data.tipo,
+        observaciones: `${tipoLabel}${parsed.data.descripcion ? ` — ${parsed.data.descripcion}` : ''}`,
+      });
+    }
 
     res.status(201).json(ausencia);
   } catch (error) {
@@ -111,7 +240,13 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       where: { id: ausId },
       include: {
         usuario: { select: { id: true, nombre: true, apellido: true, sector: { select: { nombre: true } } } },
+        cargadaPor: { select: { nombre: true, apellido: true } },
         aprobadaPor: { select: { nombre: true, apellido: true } },
+        historial: {
+          include: { usuario: { select: { nombre: true, apellido: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+        flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
       },
     });
     if (!ausencia) {
@@ -121,6 +256,243 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
     res.json(ausencia);
   } catch (error) {
     console.error('Error getting ausencia:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /ausencias/:id/enviar ──────────────────
+// Submit absence to approval flow
+
+router.post('/:id/enviar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const ausId = req.params.id as string;
+    const ausencia = await prisma.ausencia.findUnique({
+      where: { id: ausId },
+      include: { usuario: { select: { id: true, empresaId: true, sectorId: true } } },
+    });
+
+    if (!ausencia || ausencia.usuario.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Ausencia no encontrada' });
+      return;
+    }
+    if (ausencia.estado !== 'BORRADOR' && ausencia.estado !== 'RECHAZADA') {
+      res.status(400).json({ error: 'Solo se puede enviar en estado BORRADOR o RECHAZADA' });
+      return;
+    }
+
+    // Find applicable flow for AUSENCIA
+    const targetUserId = ausencia.usuarioId;
+    let flujo = await prisma.flujoAprobacion.findFirst({
+      where: {
+        empresaId: req.user!.empresaId,
+        tipoDocumento: 'AUSENCIA',
+        activo: true,
+        asignaciones: { some: { usuarioId: targetUserId, activo: true, tipoDocumento: 'AUSENCIA' } },
+      },
+      include: { pasos: { orderBy: { orden: 'asc' } } },
+    });
+
+    if (!flujo && ausencia.usuario.sectorId) {
+      flujo = await prisma.flujoAprobacion.findFirst({
+        where: {
+          empresaId: req.user!.empresaId,
+          tipoDocumento: 'AUSENCIA',
+          activo: true,
+          asignaciones: { some: { sectorId: ausencia.usuario.sectorId, activo: true, tipoDocumento: 'AUSENCIA' } },
+        },
+        include: { pasos: { orderBy: { orden: 'asc' } } },
+      });
+    }
+
+    if (!flujo) {
+      flujo = await prisma.flujoAprobacion.findFirst({
+        where: {
+          empresaId: req.user!.empresaId,
+          tipoDocumento: 'AUSENCIA',
+          activo: true,
+          asignaciones: { some: { sectorId: null, usuarioId: null, activo: true, tipoDocumento: 'AUSENCIA' } },
+        },
+        include: { pasos: { orderBy: { orden: 'asc' } } },
+      });
+    }
+
+    const updated = await prisma.ausencia.update({
+      where: { id: ausId },
+      data: {
+        estado: 'PENDIENTE',
+        pasoActual: 1,
+        obsRechazo: null,
+        flujoId: flujo?.id ?? null,
+        requiereAprobacion: true,
+        aprobada: false,
+      },
+    });
+
+    await prisma.ausenciaHistorial.create({
+      data: {
+        ausenciaId: ausId,
+        usuarioId: req.user!.userId,
+        estadoAnterior: ausencia.estado as AusenciaEstado,
+        estadoNuevo: 'PENDIENTE',
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error al enviar ausencia:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /ausencias/:id/avanzar ─────────────────
+// Approve (advance step in flow)
+
+router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const ausId = req.params.id as string;
+    const ausencia = await prisma.ausencia.findUnique({
+      where: { id: ausId },
+      include: {
+        flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
+        usuario: { select: { id: true, empresaId: true } },
+      },
+    });
+
+    if (!ausencia || ausencia.usuario.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Ausencia no encontrada' });
+      return;
+    }
+    if (ausencia.estado !== 'PENDIENTE' && ausencia.estado !== 'EN_REVISION') {
+      res.status(400).json({ error: 'La ausencia no está pendiente de revisión' });
+      return;
+    }
+
+    const pasos = ausencia.flujo?.pasos ?? [];
+    const totalPasos = pasos.length;
+    let nuevoEstado: AusenciaEstado;
+    const nuevoPaso = ausencia.pasoActual + 1;
+
+    if (nuevoPaso > totalPasos || totalPasos === 0) {
+      nuevoEstado = 'APROBADA';
+    } else {
+      nuevoEstado = 'EN_REVISION';
+    }
+
+    const updated = await prisma.ausencia.update({
+      where: { id: ausId },
+      data: {
+        estado: nuevoEstado,
+        pasoActual: nuevoPaso,
+        ...(nuevoEstado === 'APROBADA' ? {
+          aprobada: true,
+          aprobadaPorId: req.user!.userId,
+          aprobadaAt: new Date(),
+        } : {}),
+      },
+    });
+
+    await prisma.ausenciaHistorial.create({
+      data: {
+        ausenciaId: ausId,
+        usuarioId: req.user!.userId,
+        estadoAnterior: ausencia.estado as AusenciaEstado,
+        estadoNuevo: nuevoEstado,
+        pasoFlujo: nuevoPaso,
+        comentario: req.body?.comentario ?? null,
+      },
+    });
+
+    // Approved → inject locked days into employee planilla
+    if (nuevoEstado === 'APROBADA') {
+      const tipoLabel = formatTipoAusencia(ausencia.tipo);
+      await inyectarDiasBloqueados({
+        usuarioId: ausencia.usuario.id,
+        fechaInicio: ausencia.fechaInicio,
+        fechaFin: ausencia.fechaFin,
+        motivoBloqueo: ausencia.tipo,
+        observaciones: `${tipoLabel}${ausencia.descripcion ? ` — ${ausencia.descripcion}` : ''}`,
+      });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error al avanzar ausencia:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /ausencias/:id/rechazar ────────────────
+
+router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const ausId = req.params.id as string;
+    const { motivo } = req.body;
+    if (!motivo) {
+      res.status(400).json({ error: 'Se requiere un motivo de rechazo' });
+      return;
+    }
+
+    const ausencia = await prisma.ausencia.findUnique({
+      where: { id: ausId },
+      include: { usuario: { select: { empresaId: true } } },
+    });
+
+    if (!ausencia || ausencia.usuario.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Ausencia no encontrada' });
+      return;
+    }
+
+    const updated = await prisma.ausencia.update({
+      where: { id: ausId },
+      data: { estado: 'RECHAZADA', obsRechazo: motivo, pasoActual: 0, aprobada: false },
+    });
+
+    await prisma.ausenciaHistorial.create({
+      data: {
+        ausenciaId: ausId,
+        usuarioId: req.user!.userId,
+        estadoAnterior: ausencia.estado as AusenciaEstado,
+        estadoNuevo: 'RECHAZADA',
+        comentario: motivo,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error al rechazar ausencia:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /ausencias/:id/archivo ─────────────────
+// Upload medical certificate (image or PDF)
+
+router.post('/:id/archivo', upload.single('archivo'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const ausId = req.params.id as string;
+    if (!req.file) {
+      res.status(400).json({ error: 'No se envió un archivo' });
+      return;
+    }
+
+    const ausencia = await prisma.ausencia.findUnique({
+      where: { id: ausId },
+      include: { usuario: { select: { empresaId: true } } },
+    });
+    if (!ausencia || ausencia.usuario.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Ausencia no encontrada' });
+      return;
+    }
+
+    const archivoUrl = `/uploads/${req.file.filename}`;
+    const updated = await prisma.ausencia.update({
+      where: { id: ausId },
+      data: { archivoUrl },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error uploading archivo:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });

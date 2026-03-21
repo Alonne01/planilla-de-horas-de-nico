@@ -28,7 +28,7 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
 
     // Build CSV
     const BOM = '\uFEFF';
-    const header = 'Fecha,Entrada T1,Salida T1,Entrada T2,Salida T2,Lugar,Horas Normales,Extra 50%,Extra 100%,Viaje,Total,Feriado,Franco Trab.,Observaciones';
+    const header = 'Fecha,Entrada T1,Salida T1,Entrada T2,Salida T2,Lugar,Horas Normales,Extra 50%,Extra 100%,Viaje,Total,Feriado,Franco Trab.,Motivo Ausencia,Observaciones';
     const rows = planilla.registros.map((r) => {
       const total = Number(r.horasNormales) + Number(r.horasExtra50) + Number(r.horasExtra100);
       const fmt = (d: Date | null) => d ? d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
@@ -38,7 +38,7 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
         fmt(r.salidaTurno1),
         fmt(r.entradaTurno2),
         fmt(r.salidaTurno2),
-        r.lugarTrabajo ?? 'BASE',
+        r.lugarTrabajo ?? (r.bloqueado ? 'AUSENCIA' : 'BASE'),
         Number(r.horasNormales).toFixed(1),
         Number(r.horasExtra50).toFixed(1),
         Number(r.horasExtra100).toFixed(1),
@@ -46,6 +46,7 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
         total.toFixed(1),
         r.esFeriado ? 'Sí' : '',
         r.esFrancoTrabajado ? 'Sí' : '',
+        (r.motivoBloqueo ?? '').replace(/,/g, ';'),
         (r.observaciones ?? '').replace(/,/g, ';'),
       ].join(',');
     });
@@ -58,7 +59,7 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
       Number(planilla.totalHorasExtra100).toFixed(1),
       Number(planilla.totalHorasViaje).toFixed(1),
       (Number(planilla.totalHorasNormales) + Number(planilla.totalHorasExtra50) + Number(planilla.totalHorasExtra100)).toFixed(1),
-      '', '', '',
+      '', '', '', '',
     ].join(','));
 
     const csv = BOM + [header, ...rows].join('\n');
