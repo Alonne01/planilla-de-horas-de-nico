@@ -27,6 +27,12 @@ import CierrePage from '@/pages/admin/CierrePage';
 import VacacionSaldosPage from '@/pages/admin/VacacionSaldosPage';
 import AprobacionesPage from '@/pages/aprobaciones/AprobacionesPage';
 import MensajesPage from '@/pages/MensajesPage';
+import RecibosPage from '@/pages/RecibosPage';
+import VacacionesGanttPage from '@/pages/VacacionesGanttPage';
+import AlertasPage from '@/pages/AlertasPage';
+import CapacitacionesPage from '@/pages/CapacitacionesPage';
+import AuditoriaPage from '@/pages/AuditoriaPage';
+import LiquidacionPage from '@/pages/LiquidacionPage';
 import { Loader2 } from 'lucide-react';
 
 const queryClient = new QueryClient({
@@ -121,6 +127,9 @@ export default function App() {
               <Route path="/ausencias" element={<AusenciasPage />} />
               <Route path="/aprobaciones" element={<AprobacionesPage />} />
               <Route path="/mensajes" element={<MensajesPage />} />
+              <Route path="/recibos" element={<RecibosPage />} />
+              <Route path="/vacaciones/gantt" element={<VacacionesGanttPage />} />
+              <Route path="/capacitaciones" element={<CapacitacionesPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               {/* Admin routes — Phase 2 */}
               <Route path="/admin/usuarios" element={<UsuariosPage />} />
@@ -133,6 +142,9 @@ export default function App() {
               <Route path="/admin/roles" element={<RolesPage />} />
               <Route path="/admin/cierre" element={<CierrePage />} />
               <Route path="/admin/vacacion-saldos" element={<VacacionSaldosPage />} />
+              <Route path="/admin/alertas" element={<AlertasPage />} />
+              <Route path="/admin/auditoria" element={<AuditoriaPage />} />
+              <Route path="/admin/liquidacion" element={<LiquidacionPage />} />
             </Route>
           </Route>
 

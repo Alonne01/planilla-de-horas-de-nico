@@ -76,6 +76,93 @@ router.get('/saldo', async (req: AuthRequest, res: Response): Promise<void> => {
   }
 });
 
+// ─── GET /vacaciones/gantt — Calendar view for team ──
+
+router.get('/gantt', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userNivel = req.user!.rolNivel ?? 0;
+    const userId = req.user!.userId;
+    const empresaId = req.user!.empresaId;
+
+    // Only COORDINADOR+ can see team gantt
+    if (userNivel < 70) {
+      res.status(403).json({ error: 'Sin permisos' });
+      return;
+    }
+
+    const { anio, sectorId } = req.query;
+    const year = anio ? Number(anio) : new Date().getFullYear();
+    const startDate = new Date(year, 0, 1);
+    const endDate = new Date(year, 11, 31, 23, 59, 59);
+
+    const where: any = {
+      usuario: { empresaId },
+      fechaInicio: { lte: endDate },
+      fechaFin: { gte: startDate },
+      estado: { in: ['PENDIENTE', 'EN_REVISION', 'APROBADA'] },
+    };
+
+    if (sectorId) {
+      where.usuario.sectorId = sectorId as string;
+    }
+
+    const vacaciones = await prisma.vacacion.findMany({
+      where,
+      select: {
+        id: true,
+        fechaInicio: true,
+        fechaFin: true,
+        diasTotales: true,
+        estado: true,
+        motivo: true,
+        usuario: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            legajo: true,
+            sector: { select: { id: true, nombre: true } },
+          },
+        },
+      },
+      orderBy: [{ usuario: { apellido: 'asc' } }, { fechaInicio: 'asc' }],
+    });
+
+    // Group by employee
+    const empleadoMap = new Map<string, {
+      id: string; nombre: string; apellido: string; legajo: string;
+      sector: { id: string; nombre: string } | null;
+      vacaciones: typeof vacaciones;
+    }>();
+
+    for (const v of vacaciones) {
+      if (!empleadoMap.has(v.usuario.id)) {
+        empleadoMap.set(v.usuario.id, {
+          ...v.usuario,
+          vacaciones: [],
+        });
+      }
+      empleadoMap.get(v.usuario.id)!.vacaciones.push(v);
+    }
+
+    // Also fetch sectors for filter dropdown
+    const sectores = await prisma.sector.findMany({
+      where: { empresaId },
+      select: { id: true, nombre: true },
+      orderBy: { nombre: 'asc' },
+    });
+
+    res.json({
+      anio: year,
+      sectores,
+      empleados: Array.from(empleadoMap.values()),
+    });
+  } catch (err) {
+    console.error('Error fetching gantt:', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ─── GET /vacaciones ─────────────────────────────
 
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {

@@ -20,6 +20,10 @@ import vacacionSaldosRoutes from './vacacion-saldos.routes.js';
 import aprobacionesRoutes from './aprobaciones.routes.js';
 import backupRoutes from './backup.routes.js';
 import mensajesRoutes from './mensajes.routes.js';
+import adminAlertasRoutes from './admin.alertas.routes.js';
+import capacitacionesRoutes from './capacitaciones.routes.js';
+import auditoriaRoutes from './auditoria.routes.js';
+import liquidacionRoutes from './liquidacion.routes.js';
 
 const router = Router();
 
@@ -67,6 +71,16 @@ router.use('/admin/config', adminConfigRoutes);
 router.use('/admin/conceptos', adminConceptosRoutes);
 router.use('/admin', adminConveniosRoutes);
 router.use('/admin/roles', adminRolesRoutes);
+router.use('/admin/alertas', adminAlertasRoutes);
+
+// Capacitaciones
+router.use('/capacitaciones', capacitacionesRoutes);
+
+// Auditoría
+router.use('/auditoria', auditoriaRoutes);
+
+// Liquidación (payroll export)
+router.use('/liquidacion', liquidacionRoutes);
 
 // Backup
 router.use('/backup', backupRoutes);

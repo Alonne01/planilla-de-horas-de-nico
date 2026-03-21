@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import {
   ArrowLeft, Send, CheckCircle2, XCircle, Loader2,
-  Clock, MapPin, Car, Moon, AlertCircle, AlertTriangle, X, Download, CalendarClock, Lock, Zap
+  Clock, MapPin, Car, Moon, AlertCircle, AlertTriangle, X, Download, CalendarClock, Lock, Zap, Printer
 } from 'lucide-react';
 
 // ─── Argentine public holidays (fixed + movable approx.) ─────────────────────
@@ -430,6 +430,76 @@ export default function PlanillaDetailPage() {
     }
   }
 
+  function handleExportPDF() {
+    if (!planilla) return;
+    const days = buildCalendarDays(planilla.periodoInicio, planilla.periodoFin);
+    const rows = days.map((d) => {
+      const key = dateKey(d);
+      const r = registroMap[key];
+      const fmtT = (iso: string | null) => iso ? new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
+      return `<tr>
+        <td>${d.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</td>
+        <td>${r ? fmtT(r.entradaTurno1) : '—'}</td>
+        <td>${r ? fmtT(r.salidaTurno1) : '—'}</td>
+        <td>${r ? Number(r.horasTrabajadas).toFixed(1) : '—'}</td>
+        <td>${r ? Number(r.horasNormales).toFixed(1) : '—'}</td>
+        <td>${r ? Number(r.horasExtra50).toFixed(1) : '—'}</td>
+        <td>${r ? Number(r.horasExtra100).toFixed(1) : '—'}</td>
+        <td>${r?.lugarTrabajo || '—'}</td>
+        <td>${r?.observaciones || (r?.bloqueado ? r.motivoBloqueo || 'Bloqueado' : '')}</td>
+      </tr>`;
+    }).join('');
+
+    const periodoStr = `${new Date(planilla.periodoInicio).toLocaleDateString('es-AR')} — ${new Date(planilla.periodoFin).toLocaleDateString('es-AR')}`;
+    const html = `<!DOCTYPE html><html><head><title>Planilla ${planilla.usuario.apellido}</title>
+    <style>
+      body { font-family: Arial, sans-serif; font-size: 11px; margin: 20px; color: #222; }
+      h1 { font-size: 16px; margin-bottom: 4px; }
+      .info { margin-bottom: 12px; color: #555; font-size: 10px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+      th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: center; }
+      th { background: #f0f0f0; font-size: 10px; }
+      .totals { margin-top: 12px; font-size: 12px; }
+      .totals span { margin-right: 20px; }
+      .signature { margin-top: 40px; display: flex; justify-content: space-between; }
+      .signature div { width: 200px; text-align: center; border-top: 1px solid #333; padding-top: 4px; font-size: 10px; }
+      @media print { body { margin: 10mm; } }
+    </style></head><body>
+    <h1>Planilla de Horas — ${planilla.usuario.apellido}, ${planilla.usuario.nombre}</h1>
+    <div class="info">
+      Legajo: ${planilla.usuario.legajo || '—'} · 
+      Sector: ${planilla.usuario.sector?.nombre || '—'} · 
+      Categoría: ${planilla.usuario.categoria?.codigo || '—'} · 
+      Período: ${periodoStr} · 
+      Estado: ${planilla.estado}
+    </div>
+    <table>
+      <thead><tr>
+        <th>Fecha</th><th>Entrada</th><th>Salida</th><th>Total</th><th>Normal</th><th>E50%</th><th>E100%</th><th>Lugar</th><th>Obs.</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="totals">
+      <strong>Totales:</strong>
+      <span>Normales: ${Number(planilla.totalHorasNormales).toFixed(1)}h</span>
+      <span>Extra 50%: ${Number(planilla.totalHorasExtra50).toFixed(1)}h</span>
+      <span>Extra 100%: ${Number(planilla.totalHorasExtra100).toFixed(1)}h</span>
+      <span>Viaje: ${Number(planilla.totalHorasViaje).toFixed(1)}h</span>
+      <span>Campo: ${planilla.totalDiasCampo}d</span>
+      <span>Base: ${planilla.totalDiasBase}d</span>
+    </div>
+    <div class="signature">
+      <div>Firma Empleado</div>
+      <div>Firma Supervisor</div>
+      <div>Firma RRHH</div>
+    </div>
+    <script>window.onload=()=>window.print()</script>
+    </body></html>`;
+
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(html); w.document.close(); }
+  }
+
   function openDay(key: string) {
     const [y, m, d] = key.split('-').map(Number);
     const dayDate = new Date(y, m - 1, d, 12, 0, 0);
@@ -636,6 +706,10 @@ export default function PlanillaDetailPage() {
           }}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted/30 transition-colors">
           <Download className="h-4 w-4" /> CSV
+        </button>
+        <button onClick={handleExportPDF}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted/30 transition-colors">
+          <Printer className="h-4 w-4" /> PDF
         </button>
       </div>
 

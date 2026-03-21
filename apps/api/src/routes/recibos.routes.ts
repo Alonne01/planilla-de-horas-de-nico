@@ -7,12 +7,86 @@ const prisma = new PrismaClient();
 const router = Router();
 
 router.use(authMiddleware);
-router.use(requireLevel(LEVEL_RRHH));
+
+// ─── GET /recibos/mis-recibos ────────────────────
+// Employee sees their own recibos (no RRHH level needed)
+
+router.get('/mis-recibos', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const recibos = await prisma.reciboSueldo.findMany({
+      where: { usuarioId: req.user!.userId },
+      include: {
+        planilla: { select: { periodoInicio: true, periodoFin: true, estado: true, snapshotCalculo: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    res.json(recibos);
+  } catch (error) {
+    console.error('Error listing mis recibos:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── GET /recibos/detalle/:id ────────────────────
+// Employee can see their own recibo detail, RRHH can see any
+
+router.get('/detalle/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const recibo = await prisma.reciboSueldo.findUnique({
+      where: { id: req.params.id as string },
+      include: {
+        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true, empresaId: true } },
+        planilla: { select: { periodoInicio: true, periodoFin: true, estado: true, snapshotCalculo: true } },
+      },
+    });
+    if (!recibo) { res.status(404).json({ error: 'Recibo no encontrado' }); return; }
+    // Allow own recibo or RRHH+
+    if (recibo.usuarioId !== req.user!.userId && (req.user!.rolNivel ?? 0) < 90) {
+      res.status(403).json({ error: 'Sin permisos' }); return;
+    }
+    res.json(recibo);
+  } catch (error) {
+    console.error('Error fetching recibo:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /recibos/:id/firmar ────────────────────
+// Employee signs their own recibo
+
+router.post('/:id/firmar', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const recibo = await prisma.reciboSueldo.findUnique({ where: { id: req.params.id as string } });
+    if (!recibo || recibo.usuarioId !== req.user!.userId) {
+      res.status(404).json({ error: 'Recibo no encontrado' }); return;
+    }
+    if (recibo.firmadoEmpleadoAt) {
+      res.status(400).json({ error: 'El recibo ya fue firmado' }); return;
+    }
+    const { firmaImg } = req.body || {};
+    const updated = await prisma.reciboSueldo.update({
+      where: { id: recibo.id },
+      data: {
+        firmadoEmpleadoAt: new Date(),
+        ipFirma: req.ip || req.headers['x-forwarded-for'] as string || null,
+        userAgentFirma: req.headers['user-agent'] || null,
+        hashContenido: firmaImg || null, // stores signature image data URL
+      },
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error('Error signing recibo:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── RRHH-only routes below ──────────────────────
 
 // ─── GET /recibos ────────────────────────────────
 // List recibos for all or a specific user
 
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const empresaId = req.user!.empresaId;
     const usuarioId = req.query.usuarioId as string | undefined;
@@ -40,7 +114,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 // ─── GET /recibos/preview/:planillaId ────────────
 // Preview salary calculation for a planilla (without saving)
 
-router.get('/preview/:planillaId', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/preview/:planillaId', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const planilla = await prisma.planilla.findUnique({
       where: { id: req.params.planillaId as string },
@@ -178,7 +252,7 @@ router.get('/preview/:planillaId', async (req: AuthRequest, res: Response): Prom
 // ─── POST /recibos/generar/:planillaId ───────────
 // Generate and save a recibo for a closed/approved planilla
 
-router.post('/generar/:planillaId', async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/generar/:planillaId', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const planillaId = req.params.planillaId as string;
 

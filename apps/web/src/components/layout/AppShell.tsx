@@ -4,6 +4,7 @@ import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import NotificationBell from './NotificationBell';
 import ThemeSwitcher from './ThemeSwitcher';
+import InstallPWA from '../InstallPWA';
 import {
   LayoutDashboard,
   Clock,
@@ -26,6 +27,12 @@ import {
   CheckCircle2,
   RefreshCw,
   MessageSquare,
+  FileText,
+  CalendarRange,
+  GraduationCap,
+  Bell,
+  FileSpreadsheet,
+  ShieldCheck,
 } from 'lucide-react';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -44,6 +51,9 @@ const navItems: NavItem[] = [
   { label: 'Ausencias', path: '/ausencias', icon: FileX },
   { label: 'Aprobaciones', path: '/aprobaciones', icon: CheckCircle2 },
   { label: 'Mensajes', path: '/mensajes', icon: MessageSquare },
+  { label: 'Recibos', path: '/recibos', icon: FileText },
+  { label: 'Calendario Vac.', path: '/vacaciones/gantt', icon: CalendarRange, minLevel: 70 },
+  { label: 'Capacitaciones', path: '/capacitaciones', icon: GraduationCap },
   { label: 'Analytics', path: '/analytics', icon: FileBarChart },
 ];
 
@@ -57,6 +67,9 @@ const adminItems: NavItem[] = [
   { label: 'Roles', path: '/admin/roles', icon: Shield, minLevel: 100 },
   { label: 'Cierre', path: '/admin/cierre', icon: Lock, minLevel: 90 },
   { label: 'Saldos Vac.', path: '/admin/vacacion-saldos', icon: Palmtree, minLevel: 90 },
+  { label: 'Alertas', path: '/admin/alertas', icon: Bell, minLevel: 90 },
+  { label: 'Auditoría', path: '/admin/auditoria', icon: ShieldCheck, minLevel: 90 },
+  { label: 'Liquidación', path: '/admin/liquidacion', icon: FileSpreadsheet, minLevel: 90 },
   { label: 'Configuración', path: '/admin/config', icon: Settings, minLevel: 100 },
 ];
 
@@ -124,6 +137,10 @@ export default function AppShell() {
     clearAuth();
     navigate('/login');
   };
+
+  const filteredNavItems = navItems.filter(
+    (item) => !item.minLevel || (user && (user.rolNivel ?? 0) >= item.minLevel)
+  );
 
   const filteredAdminItems = adminItems.filter(
     (item) => !item.minLevel || (user && (user.rolNivel ?? 0) >= item.minLevel)
@@ -195,7 +212,7 @@ export default function AppShell() {
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           <div className="space-y-1">
-            {navItems.map(renderNavLink)}
+            {filteredNavItems.map(renderNavLink)}
           </div>
 
           {filteredAdminItems.length > 0 && (
@@ -281,6 +298,9 @@ export default function AppShell() {
           <Outlet />
         </div>
       </main>
+
+      {/* PWA install prompt */}
+      <InstallPWA />
     </div>
   );
 }

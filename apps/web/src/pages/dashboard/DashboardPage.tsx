@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Clock, Palmtree, AlertTriangle,
   Loader2, TrendingUp, FileText, CheckCircle2,
-  ArrowRight, MapPin, Send, CalendarCheck2, Shield
+  ArrowRight, MapPin, Send, CalendarCheck2, Shield, PenLine, BarChart3
 } from 'lucide-react';
 
 interface DashboardData {
@@ -29,7 +29,11 @@ interface DashboardData {
     periodoFin: string;
     estado: string;
     totalHorasNormales: string;
+    totalHorasExtra50: string;
+    totalHorasExtra100: string;
   }[];
+  horasTrend: { label: string; normales: number; extra50: number; extra100: number }[];
+  recibos: { total: number; pendientesFirma: number; ultimoFirmado: string | null }[];
 }
 
 const ESTADO_STYLES: Record<string, string> = {
@@ -48,18 +52,20 @@ export default function DashboardPage() {
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ['dashboard'],
     queryFn: async () => {
-      const [planillasRes, saldoRes, ausenciasRes, compSaldoRes] = await Promise.all([
+      const [planillasRes, saldoRes, ausenciasRes, compSaldoRes, recibosRes] = await Promise.all([
         api.get('/planillas'),
         api.get('/vacaciones/saldo').catch(() => ({ data: { disponible: 0, usados: 0, pendiente: 0 } })),
         api.get('/ausencias').catch(() => ({ data: [] })),
         api.get('/vacacion-saldos/mi-saldo').catch(() => ({ data: { compensatoriosDisponible: 0, compensatoriosAcumulados: 0, compensatoriosUsados: 0, compensatoriosPendientes: 0 } })),
+        api.get('/recibos/mis-recibos').catch(() => ({ data: [] })),
       ]);
 
       const planillas = planillasRes.data;
       const saldo = saldoRes.data;
       const compSaldo = compSaldoRes.data;
+      const recibosData = recibosRes.data as { firmadoEmpleadoAt: string | null }[];
 
-      // Find current period planilla (most recent borrador or enviada)
+      // Find current period planilla
       const planillaActual = planillas.find((p: { estado: string }) =>
         ['BORRADOR', 'ENVIADA', 'EN_REVISION'].includes(p.estado)
       ) ?? planillas[0] ?? null;
@@ -71,6 +77,22 @@ export default function DashboardPage() {
         ausMap[a.tipo].dias += a.diasAusencia;
         ausMap[a.tipo].count += 1;
       });
+
+      // Build hours trend from last 6 planillas
+      const horasTrend = planillas.slice(0, 6).reverse().map((p: {
+        periodoInicio: string; totalHorasNormales: string; totalHorasExtra50: string; totalHorasExtra100: string;
+      }) => {
+        const d = new Date(p.periodoInicio);
+        return {
+          label: d.toLocaleDateString('es-AR', { month: 'short' }),
+          normales: Number(p.totalHorasNormales),
+          extra50: Number(p.totalHorasExtra50),
+          extra100: Number(p.totalHorasExtra100),
+        };
+      });
+
+      // Recibos summary
+      const pendientesFirma = recibosData.filter((r) => !r.firmadoEmpleadoAt).length;
 
       return {
         planillaActual: planillaActual ? {
@@ -90,6 +112,8 @@ export default function DashboardPage() {
         },
         ausencias: Object.entries(ausMap).map(([tipo, v]) => ({ tipo, ...v })),
         planillasRecientes: planillas.slice(0, 5),
+        horasTrend,
+        recibos: [{ total: recibosData.length, pendientesFirma, ultimoFirmado: null }],
       };
     },
   });
@@ -247,6 +271,16 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Hours trend chart */}
+      {(data?.horasTrend.length ?? 0) > 1 && (
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-primary" /> Evolución de horas
+          </h2>
+          <MiniBarChart data={data!.horasTrend} />
+        </div>
+      )}
+
       {/* Bottom section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Planillas recientes */}
@@ -285,7 +319,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Quick actions + campo/base */}
+        {/* Quick actions + campo/base + recibos */}
         <div className="space-y-4">
           {/* Campo / base info */}
           {pa && (
@@ -316,6 +350,38 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* Recibos widget */}
+          {(data?.recibos[0]?.total ?? 0) > 0 && (
+            <button
+              onClick={() => navigate('/recibos')}
+              className="w-full rounded-xl border border-border bg-card p-5 hover:border-primary/30 transition-colors text-left"
+            >
+              <h2 className="text-lg font-semibold text-foreground mb-2 flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary" /> Mis Recibos
+              </h2>
+              <div className="flex items-center gap-4">
+                <div>
+                  <p className="text-2xl font-bold">{data!.recibos[0].total}</p>
+                  <p className="text-xs text-muted-foreground">recibos</p>
+                </div>
+                {data!.recibos[0].pendientesFirma > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15">
+                    <PenLine className="h-4 w-4 text-amber-400" />
+                    <span className="text-sm font-medium text-amber-400">
+                      {data!.recibos[0].pendientesFirma} pendiente{data!.recibos[0].pendientesFirma > 1 ? 's' : ''} de firma
+                    </span>
+                  </div>
+                )}
+                {data!.recibos[0].pendientesFirma === 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    <span className="text-sm font-medium text-emerald-400">Todo firmado</span>
+                  </div>
+                )}
+              </div>
+            </button>
+          )}
+
           {/* Quick actions */}
           <div className="rounded-xl border border-border bg-card p-5">
             <h2 className="text-lg font-semibold text-foreground mb-3">Acciones rápidas</h2>
@@ -339,10 +405,10 @@ export default function DashboardPage() {
                 <AlertTriangle className="h-4 w-4" /> Ausencias
               </button>
               <button
-                onClick={() => navigate('/analytics')}
-                className="flex items-center gap-2 p-3 rounded-lg bg-purple-500/10 text-purple-400 text-sm font-medium hover:bg-purple-500/20 transition-colors"
+                onClick={() => navigate('/recibos')}
+                className="flex items-center gap-2 p-3 rounded-lg bg-cyan-500/10 text-cyan-400 text-sm font-medium hover:bg-cyan-500/20 transition-colors"
               >
-                <TrendingUp className="h-4 w-4" /> Estadísticas
+                <FileText className="h-4 w-4" /> Recibos
               </button>
             </div>
           </div>
@@ -355,7 +421,7 @@ export default function DashboardPage() {
               </h2>
               <div className="flex gap-3">
                 <button
-                  onClick={() => navigate('/planillas')}
+                  onClick={() => navigate('/aprobaciones')}
                   className="flex-1 flex items-center gap-2 p-3 rounded-lg bg-blue-500/10 text-sm hover:bg-blue-500/20 transition-colors"
                 >
                   <Send className="h-4 w-4 text-blue-400" />
@@ -372,6 +438,57 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MiniBarChart: stacked bar chart for hours trend ─────────────────────────
+function MiniBarChart({ data }: { data: { label: string; normales: number; extra50: number; extra100: number }[] }) {
+  const maxTotal = Math.max(...data.map((d) => d.normales + d.extra50 + d.extra100), 1);
+  const H = 120;
+  const barW = 40;
+  const gap = 12;
+  const W = data.length * (barW + gap) - gap + 40;
+
+  return (
+    <div className="overflow-x-auto">
+      <svg width={W} height={H + 30} className="mx-auto">
+        {data.map((d, i) => {
+          const x = 20 + i * (barW + gap);
+          const total = d.normales + d.extra50 + d.extra100;
+          const hN = (d.normales / maxTotal) * H;
+          const hE50 = (d.extra50 / maxTotal) * H;
+          const hE100 = (d.extra100 / maxTotal) * H;
+          const baseY = H;
+          return (
+            <g key={i}>
+              {/* Normal hours */}
+              <rect x={x} y={baseY - hN} width={barW} height={hN} rx={3} fill="var(--color-primary, #6366f1)" opacity={0.8} />
+              {/* Extra 50% */}
+              <rect x={x} y={baseY - hN - hE50} width={barW} height={hE50} rx={2} fill="#f59e0b" opacity={0.8} />
+              {/* Extra 100% */}
+              <rect x={x} y={baseY - hN - hE50 - hE100} width={barW} height={hE100} rx={2} fill="#ef4444" opacity={0.8} />
+              {/* Total label */}
+              <text x={x + barW / 2} y={baseY - hN - hE50 - hE100 - 4} textAnchor="middle"
+                className="fill-foreground text-[10px] font-medium">{total.toFixed(0)}h</text>
+              {/* Month label */}
+              <text x={x + barW / 2} y={H + 16} textAnchor="middle"
+                className="fill-muted-foreground text-[10px]">{d.label}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <div className="flex items-center justify-center gap-4 mt-2">
+        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <span className="w-2.5 h-2.5 rounded-sm bg-primary inline-block" /> Normales
+        </span>
+        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block" /> Extra 50%
+        </span>
+        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <span className="w-2.5 h-2.5 rounded-sm bg-red-500 inline-block" /> Extra 100%
+        </span>
       </div>
     </div>
   );
