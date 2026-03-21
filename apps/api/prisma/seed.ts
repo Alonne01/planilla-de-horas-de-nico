@@ -69,6 +69,10 @@ async function main() {
     { nombre: 'Mantenimiento Mecánico', color: '#F59E0B', descripcion: 'Mantenimiento de equipos mecánicos' },
     { nombre: 'END', color: '#8B5CF6', descripcion: 'Ensayos No Destructivos' },
     { nombre: 'Wireline', color: '#EC4899', descripcion: 'Servicios de wireline' },
+    { nombre: 'Pañol', color: '#06B6D4', descripcion: 'Gestión de pañol y herramientas' },
+    { nombre: 'PH', color: '#6366F1', descripcion: 'Pruebas hidráulicas' },
+    { nombre: 'Certificaciones', color: '#D946EF', descripcion: 'Certificaciones y documentación' },
+    { nombre: 'Mantenimiento de Trailers', color: '#F97316', descripcion: 'Mantenimiento de trailers y vehículos' },
   ];
 
   const sectores: Record<string, string> = {};
@@ -78,7 +82,7 @@ async function main() {
     });
     sectores[s.nombre] = sector.id;
   }
-  console.log('✅ 6 sectores creados');
+  console.log('✅ 10 sectores creados');
 
   // ═════════════════════════════════════════════════
   // 3. CCT 644/12 — PETROLEROS PRIVADOS

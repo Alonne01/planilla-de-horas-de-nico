@@ -102,7 +102,7 @@ export default function ForgotPasswordPage() {
                   autoComplete="email"
                   placeholder="tu@email.com"
                   className={cn(
-                    'flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm',
+                    'flex h-10 w-full rounded-lg border border-input bg-background text-foreground px-3 py-2 text-sm',
                     'placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent',
                     'transition-colors',
                     errors.email && 'border-destructive focus:ring-destructive'

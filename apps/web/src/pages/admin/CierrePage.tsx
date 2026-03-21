@@ -103,7 +103,7 @@ export default function CierrePage() {
       {/* Sector filter */}
       <div className="flex gap-3 items-center">
         <select
-          className="h-9 px-3 rounded-lg border border-input bg-background text-sm"
+          className="h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm"
           value={selectedSector}
           onChange={(e) => setSelectedSector(e.target.value)}
         >

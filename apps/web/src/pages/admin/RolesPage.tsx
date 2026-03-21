@@ -160,7 +160,7 @@ function RolFormModal({ rol, onClose, onSuccess }: { rol: RolConfig | null; onCl
     }
   };
 
-  const inputClass = 'w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring';
+  const inputClass = 'w-full h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -191,7 +191,7 @@ function RolFormModal({ rol, onClose, onSuccess }: { rol: RolConfig | null; onCl
 
           <div>
             <label className="text-xs font-medium text-muted-foreground">Descripción</label>
-            <textarea className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm resize-none" rows={2}
+            <textarea className="w-full px-3 py-2 rounded-lg border border-input bg-background text-foreground text-sm resize-none" rows={2}
               value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Permisos y funciones del rol" />
           </div>
 

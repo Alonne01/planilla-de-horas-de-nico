@@ -493,6 +493,7 @@ model RegistroHoras {
   lugarTrabajo          LugarTrabajo? @map("lugar_trabajo")
   pernocte              PernocteEnum  @default(NO)
   maneja                Boolean       @default(false)
+  distanciaViaje        String?       @map("distancia_viaje")
   horasViajeInput       Decimal       @default(2) @map("horas_viaje_input") @db.Decimal(4, 2)
   esFeriado             Boolean       @default(false) @map("es_feriado")
   esFrancoCompensatorio Boolean       @default(false) @map("es_franco_compensatorio")
@@ -693,6 +694,9 @@ model EmpresaConfig {
   moduloVacacionesActivo Boolean  @default(true) @map("modulo_vacaciones_activo")
   moduloAusenciasActivo  Boolean  @default(true) @map("modulo_ausencias_activo")
   moduloAnalyticsActivo  Boolean  @default(true) @map("modulo_analytics_activo")
+  tarifaViajeManeja     Decimal  @default(0) @map("tarifa_viaje_maneja") @db.Decimal(8, 2)
+  tarifaViajeSinManejar Decimal  @default(0) @map("tarifa_viaje_sin_manejar") @db.Decimal(8, 2)
+  descuentoAlmuerzoMinutos Int   @default(60) @map("descuento_almuerzo_minutos")
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
 

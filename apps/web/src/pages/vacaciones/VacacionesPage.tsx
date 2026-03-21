@@ -356,7 +356,7 @@ function VacacionFormModal({
           <div>
             <label className="text-xs font-medium text-muted-foreground">Motivo (opcional)</label>
             <input
-              className="mt-1 w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="mt-1 w-full h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               value={motivo}
               onChange={(e) => setMotivo(e.target.value)}
             />

@@ -4,7 +4,7 @@ import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import {
   Palmtree, RefreshCw, Loader2, ChevronLeft, ChevronRight,
-  Edit3, Check, X, Users
+  Edit3, Check, X, Users, Search, Building2
 } from 'lucide-react';
 
 interface SaldoRow {
@@ -23,8 +23,13 @@ interface SaldoRow {
     legajo: string | null;
     fechaIngreso: string;
     rol: string;
-    sector?: { nombre: string } | null;
+    sector?: { id: string; nombre: string } | null;
   };
+}
+
+interface Sector {
+  id: string;
+  nombre: string;
 }
 
 export default function VacacionSaldosPage() {
@@ -35,10 +40,17 @@ export default function VacacionSaldosPage() {
   const [editDias, setEditDias] = useState(0);
   const [editAjuste, setEditAjuste] = useState(0);
   const [editObs, setEditObs] = useState('');
+  const [search, setSearch] = useState('');
+  const [sectorFilter, setSectorFilter] = useState('');
 
   const { data: saldos = [], isLoading } = useQuery<SaldoRow[]>({
     queryKey: ['vacacion-saldos', anio],
     queryFn: () => api.get(`/vacacion-saldos?anio=${anio}`).then(r => r.data),
+  });
+
+  const { data: sectores = [] } = useQuery<Sector[]>({
+    queryKey: ['sectores'],
+    queryFn: () => api.get('/admin/sectores').then(r => r.data),
   });
 
   const generarMutation = useMutation({
@@ -77,13 +89,28 @@ export default function VacacionSaldosPage() {
   }
 
   // Stats
+  const filteredSaldos = useMemo(() => {
+    let filtered = saldos;
+    if (sectorFilter) {
+      filtered = filtered.filter(s => s.usuario.sector?.id === sectorFilter);
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      filtered = filtered.filter(s =>
+        `${s.usuario.apellido} ${s.usuario.nombre}`.toLowerCase().includes(q) ||
+        s.usuario.legajo?.toLowerCase().includes(q)
+      );
+    }
+    return filtered;
+  }, [saldos, sectorFilter, search]);
+
   const stats = useMemo(() => {
-    const total = saldos.length;
-    const totalDias = saldos.reduce((s, r) => s + r.diasCorrespondientes + r.diasAjuste, 0);
-    const totalUsados = saldos.reduce((s, r) => s + r.diasUsados, 0);
-    const overrides = saldos.filter(r => r.override).length;
+    const total = filteredSaldos.length;
+    const totalDias = filteredSaldos.reduce((s, r) => s + r.diasCorrespondientes + r.diasAjuste, 0);
+    const totalUsados = filteredSaldos.reduce((s, r) => s + r.diasUsados, 0);
+    const overrides = filteredSaldos.filter(r => r.override).length;
     return { total, totalDias, totalUsados, overrides };
-  }, [saldos]);
+  }, [filteredSaldos]);
 
   function getAntiguedad(fechaIngreso: string) {
     const ingreso = new Date(fechaIngreso);
@@ -146,14 +173,41 @@ export default function VacacionSaldosPage() {
         </div>
       </div>
 
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nombre o legajo..."
+            className="w-full h-9 pl-9 pr-3 rounded-lg border border-input bg-background text-foreground text-sm placeholder:text-muted-foreground"
+          />
+        </div>
+        <div className="relative">
+          <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <select
+            value={sectorFilter}
+            onChange={(e) => setSectorFilter(e.target.value)}
+            className="h-9 pl-9 pr-8 rounded-lg border border-input bg-background text-foreground text-sm appearance-none min-w-[180px]"
+          >
+            <option value="">Todos los sectores</option>
+            {sectores.map((s) => (
+              <option key={s.id} value={s.id}>{s.nombre}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {/* Table */}
       {isLoading ? (
         <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-      ) : saldos.length === 0 ? (
+      ) : filteredSaldos.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           <Users className="h-10 w-10 mx-auto mb-3 opacity-30" />
-          <p className="text-sm">No hay saldos generados para {anio}</p>
-          <p className="text-xs mt-1">Hacé clic en "Generar saldos" para crear automáticamente</p>
+          <p className="text-sm">{saldos.length > 0 ? 'No se encontraron resultados con los filtros actuales' : `No hay saldos generados para ${anio}`}</p>
+          {saldos.length === 0 && <p className="text-xs mt-1">Hacé clic en "Generar saldos" para crear automáticamente</p>}
         </div>
       ) : (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -172,7 +226,7 @@ export default function VacacionSaldosPage() {
                 </tr>
               </thead>
               <tbody>
-                {saldos.map((s) => {
+                {filteredSaldos.map((s) => {
                   const total = s.diasCorrespondientes + s.diasAjuste;
                   const disponible = total - s.diasUsados - s.diasPendientes;
                   const isEditing = editingId === s.id;
@@ -197,7 +251,7 @@ export default function VacacionSaldosPage() {
                         {isEditing ? (
                           <input type="number" min="0" max="60"
                             value={editDias} onChange={(e) => setEditDias(parseInt(e.target.value) || 0)}
-                            className="w-14 h-7 text-center rounded border border-input bg-background text-sm"
+                            className="w-14 h-7 text-center rounded border border-input bg-background text-foreground text-sm"
                           />
                         ) : (
                           <span className={cn('font-mono font-bold', s.override && 'text-amber-400')}>
@@ -210,7 +264,7 @@ export default function VacacionSaldosPage() {
                         {isEditing ? (
                           <input type="number" min="-30" max="30"
                             value={editAjuste} onChange={(e) => setEditAjuste(parseInt(e.target.value) || 0)}
-                            className="w-14 h-7 text-center rounded border border-input bg-background text-sm"
+                            className="w-14 h-7 text-center rounded border border-input bg-background text-foreground text-sm"
                           />
                         ) : (
                           <span className={cn('font-mono text-xs', s.diasAjuste > 0 ? 'text-emerald-400' : s.diasAjuste < 0 ? 'text-red-400' : 'text-muted-foreground')}>

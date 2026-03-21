@@ -143,13 +143,13 @@ export default function UsuariosPage() {
             placeholder="Buscar por nombre, email o legajo..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
         <select
           value={filterRol}
           onChange={(e) => setFilterRol(e.target.value)}
-          className="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="h-10 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         >
           <option value="">Todos los roles</option>
           {rolesConfig.map((r) => <option key={r.codigo} value={r.codigo}>{r.nombre}</option>)}
@@ -157,7 +157,7 @@ export default function UsuariosPage() {
         <select
           value={filterSector}
           onChange={(e) => setFilterSector(e.target.value)}
-          className="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="h-10 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         >
           <option value="">Todos los sectores</option>
           {sectores.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
@@ -165,7 +165,7 @@ export default function UsuariosPage() {
         <select
           value={filterActivo}
           onChange={(e) => setFilterActivo(e.target.value)}
-          className="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="h-10 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         >
           <option value="true">Activos</option>
           <option value="false">Inactivos</option>
@@ -442,7 +442,7 @@ function UserFormModal({
     }
   };
 
-  const inputClass = 'w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring';
+  const inputClass = 'w-full h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

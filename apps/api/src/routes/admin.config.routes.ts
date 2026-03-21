@@ -22,6 +22,8 @@ const updateConfigSchema = z.object({
   descuentoAlmuerzoCampo: z.boolean().optional(),
   redondeoMinutos: z.number().int().min(1).max(60).optional(),
   horasViajeDefault: z.number().min(0).max(24).optional(),
+  tarifaViajeManeja: z.number().min(0).optional(),
+  tarifaViajeSinManejar: z.number().min(0).optional(),
   zonaHoraria: z.string().max(50).optional(),
   moneda: z.string().max(10).optional(),
 });

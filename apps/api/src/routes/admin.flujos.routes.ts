@@ -25,7 +25,7 @@ const pasoSchema = z.object({
 
 const createFlujoSchema = z.object({
   nombre: z.string().min(1).max(100),
-  tipoDocumento: z.enum(['PLANILLA', 'VACACION']),
+  tipoDocumento: z.enum(['PLANILLA', 'VACACION', 'AUSENCIA', 'COMPENSATORIO']),
   descripcion: z.string().max(500).optional(),
   pasos: z.array(pasoSchema).min(1),
 });

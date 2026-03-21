@@ -174,8 +174,7 @@ export default function AppShell() {
       <aside
         className={cn(
           'fixed top-0 left-0 z-40 h-full w-64 bg-card border-r border-border flex flex-col transition-transform duration-300',
-          'lg:translate-x-0',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          sidebarOpen ? 'translate-x-0' : 'max-lg:-translate-x-full'
         )}
       >
         {/* Sidebar header */}

@@ -15,6 +15,8 @@ interface EmpresaConfig {
   descuentoAlmuerzoCampo: boolean;
   redondeoMinutos: number;
   horasViajeDefault: number;
+  tarifaViajeManeja: number;
+  tarifaViajeSinManejar: number;
   zonaHoraria: string;
   moneda: string;
 }
@@ -56,7 +58,7 @@ export default function ConfigPage() {
     return <div className="flex items-center justify-center h-64"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
-  const inputClass = 'h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring w-full';
+  const inputClass = 'h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring w-full';
   const hasChanges = Object.keys(form).length > 0;
 
   return (
@@ -138,7 +140,7 @@ export default function ConfigPage() {
               onChange={(e) => handleChange('descuentoAlmuerzoMinutos', parseInt(e.target.value))}
             />
           </Field>
-          <Field label="¿Descuenta en campo?">
+          <Field label="¿Descuenta almuerzo en campo?">
             <label className="flex items-center gap-2 h-9 text-sm cursor-pointer">
               <input
                 type="checkbox"
@@ -157,10 +159,11 @@ export default function ConfigPage() {
             />
           </Field>
         </div>
+        <p className="text-xs text-muted-foreground mt-2">El descuento de almuerzo aplica solo en Base por defecto. Active la opción si también aplica en Campo.</p>
       </Section>
 
-      {/* Viaje y otros */}
-      <Section title="Viaje y zona" icon={<MapPin className="h-4 w-4" />}>
+      {/* Viaje */}
+      <Section title="Viaje" icon={<MapPin className="h-4 w-4" />}>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <Field label="Horas viaje default">
             <input
@@ -169,6 +172,29 @@ export default function ConfigPage() {
               onChange={(e) => handleChange('horasViajeDefault', parseFloat(e.target.value))}
             />
           </Field>
+          <Field label="Tarifa viaje manejando ($/hr)">
+            <input
+              type="number" min="0" step="0.01" className={inputClass}
+              value={currentConfig.tarifaViajeManeja ?? ''}
+              onChange={(e) => handleChange('tarifaViajeManeja', parseFloat(e.target.value))}
+            />
+          </Field>
+          <Field label="Tarifa viaje sin manejar ($/hr)">
+            <input
+              type="number" min="0" step="0.01" className={inputClass}
+              value={currentConfig.tarifaViajeSinManejar ?? ''}
+              onChange={(e) => handleChange('tarifaViajeSinManejar', parseFloat(e.target.value))}
+            />
+          </Field>
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Las tarifas se usan para calcular el costo del viaje según si el empleado maneja o no.
+        </p>
+      </Section>
+
+      {/* Zona */}
+      <Section title="Zona y moneda" icon={<MapPin className="h-4 w-4" />}>
+        <div className="grid grid-cols-2 gap-4">
           <Field label="Zona horaria">
             <input
               className={inputClass}

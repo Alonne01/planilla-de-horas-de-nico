@@ -75,7 +75,7 @@ function StepRow({
   onMoveDown: (idx: number) => void;
 }) {
   const inputCls =
-    'h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring';
+    'h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
   return (
     <div className="rounded-lg border border-border bg-background/50 p-3 space-y-2">
@@ -158,7 +158,7 @@ function StepRow({
             onChange={(e) =>
               onChange(idx, 'tiempoLimiteHoras', e.target.value ? parseInt(e.target.value) : null)
             }
-            className="w-16 h-7 px-2 rounded border border-input bg-background text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+            className="w-16 h-7 px-2 rounded border border-input bg-background text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-ring"
           />
           h
         </label>
@@ -246,7 +246,7 @@ function CreateFlujoModal({ onClose, onSuccess }: { onClose: () => void; onSucce
     }
   };
 
-  const inputClass = 'w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring';
+  const inputClass = 'w-full h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -270,6 +270,7 @@ function CreateFlujoModal({ onClose, onSuccess }: { onClose: () => void; onSucce
                 <option value="PLANILLA">Planilla</option>
                 <option value="VACACION">Vacación</option>
                 <option value="AUSENCIA">Ausencia</option>
+                <option value="COMPENSATORIO">Compensatorio</option>
               </select>
             </div>
           </div>
@@ -366,7 +367,7 @@ function EditFlujoModal({
     }
   };
 
-  const inputClass = 'w-full h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring';
+  const inputClass = 'w-full h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -527,6 +528,8 @@ export default function FlujosPage() {
                         ? 'bg-blue-500/20 text-blue-400'
                         : f.tipoDocumento === 'AUSENCIA'
                         ? 'bg-amber-500/20 text-amber-400'
+                        : f.tipoDocumento === 'COMPENSATORIO'
+                        ? 'bg-purple-500/20 text-purple-400'
                         : 'bg-emerald-500/20 text-emerald-400'
                     )}>
                       {f.tipoDocumento}

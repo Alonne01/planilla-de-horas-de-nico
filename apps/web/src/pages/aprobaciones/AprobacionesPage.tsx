@@ -463,7 +463,7 @@ export default function AprobacionesPage() {
               onChange={(e) => setMotivoRechazo(e.target.value)}
               rows={3}
               placeholder="Describí el motivo..."
-              className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm resize-none"
+              className="w-full px-3 py-2 rounded-lg border border-input bg-background text-foreground text-sm resize-none"
             />
             <div className="flex gap-2 justify-end">
               <button onClick={() => setRechazandoId(null)}

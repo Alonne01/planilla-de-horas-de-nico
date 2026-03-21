@@ -135,7 +135,7 @@ export default function ResetPasswordPage() {
                   type={showPasswords ? 'text' : 'password'}
                   placeholder="••••••••"
                   className={cn(
-                    'flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm',
+                    'flex h-10 w-full rounded-lg border border-input bg-background text-foreground px-3 py-2 text-sm',
                     'placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent',
                     'transition-colors',
                     errors.newPassword && 'border-destructive focus:ring-destructive'
@@ -156,7 +156,7 @@ export default function ResetPasswordPage() {
                   type={showPasswords ? 'text' : 'password'}
                   placeholder="••••••••"
                   className={cn(
-                    'flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm',
+                    'flex h-10 w-full rounded-lg border border-input bg-background text-foreground px-3 py-2 text-sm',
                     'placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent',
                     'transition-colors',
                     errors.confirmPassword && 'border-destructive focus:ring-destructive'

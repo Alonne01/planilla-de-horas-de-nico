@@ -76,6 +76,7 @@ interface Registro {
   lugarTrabajo: string | null;
   pernocte: string;
   maneja: boolean;
+  distanciaViaje?: string | null;
   horasViajeInput: string;
   esFeriado: boolean;
   esFrancoTrabajado: boolean;
@@ -192,6 +193,8 @@ export default function PlanillaDetailPage() {
     salidaTurno1: '15:00',
     lugarTrabajo: 'CAMPO',
     pernocte: 'NO',
+    viaje: false,
+    distanciaViaje: '' as string,
     maneja: false,
     horasViajeInput: '0',
     esFeriado: false,
@@ -199,6 +202,8 @@ export default function PlanillaDetailPage() {
     esFrancoCompensatorio: false,
     observaciones: '',
   });
+
+  const LAST_TIMES_KEY = 'planilla-last-times';
 
   const { data: planilla, isLoading } = useQuery<PlanillaDetalle>({
     queryKey: ['planilla', id],
@@ -348,16 +353,26 @@ export default function PlanillaDetailPage() {
         pernocte: existing.pernocte || 'NO',
         maneja: existing.maneja,
         horasViajeInput: existing.horasViajeInput || '0',
+        viaje: parseFloat(existing.horasViajeInput || '0') > 0,
+        distanciaViaje: existing.distanciaViaje || '',
         esFeriado: existing.esFeriado || autoFeriado,
         esFrancoTrabajado: existing.esFrancoTrabajado,
         esFrancoCompensatorio: existing.esFrancoCompensatorio,
         observaciones: existing.observaciones || '',
       });
     } else {
+      // Remember last used times
+      let lastEntry = '07:00';
+      let lastExit = '15:00';
+      try {
+        const saved = JSON.parse(localStorage.getItem(LAST_TIMES_KEY) || '{}');
+        if (saved.entrada) lastEntry = saved.entrada;
+        if (saved.salida) lastExit = saved.salida;
+      } catch { /* ignore */ }
       setFormData({
-        entradaTurno1: '07:00', salidaTurno1: '15:00',
+        entradaTurno1: lastEntry, salidaTurno1: lastExit,
         lugarTrabajo: 'CAMPO', pernocte: 'NO',
-        maneja: false, horasViajeInput: '0',
+        viaje: false, distanciaViaje: '', maneja: false, horasViajeInput: '0',
         esFeriado: autoFeriado,
         esFrancoTrabajado: autoFranco,
         esFrancoCompensatorio: false, observaciones: '',
@@ -376,6 +391,14 @@ export default function PlanillaDetailPage() {
       return new Date(y, m - 1, d, h, min, 0).toISOString();
     };
 
+    // Save last used times for next entry
+    try {
+      localStorage.setItem(LAST_TIMES_KEY, JSON.stringify({
+        entrada: formData.entradaTurno1,
+        salida: formData.salidaTurno1,
+      }));
+    } catch { /* ignore */ }
+
     saveRegistroMutation.mutate({
       fecha: fecha.toISOString(),
       entradaTurno1: toIso(formData.entradaTurno1),
@@ -385,7 +408,8 @@ export default function PlanillaDetailPage() {
       lugarTrabajo: formData.lugarTrabajo,
       pernocte: formData.pernocte,
       maneja: formData.maneja,
-      horasViajeInput: formData.esFrancoCompensatorio ? 0 : (parseFloat(formData.horasViajeInput) || 0),
+      horasViajeInput: formData.esFrancoCompensatorio || !formData.viaje ? 0 : (parseFloat(formData.horasViajeInput) || 0),
+      distanciaViaje: formData.viaje ? formData.distanciaViaje : null,
       esFeriado: formData.esFeriado,
       esFrancoTrabajado: formData.esFrancoTrabajado,
       esFrancoCompensatorio: formData.esFrancoCompensatorio,
@@ -636,11 +660,25 @@ export default function PlanillaDetailPage() {
                     {registroMap[selectedDate].observaciones ?? registroMap[selectedDate].motivoBloqueo ?? 'Ausencia / Vacación'}
                   </p>
                   <p className="text-[10px] text-muted-foreground mt-2">Este día no se puede modificar.</p>
+                  {registroMap[selectedDate]?.motivoBloqueo === 'FRANCO_COMPENSATORIO' && user && (user.rolNivel ?? 0) >= 60 && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          await api.patch(`/planillas/${id}/registros/${registroMap[selectedDate]!.id}/compensatorio`, { activar: false });
+                          queryClient.invalidateQueries({ queryKey: ['planilla', id] });
+                          setSelectedDate(null);
+                        } catch { /* ignore */ }
+                      }}
+                      className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors"
+                    >
+                      Revocar compensatorio
+                    </button>
+                  )}
                 </div>
               )}
 
               {/* Time pickers */}
-              {!registroMap[selectedDate]?.bloqueado && (
+              {!registroMap[selectedDate]?.bloqueado && (<>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground mb-2 block">Entrada</label>
@@ -669,7 +707,7 @@ export default function PlanillaDetailPage() {
                   <select value={formData.lugarTrabajo}
                     onChange={(e) => setFormData({ ...formData, lugarTrabajo: e.target.value })}
                     disabled={!canEdit}
-                    className="w-full h-9 px-2 rounded-lg border border-input bg-background text-sm">
+                    className="w-full h-9 px-2 rounded-lg border border-input bg-background text-foreground text-sm">
                     <option value="CAMPO">Campo</option>
                     <option value="BASE">Base</option>
                   </select>
@@ -681,7 +719,7 @@ export default function PlanillaDetailPage() {
                   <select value={formData.pernocte}
                     onChange={(e) => setFormData({ ...formData, pernocte: e.target.value })}
                     disabled={!canEdit}
-                    className="w-full h-9 px-2 rounded-lg border border-input bg-background text-sm">
+                    className="w-full h-9 px-2 rounded-lg border border-input bg-background text-foreground text-sm">
                     <option value="NO">No</option>
                     <option value="HOTEL">Hotel</option>
                     <option value="TRAILER">Trailer</option>
@@ -689,45 +727,94 @@ export default function PlanillaDetailPage() {
                 </div>
               </div>
 
-              {/* Viaje + Maneja */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
-                    <Car className="h-3 w-3" /> Hs. Viaje
-                  </label>
-                  <input type="number" step="0.5" min="0" max="24"
-                    value={formData.esFrancoCompensatorio ? '0' : formData.horasViajeInput}
-                    onChange={(e) => setFormData({ ...formData, horasViajeInput: e.target.value })}
+              {/* Viaje */}
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={formData.viaje}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setFormData({
+                        ...formData,
+                        viaje: checked,
+                        ...(!checked ? { distanciaViaje: '', horasViajeInput: '0', maneja: false } : {}),
+                      });
+                    }}
                     disabled={!canEdit || formData.esFrancoCompensatorio}
-                    className="w-full h-9 px-2 rounded-lg border border-input bg-background text-sm" />
-                </div>
-                <div className="flex items-end pb-1">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={formData.maneja}
-                      onChange={(e) => setFormData({ ...formData, maneja: e.target.checked })}
-                      disabled={!canEdit}
-                      className="rounded border-input" />
-                    <span className="text-sm">Maneja</span>
-                  </label>
-                </div>
+                    className="rounded border-input" />
+                  <span className="text-sm flex items-center gap-1"><Car className="h-3 w-3" /> Viaje</span>
+                </label>
+
+                {formData.viaje && !formData.esFrancoCompensatorio && (
+                  <div className="space-y-2 pl-6 border-l-2 border-primary/20">
+                    {/* Distance */}
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Distancia</label>
+                      <div className="grid grid-cols-3 gap-1">
+                        {[
+                          { value: 'CORTA', label: '-250km', hours: '3' },
+                          { value: 'MEDIA', label: '+350km', hours: '5' },
+                          { value: 'LARGA', label: '+500km', hours: '' },
+                        ].map((opt) => (
+                          <button key={opt.value} type="button"
+                            onClick={() => {
+                              if (!canEdit) return;
+                              setFormData({
+                                ...formData,
+                                distanciaViaje: opt.value,
+                                horasViajeInput: opt.hours || formData.horasViajeInput,
+                              });
+                            }}
+                            className={cn(
+                              'px-2 py-1.5 rounded-lg border text-xs font-medium transition-all',
+                              formData.distanciaViaje === opt.value
+                                ? 'border-primary bg-primary/15 text-primary'
+                                : 'border-border text-muted-foreground hover:border-primary/50',
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Manual hours for +500km */}
+                    {formData.distanciaViaje === 'LARGA' && (
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground mb-1 block">Horas de viaje</label>
+                        <input type="number" step="0.5" min="0" max="24"
+                          value={formData.horasViajeInput}
+                          onChange={(e) => setFormData({ ...formData, horasViajeInput: e.target.value })}
+                          disabled={!canEdit}
+                          className="w-full h-9 px-2 rounded-lg border border-input bg-background text-foreground text-sm" />
+                      </div>
+                    )}
+
+                    {/* Hours display for auto distances */}
+                    {formData.distanciaViaje && formData.distanciaViaje !== 'LARGA' && (
+                      <p className="text-xs text-muted-foreground">
+                        Horas de viaje: <span className="font-bold text-foreground">{formData.horasViajeInput}h</span>
+                      </p>
+                    )}
+
+                    {/* Maneja checkbox */}
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={formData.maneja}
+                        onChange={(e) => setFormData({ ...formData, maneja: e.target.checked })}
+                        disabled={!canEdit}
+                        className="rounded border-input" />
+                      <span className="text-sm">Maneja</span>
+                    </label>
+                  </div>
+                )}
               </div>
 
               {/* Flags */}
               <div className="flex flex-wrap gap-3">
-                {/* Feriado: shown as read-only badge if auto-detected, or checkbox if manual */}
-                {formData.esFeriado ? (
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
-                      🗓 Feriado
-                    </span>
-                  </div>
-                ) : canEdit && (
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={false}
-                      onChange={(e) => setFormData({ ...formData, esFeriado: e.target.checked })}
-                      className="rounded border-input" />
-                    <span className="text-sm text-red-400">Feriado</span>
-                  </label>
+                {/* Feriado: auto-detected, read-only */}
+                {formData.esFeriado && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+                    🗓 Feriado
+                  </span>
                 )}
 
                 {/* Franco trabajado: read-only indicator (auto-set when opening a franco day) */}
@@ -770,7 +857,7 @@ export default function PlanillaDetailPage() {
                   onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}
                   disabled={!canEdit}
                   rows={2}
-                  className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm resize-none" />
+                  className="w-full px-3 py-2 rounded-lg border border-input bg-background text-foreground text-sm resize-none" />
               </div>
 
               {/* Existing data summary (read-only view) */}
@@ -786,7 +873,7 @@ export default function PlanillaDetailPage() {
                 </div>
               )}
 
-              )}
+              </>)}
 
               {/* Actions */}
               {canEdit && !registroMap[selectedDate]?.bloqueado && (
@@ -818,7 +905,7 @@ export default function PlanillaDetailPage() {
             <h3 className="font-semibold">Motivo de rechazo</h3>
             <textarea value={motivoRechazo} onChange={(e) => setMotivoRechazo(e.target.value)}
               rows={3} placeholder="Describí el motivo del rechazo..."
-              className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm resize-none" />
+              className="w-full px-3 py-2 rounded-lg border border-input bg-background text-foreground text-sm resize-none" />
             <div className="flex gap-2 justify-end">
               <button onClick={() => setShowRechazo(false)}
                 className="px-4 py-2 rounded-lg border border-border text-sm">Cancelar</button>
@@ -895,7 +982,7 @@ function DrumTimePicker({
       <div
         ref={hourRef}
         onScroll={handleHourScroll}
-        className="h-[120px] overflow-y-scroll snap-y snap-mandatory scrollbar-none rounded-lg border border-input bg-background relative w-16 cursor-grab"
+        className="h-[120px] overflow-y-scroll snap-y snap-mandatory scrollbar-none rounded-lg border border-input bg-background text-foreground relative w-16 cursor-grab"
         style={{ scrollbarWidth: 'none' }}
       >
         {/* padding top/bottom so first/last item centers */}
@@ -920,7 +1007,7 @@ function DrumTimePicker({
       <div
         ref={minRef}
         onScroll={handleMinScroll}
-        className="h-[120px] overflow-y-scroll snap-y snap-mandatory scrollbar-none rounded-lg border border-input bg-background relative w-16 cursor-grab"
+        className="h-[120px] overflow-y-scroll snap-y snap-mandatory scrollbar-none rounded-lg border border-input bg-background text-foreground relative w-16 cursor-grab"
         style={{ scrollbarWidth: 'none' }}
       >
         <div style={{ height: ITEM_H }} />

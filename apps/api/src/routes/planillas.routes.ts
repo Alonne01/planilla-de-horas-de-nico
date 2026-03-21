@@ -37,6 +37,7 @@ const createRegistroSchema = z.object({
   esFeriado: z.boolean().optional(),
   esFrancoCompensatorio: z.boolean().optional(),
   esFrancoTrabajado: z.boolean().optional(),
+  distanciaViaje: z.string().nullable().optional(),
   observaciones: z.string().max(500).nullable().optional(),
   proyectoId: z.string().uuid().nullable().optional(),
 });
@@ -518,6 +519,7 @@ router.post('/:id/registros', async (req: AuthRequest, res: Response): Promise<v
         pernocte: parsed.data.pernocte ?? 'NO',
         maneja: parsed.data.maneja ?? false,
         horasViajeInput: new Decimal((parsed.data.horasViajeInput ?? 2).toString()),
+        distanciaViaje: parsed.data.distanciaViaje ?? null,
         esFeriado: parsed.data.esFeriado ?? false,
         esFrancoCompensatorio: parsed.data.esFrancoCompensatorio ?? false,
         esFrancoTrabajado: parsed.data.esFrancoTrabajado ?? false,
@@ -597,6 +599,7 @@ router.put('/:id/registros/:rid', async (req: AuthRequest, res: Response): Promi
         pernocte: parsed.data.pernocte ?? 'NO',
         maneja: parsed.data.maneja ?? false,
         horasViajeInput: new Decimal((parsed.data.horasViajeInput ?? 2).toString()),
+        distanciaViaje: parsed.data.distanciaViaje ?? null,
         esFeriado: parsed.data.esFeriado ?? false,
         esFrancoCompensatorio: parsed.data.esFrancoCompensatorio ?? false,
         esFrancoTrabajado: parsed.data.esFrancoTrabajado ?? false,
@@ -642,6 +645,67 @@ router.delete('/:id/registros/:rid', async (req: AuthRequest, res: Response): Pr
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting registro:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── PATCH toggle compensatorio (supervisor+) ─────────────────
+router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const planillaId = req.params.id as string;
+    const rid = req.params.rid as string;
+    const { activar } = req.body; // boolean
+
+    const planilla = await prisma.planilla.findUnique({
+      where: { id: planillaId },
+      include: { usuario: { select: { empresaId: true } } },
+    });
+
+    if (!planilla || planilla.usuario.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Planilla no encontrada' });
+      return;
+    }
+
+    const registro = await prisma.registroHoras.findUnique({ where: { id: rid } });
+    if (!registro || registro.planillaId !== planillaId) {
+      res.status(404).json({ error: 'Registro no encontrado' });
+      return;
+    }
+
+    if (activar) {
+      const updated = await prisma.registroHoras.update({
+        where: { id: rid },
+        data: {
+          esFrancoCompensatorio: true,
+          bloqueado: true,
+          motivoBloqueo: 'FRANCO_COMPENSATORIO',
+          entradaTurno1: null,
+          salidaTurno1: null,
+          entradaTurno2: null,
+          salidaTurno2: null,
+          horasTrabajadas: new Decimal('0'),
+          horasNormales: new Decimal('0'),
+          horasExtra50: new Decimal('0'),
+          horasExtra100: new Decimal('0'),
+          horasViajeCalc: new Decimal('0'),
+          observaciones: `Franco compensatorio otorgado por ${req.user!.nombre || 'superior'}`,
+        },
+      });
+      res.json(updated);
+    } else {
+      const updated = await prisma.registroHoras.update({
+        where: { id: rid },
+        data: {
+          esFrancoCompensatorio: false,
+          bloqueado: false,
+          motivoBloqueo: null,
+          observaciones: `Franco compensatorio revocado por ${req.user!.nombre || 'superior'}`,
+        },
+      });
+      res.json(updated);
+    }
+  } catch (error) {
+    console.error('Error toggling compensatorio:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });

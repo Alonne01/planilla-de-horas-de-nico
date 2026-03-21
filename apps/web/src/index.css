@@ -140,4 +140,25 @@
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
   }
+  /* Force form elements to inherit theme text color */
+  input,
+  select,
+  textarea,
+  button {
+    color: inherit;
+  }
+  /* Style <option> dropdowns for dark themes */
+  option {
+    background-color: var(--card);
+    color: var(--card-foreground);
+  }
+}
+
+/* Color scheme hint for browser UI (scrollbars, form controls, date pickers) */
+[data-theme="dark"],
+[data-theme="soul"] {
+  color-scheme: dark;
+}
+[data-theme="concrete"] {
+  color-scheme: light;
 }
