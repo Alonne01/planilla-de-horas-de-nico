@@ -148,11 +148,23 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
       periodoFin = periodo.fin;
     }
 
+    // Check: only one planilla per user per cycle (no overlapping periods)
     const existing = await prisma.planilla.findFirst({
-      where: { usuarioId: userId, periodoInicio, periodoFin },
+      where: {
+        usuarioId: userId,
+        OR: [
+          // Exact match
+          { periodoInicio, periodoFin },
+          // Any overlap with the requested period
+          {
+            periodoInicio: { lte: periodoFin },
+            periodoFin: { gte: periodoInicio },
+          },
+        ],
+      },
     });
     if (existing) {
-      res.status(409).json({ error: 'Ya existe una planilla para este período', planillaId: existing.id });
+      res.status(409).json({ error: 'Ya existe una planilla para este ciclo mensual', planillaId: existing.id });
       return;
     }
 
@@ -328,6 +340,39 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         ...(nuevoEstado === 'APROBADA' ? { aprobadaPorId: req.user!.userId, aprobadaAt: new Date() } : {}),
       },
     });
+
+    // When planilla is approved, update compensatorio saldos
+    if (nuevoEstado === 'APROBADA') {
+      // Count franco trabajado days → increment compensatoriosAcumulados
+      const registros = await prisma.registroHoras.findMany({
+        where: { planillaId: planilla.id },
+      });
+
+      const francosTrabajados = registros.filter(r => r.esFrancoTrabajado).length;
+      const compensatoriosUsados = registros.filter(r => r.esFrancoCompensatorio).length;
+
+      if (francosTrabajados > 0 || compensatoriosUsados > 0) {
+        const anio = new Date(planilla.periodoInicio).getFullYear();
+        await prisma.vacacionSaldo.upsert({
+          where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
+          create: {
+            usuarioId: planilla.usuarioId,
+            anio,
+            diasCorrespondientes: 0,
+            compensatoriosAcumulados: francosTrabajados,
+            compensatoriosUsados: compensatoriosUsados,
+          },
+          update: {
+            compensatoriosAcumulados: { increment: francosTrabajados },
+            // Move from pendientes to usados for compensatorio days
+            ...(compensatoriosUsados > 0 ? {
+              compensatoriosPendientes: { decrement: compensatoriosUsados },
+              compensatoriosUsados: { increment: compensatoriosUsados },
+            } : {}),
+          },
+        });
+      }
+    }
 
     await prisma.planillaHistorial.create({
       data: {
@@ -658,7 +703,7 @@ router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR)
 
     const planilla = await prisma.planilla.findUnique({
       where: { id: planillaId },
-      include: { usuario: { select: { empresaId: true } } },
+      include: { usuario: { select: { empresaId: true, id: true } } },
     });
 
     if (!planilla || planilla.usuario.empresaId !== req.user!.empresaId) {
@@ -691,6 +736,22 @@ router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR)
           observaciones: `Franco compensatorio otorgado por ${req.user!.nombre || 'superior'}`,
         },
       });
+
+      // Increment compensatoriosPendientes on the user's VacacionSaldo
+      const anio = new Date(registro.fecha).getFullYear();
+      await prisma.vacacionSaldo.upsert({
+        where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
+        create: {
+          usuarioId: planilla.usuarioId,
+          anio,
+          diasCorrespondientes: 0,
+          compensatoriosPendientes: 1,
+        },
+        update: {
+          compensatoriosPendientes: { increment: 1 },
+        },
+      });
+
       res.json(updated);
     } else {
       const updated = await prisma.registroHoras.update({
@@ -702,6 +763,28 @@ router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR)
           observaciones: `Franco compensatorio revocado por ${req.user!.nombre || 'superior'}`,
         },
       });
+
+      // Decrement compensatoriosPendientes or compensatoriosUsados
+      const anio = new Date(registro.fecha).getFullYear();
+      const saldo = await prisma.vacacionSaldo.findUnique({
+        where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
+      });
+      if (saldo) {
+        if (planilla.estado === 'APROBADA') {
+          // Already approved: decrement usados
+          await prisma.vacacionSaldo.update({
+            where: { id: saldo.id },
+            data: { compensatoriosUsados: { decrement: 1 } },
+          });
+        } else {
+          // Still pending: decrement pendientes
+          await prisma.vacacionSaldo.update({
+            where: { id: saldo.id },
+            data: { compensatoriosPendientes: { decrement: 1 } },
+          });
+        }
+      }
+
       res.json(updated);
     }
   } catch (error) {

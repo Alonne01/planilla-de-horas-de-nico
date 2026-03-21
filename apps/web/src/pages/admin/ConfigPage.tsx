@@ -14,7 +14,6 @@ interface EmpresaConfig {
   descuentoAlmuerzoMinutos: number;
   descuentoAlmuerzoCampo: boolean;
   redondeoMinutos: number;
-  horasViajeDefault: number;
   tarifaViajeManeja: number;
   tarifaViajeSinManejar: number;
   zonaHoraria: string;
@@ -165,13 +164,6 @@ export default function ConfigPage() {
       {/* Viaje */}
       <Section title="Viaje" icon={<MapPin className="h-4 w-4" />}>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <Field label="Horas viaje default">
-            <input
-              type="number" min="0" max="24" step="0.5" className={inputClass}
-              value={currentConfig.horasViajeDefault ?? ''}
-              onChange={(e) => handleChange('horasViajeDefault', parseFloat(e.target.value))}
-            />
-          </Field>
           <Field label="Tarifa viaje manejando ($/hr)">
             <input
               type="number" min="0" step="0.01" className={inputClass}

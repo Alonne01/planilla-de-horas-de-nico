@@ -590,6 +590,9 @@ model VacacionSaldo {
   diasUsados           Int      @default(0) @map("dias_usados")
   diasPendientes       Int      @default(0) @map("dias_pendientes") // pending-approval requests
   diasAjuste           Int      @default(0) @map("dias_ajuste") // manual +/- adjustment by RRHH
+  compensatoriosAcumulados  Int @default(0) @map("compensatorios_acumulados")  // earned by working on franco days
+  compensatoriosUsados      Int @default(0) @map("compensatorios_usados")       // approved & not revoked
+  compensatoriosPendientes  Int @default(0) @map("compensatorios_pendientes")   // pending approval
   override             Boolean  @default(false) // true if RRHH manually set diasCorrespondientes
   observaciones        String?  // notes on adjustments
   createdAt            DateTime @default(now()) @map("created_at")

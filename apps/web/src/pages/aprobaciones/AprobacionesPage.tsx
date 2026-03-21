@@ -5,7 +5,7 @@ import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import {
-  CheckCircle2, XCircle, Loader2, Clock, Palmtree,
+  CheckCircle2, XCircle, Loader2, Clock, Palmtree, Calendar,
   History, AlertCircle, ChevronRight, X, Send, AlertTriangle
 } from 'lucide-react';
 
@@ -41,10 +41,24 @@ interface AusenciaItem {
   usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
 }
 
+interface CompensatorioItem {
+  id: string;
+  fecha: string;
+  observaciones: string | null;
+  planilla: {
+    id: string;
+    periodoInicio: string;
+    periodoFin: string;
+    estado: string;
+    usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
+  };
+}
+
 interface AprobacionesData {
   planillasPendientes: PlanillaItem[];
   vacacionesPendientes: VacacionItem[];
   ausenciasPendientes: AusenciaItem[];
+  compensatoriosPendientes: CompensatorioItem[];
   historial: {
     planillas: PlanillaItem[];
     vacaciones: VacacionItem[];
@@ -66,7 +80,7 @@ export default function AprobacionesPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
-  const [tab, setTab] = useState<'planillas' | 'vacaciones' | 'ausencias' | 'historial'>('planillas');
+  const [tab, setTab] = useState<'planillas' | 'vacaciones' | 'ausencias' | 'compensatorios' | 'historial'>('planillas');
   const [rechazandoId, setRechazandoId] = useState<string | null>(null);
   const [rechazandoTipo, setRechazandoTipo] = useState<'planilla' | 'vacacion' | 'ausencia'>('planilla');
   const [motivoRechazo, setMotivoRechazo] = useState('');
@@ -113,7 +127,8 @@ export default function AprobacionesPage() {
   const planillasPendienteCount = data?.planillasPendientes.length ?? 0;
   const vacacionesPendienteCount = data?.vacacionesPendientes.length ?? 0;
   const ausenciasPendienteCount = data?.ausenciasPendientes?.length ?? 0;
-  const pendingTotal = planillasPendienteCount + vacacionesPendienteCount + ausenciasPendienteCount;
+  const compensatoriosPendienteCount = data?.compensatoriosPendientes?.length ?? 0;
+  const pendingTotal = planillasPendienteCount + vacacionesPendienteCount + ausenciasPendienteCount + compensatoriosPendienteCount;
 
   if ((user?.rolNivel ?? 0) < 60) {
     return (
@@ -180,6 +195,20 @@ export default function AprobacionesPage() {
           {ausenciasPendienteCount > 0 && (
             <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
               {ausenciasPendienteCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setTab('compensatorios')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all',
+            tab === 'compensatorios' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <Calendar className="h-4 w-4" /> Compensatorios
+          {compensatoriosPendienteCount > 0 && (
+            <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
+              {compensatoriosPendienteCount}
             </span>
           )}
         </button>
@@ -348,8 +377,57 @@ export default function AprobacionesPage() {
             </div>
           )}
         </div>
+      ) : tab === 'compensatorios' ? (
+        <div className="space-y-4">
+          {(data?.compensatoriosPendientes ?? []).length > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-2">
+                <Calendar className="h-4 w-4 text-purple-400" />
+                <h2 className="text-sm font-semibold text-foreground">Días compensatorios pendientes</h2>
+                <span className="text-xs text-muted-foreground">({data!.compensatoriosPendientes.length})</span>
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                Los compensatorios se aprueban junto con su planilla. Esta vista es informativa.
+              </p>
+              <div className="space-y-2">
+                {data!.compensatoriosPendientes.map((c) => (
+                  <div key={c.id} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="font-medium text-sm">{c.planilla.usuario.apellido}, {c.planilla.usuario.nombre}</span>
+                        <span className="text-xs text-muted-foreground">{c.planilla.usuario.sector?.nombre ?? c.planilla.usuario.rol}</span>
+                        {c.planilla.usuario.legajo && (
+                          <span className="text-xs text-muted-foreground">#{c.planilla.usuario.legajo}</span>
+                        )}
+                        <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[c.planilla.estado])}>
+                          {c.planilla.estado === 'EN_REVISION' ? 'En revisión' : c.planilla.estado.charAt(0) + c.planilla.estado.slice(1).toLowerCase()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Franco compensatorio: <span className="font-medium">{new Date(c.fecha).toLocaleDateString('es-AR')}</span>
+                      </p>
+                      {c.observaciones && <p className="text-xs text-muted-foreground mt-0.5">«{c.observaciones}»</p>}
+                    </div>
+                    <button
+                      onClick={() => navigate(`/planillas/${c.planilla.id}`)}
+                      className="p-2 rounded-lg hover:bg-accent text-muted-foreground shrink-0"
+                      title="Ver planilla"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+          {compensatoriosPendienteCount === 0 && (
+            <div className="text-center py-16 text-muted-foreground">
+              <Calendar className="h-10 w-10 mx-auto mb-3 opacity-30 text-purple-400" />
+              <p className="text-sm">No hay compensatorios pendientes</p>
+            </div>
+          )}
+        </div>
       ) : (
-        /* Historial */
         <div className="space-y-4">
           {/* Planillas historial */}
           {(data?.historial.planillas.length ?? 0) > 0 && (

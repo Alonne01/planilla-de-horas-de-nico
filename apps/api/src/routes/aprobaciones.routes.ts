@@ -23,7 +23,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     if (userNivel < 60) {
       // OPERADOR can't approve anything
-      res.json({ planillasPendientes: [], vacacionesPendientes: [], historial: [] });
+      res.json({ planillasPendientes: [], vacacionesPendientes: [], compensatoriosPendientes: [], historial: [] });
       return;
     }
 
@@ -117,6 +117,34 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       orderBy: { createdAt: 'asc' },
     });
 
+    // ── Pending compensatorios ──────────────────────────────────
+    const planillaFilter = approvableUserIds
+      ? { usuarioId: { in: approvableUserIds } }
+      : { usuario: { empresaId } };
+
+    const compensatoriosPendientes = await prisma.registroHoras.findMany({
+      where: {
+        esFrancoCompensatorio: true,
+        planilla: {
+          ...planillaFilter,
+          estado: { in: ['ENVIADA', 'EN_REVISION'] },
+        },
+      },
+      include: {
+        planilla: {
+          include: {
+            usuario: {
+              select: {
+                id: true, nombre: true, apellido: true, legajo: true, rol: true,
+                sector: { select: { nombre: true } },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { fecha: 'asc' },
+    });
+
     // ── Recent history (last 30 items) ────────────────────────────
     const planillasHistory = await prisma.planilla.findMany({
       where: {
@@ -158,6 +186,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       planillasPendientes,
       vacacionesPendientes,
       ausenciasPendientes,
+      compensatoriosPendientes,
       historial: {
         planillas: planillasHistory,
         vacaciones: vacacionesHistory,

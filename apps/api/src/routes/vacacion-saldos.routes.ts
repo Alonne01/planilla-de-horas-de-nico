@@ -108,6 +108,8 @@ router.post('/generar', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: 
 const updateSaldoSchema = z.object({
   diasCorrespondientes: z.number().int().min(0).optional(),
   diasAjuste: z.number().int().optional(),
+  compensatoriosAcumulados: z.number().int().min(0).optional(),
+  compensatoriosUsados: z.number().int().min(0).optional(),
   override: z.boolean().optional(),
   observaciones: z.string().max(500).optional().nullable(),
 });
@@ -136,6 +138,8 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
       data.override = true;
     }
     if (parsed.data.diasAjuste !== undefined) data.diasAjuste = parsed.data.diasAjuste;
+    if (parsed.data.compensatoriosAcumulados !== undefined) data.compensatoriosAcumulados = parsed.data.compensatoriosAcumulados;
+    if (parsed.data.compensatoriosUsados !== undefined) data.compensatoriosUsados = parsed.data.compensatoriosUsados;
     if (parsed.data.override !== undefined) data.override = parsed.data.override;
     if (parsed.data.observaciones !== undefined) data.observaciones = parsed.data.observaciones;
 
@@ -186,6 +190,10 @@ router.get('/mi-saldo', async (req: AuthRequest, res: Response): Promise<void> =
       total: saldo.diasCorrespondientes + saldo.diasAjuste,
       diasCorrespondientes: saldo.diasCorrespondientes,
       diasAjuste: saldo.diasAjuste,
+      compensatoriosDisponible: saldo.compensatoriosAcumulados - saldo.compensatoriosUsados - saldo.compensatoriosPendientes,
+      compensatoriosAcumulados: saldo.compensatoriosAcumulados,
+      compensatoriosUsados: saldo.compensatoriosUsados,
+      compensatoriosPendientes: saldo.compensatoriosPendientes,
     });
   } catch (error) {
     console.error('Error getting mi saldo:', error);

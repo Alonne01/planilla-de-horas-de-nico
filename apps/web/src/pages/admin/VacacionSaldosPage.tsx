@@ -14,6 +14,9 @@ interface SaldoRow {
   diasUsados: number;
   diasPendientes: number;
   diasAjuste: number;
+  compensatoriosAcumulados: number;
+  compensatoriosUsados: number;
+  compensatoriosPendientes: number;
   override: boolean;
   observaciones: string | null;
   usuario: {
@@ -39,6 +42,7 @@ export default function VacacionSaldosPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDias, setEditDias] = useState(0);
   const [editAjuste, setEditAjuste] = useState(0);
+  const [editCompAcum, setEditCompAcum] = useState(0);
   const [editObs, setEditObs] = useState('');
   const [search, setSearch] = useState('');
   const [sectorFilter, setSectorFilter] = useState('');
@@ -74,6 +78,7 @@ export default function VacacionSaldosPage() {
     setEditingId(s.id);
     setEditDias(s.diasCorrespondientes);
     setEditAjuste(s.diasAjuste);
+    setEditCompAcum(s.compensatoriosAcumulados);
     setEditObs(s.observaciones || '');
   }
 
@@ -83,6 +88,7 @@ export default function VacacionSaldosPage() {
       data: {
         diasCorrespondientes: editDias,
         diasAjuste: editAjuste,
+        compensatoriosAcumulados: editCompAcum,
         observaciones: editObs || null,
       },
     });
@@ -109,7 +115,8 @@ export default function VacacionSaldosPage() {
     const totalDias = filteredSaldos.reduce((s, r) => s + r.diasCorrespondientes + r.diasAjuste, 0);
     const totalUsados = filteredSaldos.reduce((s, r) => s + r.diasUsados, 0);
     const overrides = filteredSaldos.filter(r => r.override).length;
-    return { total, totalDias, totalUsados, overrides };
+    const totalCompDisponibles = filteredSaldos.reduce((s, r) => s + r.compensatoriosAcumulados - r.compensatoriosUsados - r.compensatoriosPendientes, 0);
+    return { total, totalDias, totalUsados, overrides, totalCompDisponibles };
   }, [filteredSaldos]);
 
   function getAntiguedad(fechaIngreso: string) {
@@ -154,7 +161,7 @@ export default function VacacionSaldosPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         <div className="rounded-lg border border-border bg-card p-3 text-center">
           <p className="text-lg font-bold font-mono text-foreground">{stats.total}</p>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Usuarios</p>
@@ -170,6 +177,10 @@ export default function VacacionSaldosPage() {
         <div className="rounded-lg border border-border bg-card p-3 text-center">
           <p className="text-lg font-bold font-mono text-amber-400">{stats.overrides}</p>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Ajustados</p>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3 text-center">
+          <p className="text-lg font-bold font-mono text-purple-400">{stats.totalCompDisponibles}</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Comp. Disp.</p>
         </div>
       </div>
 
@@ -222,6 +233,10 @@ export default function VacacionSaldosPage() {
                   <th className="text-center px-3 py-3 font-medium text-muted-foreground">Usados</th>
                   <th className="text-center px-3 py-3 font-medium text-muted-foreground">Pend.</th>
                   <th className="text-center px-3 py-3 font-medium text-muted-foreground text-emerald-400">Disponible</th>
+                  <th className="text-center px-3 py-3 font-medium text-muted-foreground">Comp. Acum.</th>
+                  <th className="text-center px-3 py-3 font-medium text-muted-foreground">Comp. Usados</th>
+                  <th className="text-center px-3 py-3 font-medium text-muted-foreground">Comp. Pend.</th>
+                  <th className="text-center px-3 py-3 font-medium text-muted-foreground text-purple-400">Comp. Disp.</th>
                   <th className="text-center px-3 py-3 font-medium text-muted-foreground">Acciones</th>
                 </tr>
               </thead>
@@ -287,6 +302,38 @@ export default function VacacionSaldosPage() {
                         <span className={cn('font-mono font-bold', disponible > 0 ? 'text-emerald-400' : 'text-red-400')}>
                           {disponible}
                         </span>
+                      </td>
+                      {/* Comp. Acumulados */}
+                      <td className="text-center px-3 py-3">
+                        {isEditing ? (
+                          <input type="number" min="0" max="365"
+                            value={editCompAcum} onChange={(e) => setEditCompAcum(parseInt(e.target.value) || 0)}
+                            className="w-14 h-7 text-center rounded border border-input bg-background text-foreground text-sm"
+                          />
+                        ) : (
+                          <span className="font-mono">{s.compensatoriosAcumulados}</span>
+                        )}
+                      </td>
+                      {/* Comp. Usados */}
+                      <td className="text-center px-3 py-3">
+                        <span className="font-mono">{s.compensatoriosUsados}</span>
+                      </td>
+                      {/* Comp. Pendientes */}
+                      <td className="text-center px-3 py-3">
+                        <span className={cn('font-mono', s.compensatoriosPendientes > 0 && 'text-amber-400')}>
+                          {s.compensatoriosPendientes}
+                        </span>
+                      </td>
+                      {/* Comp. Disponible */}
+                      <td className="text-center px-3 py-3">
+                        {(() => {
+                          const compDisp = s.compensatoriosAcumulados - s.compensatoriosUsados - s.compensatoriosPendientes;
+                          return (
+                            <span className={cn('font-mono font-bold', compDisp > 0 ? 'text-purple-400' : 'text-muted-foreground')}>
+                              {compDisp}
+                            </span>
+                          );
+                        })()}
                       </td>
                       {/* Actions */}
                       <td className="text-center px-3 py-3">
