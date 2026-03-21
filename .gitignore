@@ -23,6 +23,15 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Backups (stored locally, not in git)
+**/backups/
+
+# Uploads
+**/uploads/*.pdf
+**/uploads/*.jpg
+**/uploads/*.jpeg
+**/uploads/*.png
+
 # OS and editors
 .DS_Store
 .idea/

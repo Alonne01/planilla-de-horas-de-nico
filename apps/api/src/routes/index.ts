@@ -18,6 +18,7 @@ import recibosRoutes from './recibos.routes.js';
 import exportacionesRoutes from './exportaciones.routes.js';
 import vacacionSaldosRoutes from './vacacion-saldos.routes.js';
 import aprobacionesRoutes from './aprobaciones.routes.js';
+import backupRoutes from './backup.routes.js';
 
 const router = Router();
 
@@ -62,5 +63,8 @@ router.use('/admin/config', adminConfigRoutes);
 router.use('/admin/conceptos', adminConceptosRoutes);
 router.use('/admin', adminConveniosRoutes);
 router.use('/admin/roles', adminRolesRoutes);
+
+// Backup
+router.use('/backup', backupRoutes);
 
 export default router;

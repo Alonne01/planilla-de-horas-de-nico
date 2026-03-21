@@ -5,7 +5,11 @@ import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
+import { PrismaClient } from '@prisma/client';
 import routes from './routes/index.js';
+import { startBackupScheduler, stopBackupScheduler } from './utils/backup.service.js';
+
+const prisma = new PrismaClient();
 
 const app = express();
 const PORT = parseInt(process.env.PORT ?? '4000', 10);
@@ -101,6 +105,21 @@ app.listen(PORT, () => {
   console.log(`\n🚀 API Planilla de Horas corriendo en http://localhost:${PORT}`);
   console.log(`📋 Health check: http://localhost:${PORT}/api/v1/health`);
   console.log(`🔑 Login: POST http://localhost:${PORT}/api/v1/auth/login\n`);
+
+  // Start backup scheduler with DB health monitoring
+  startBackupScheduler(prisma);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  stopBackupScheduler();
+  prisma.$disconnect();
+  process.exit(0);
+});
+process.on('SIGINT', () => {
+  stopBackupScheduler();
+  prisma.$disconnect();
+  process.exit(0);
 });
 
 export default app;
