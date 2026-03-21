@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
 import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
+import { notificarVacacion } from '../utils/notificacion.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -392,6 +393,11 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       },
     });
 
+    // Notify vacation requester
+    const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
+    const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}` : 'Un aprobador';
+    await notificarVacacion(vacacion.usuarioId, nuevoEstado as 'APROBADA' | 'EN_REVISION', aprobadorNombre);
+
     res.json(updated);
   } catch (error) {
     console.error('Error al avanzar vacacion:', error);
@@ -434,6 +440,11 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
         comentario: motivo,
       },
     });
+
+    // Notify vacation requester
+    const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
+    const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}` : 'Un aprobador';
+    await notificarVacacion(vacacion.usuarioId, 'RECHAZADA', aprobadorNombre, motivo);
 
     res.json(updated);
   } catch (error) {

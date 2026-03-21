@@ -4,6 +4,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { notificarPlanilla } from '../utils/notificacion.utils.js';
 import {
   calcularHorasRegistro,
   getEmpresaConfig,
@@ -425,6 +426,11 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       },
     });
 
+    // Notify planilla owner
+    const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
+    const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}` : 'Un aprobador';
+    await notificarPlanilla(planilla.usuarioId, nuevoEstado as 'APROBADA' | 'EN_REVISION', aprobadorNombre);
+
     res.json(updated);
   } catch (error) {
     console.error('Error al avanzar planilla:', error);
@@ -467,6 +473,11 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
         comentario: motivo,
       },
     });
+
+    // Notify planilla owner
+    const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
+    const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}` : 'Un aprobador';
+    await notificarPlanilla(planilla.usuarioId, 'RECHAZADA', aprobadorNombre, motivo);
 
     res.json(updated);
   } catch (error) {

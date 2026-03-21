@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import {
   ArrowLeft, Send, CheckCircle2, XCircle, Loader2,
-  Clock, MapPin, Car, Moon, AlertCircle, AlertTriangle, X, Download, CalendarClock, Lock
+  Clock, MapPin, Car, Moon, AlertCircle, AlertTriangle, X, Download, CalendarClock, Lock, Zap
 } from 'lucide-react';
 
 // ─── Argentine public holidays (fixed + movable approx.) ─────────────────────
@@ -206,7 +206,9 @@ export default function PlanillaDetailPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [motivoRechazo, setMotivoRechazo] = useState('');
   const [showRechazo, setShowRechazo] = useState(false);
+  const [showConfirmApproval, setShowConfirmApproval] = useState(false);
   const [applyingDiagram, setApplyingDiagram] = useState(false);
+  const [quickFilling, setQuickFilling] = useState(false);
   const [diasFaltantes, setDiasFaltantes] = useState<string[]>([]);
 
   // Form state for the day editor
@@ -361,6 +363,70 @@ export default function PlanillaDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['planilla', id] });
     } finally {
       setApplyingDiagram(false);
+    }
+  }
+
+  /**
+   * Quick-fill all working days that don't have a registro yet.
+   * Uses the last saved defaults (hours, location, pernocte).
+   * Skips: franco days, feriados, days already with a registro, blocked days.
+   */
+  async function handleQuickFill() {
+    if (!planilla) return;
+    setQuickFilling(true);
+    try {
+      let lastEntry = '07:00';
+      let lastExit = '15:00';
+      let lastLugar = 'CAMPO';
+      let lastPernocte = 'NO';
+      try {
+        const saved = JSON.parse(localStorage.getItem(LAST_DEFAULTS_KEY) || '{}');
+        if (saved.entrada) lastEntry = saved.entrada;
+        if (saved.salida) lastExit = saved.salida;
+        if (saved.lugarTrabajo) lastLugar = saved.lugarTrabajo;
+        if (saved.pernocte) lastPernocte = saved.pernocte;
+      } catch { /* ignore */ }
+
+      const days = buildCalendarDays(planilla.periodoInicio, planilla.periodoFin);
+      const promises: Promise<unknown>[] = [];
+
+      for (const day of days) {
+        const key = dateKey(day);
+        const reg = registroMap[key];
+        // Skip if already has a registro
+        if (reg) continue;
+        // Skip franco days
+        const franco = isFranco(day);
+        if (franco) continue;
+        // Skip feriados
+        const y = day.getFullYear();
+        const holidays = buildArgHolidays(y);
+        if (holidays.has(key)) continue;
+
+        const [h1, m1] = lastEntry.split(':').map(Number);
+        const [h2, m2] = lastExit.split(':').map(Number);
+
+        promises.push(api.post(`/planillas/${id}/registros`, {
+          fecha: new Date(y, day.getMonth(), day.getDate(), 12, 0, 0).toISOString(),
+          entradaTurno1: new Date(y, day.getMonth(), day.getDate(), h1, m1, 0).toISOString(),
+          salidaTurno1: new Date(y, day.getMonth(), day.getDate(), h2, m2, 0).toISOString(),
+          entradaTurno2: null,
+          salidaTurno2: null,
+          lugarTrabajo: lastLugar,
+          pernocte: lastPernocte,
+          maneja: false,
+          horasViajeInput: 0,
+          distanciaViaje: null,
+          esFeriado: false,
+          esFrancoTrabajado: false,
+          esFrancoCompensatorio: false,
+          observaciones: null,
+        }));
+      }
+      await Promise.all(promises);
+      queryClient.invalidateQueries({ queryKey: ['planilla', id] });
+    } finally {
+      setQuickFilling(false);
     }
   }
 
@@ -531,7 +597,7 @@ export default function PlanillaDetailPage() {
         )}
         {canApprove && (
           <>
-            <button onClick={() => avanzarMutation.mutate()} disabled={avanzarMutation.isPending}
+            <button onClick={() => setShowConfirmApproval(true)} disabled={avanzarMutation.isPending}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors">
               {avanzarMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               Aprobar
@@ -552,6 +618,17 @@ export default function PlanillaDetailPage() {
           >
             {applyingDiagram ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
             Aplicar diagrama
+          </button>
+        )}
+        {canEdit && (
+          <button
+            onClick={handleQuickFill}
+            disabled={quickFilling}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-500/40 text-amber-400 bg-amber-500/5 text-sm font-medium hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
+            title="Llena todos los días laborables vacíos con el último horario usado"
+          >
+            {quickFilling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+            Llenar días laborables
           </button>
         )}
         <button onClick={async () => {
@@ -763,6 +840,39 @@ export default function PlanillaDetailPage() {
 
               {/* Time pickers */}
               {!registroMap[selectedDate]?.bloqueado && (<>
+              {/* Quick-copy from previous day */}
+              {canEdit && (() => {
+                const [y, m, d] = selectedDate.split('-').map(Number);
+                const prev = new Date(y, m - 1, d - 1, 12, 0, 0);
+                const prevKey = dateKey(prev);
+                const prevReg = registroMap[prevKey];
+                if (!prevReg || prevReg.bloqueado || prevReg.esFrancoCompensatorio) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const fmtTime = (iso: string | null) => {
+                        if (!iso) return '';
+                        return new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+                      };
+                      setFormData({
+                        ...formData,
+                        entradaTurno1: fmtTime(prevReg.entradaTurno1) || formData.entradaTurno1,
+                        salidaTurno1: fmtTime(prevReg.salidaTurno1) || formData.salidaTurno1,
+                        lugarTrabajo: prevReg.lugarTrabajo || formData.lugarTrabajo,
+                        pernocte: prevReg.pernocte || formData.pernocte,
+                        maneja: prevReg.maneja,
+                        horasViajeInput: prevReg.horasViajeInput || '0',
+                        viaje: parseFloat(prevReg.horasViajeInput || '0') > 0,
+                        distanciaViaje: prevReg.distanciaViaje || '',
+                      });
+                    }}
+                    className="w-full inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border border-blue-500/30 text-blue-400 bg-blue-500/5 text-xs font-medium hover:bg-blue-500/10 transition-colors"
+                  >
+                    📋 Copiar día anterior ({prev.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })})
+                  </button>
+                );
+              })()}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground mb-2 block">Entrada</label>
@@ -997,6 +1107,28 @@ export default function PlanillaDetailPage() {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Approval confirmation modal ── */}
+      {showConfirmApproval && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-card shadow-2xl p-4 space-y-4">
+            <h3 className="font-semibold text-emerald-400">¿Confirmar aprobación?</h3>
+            <p className="text-sm text-muted-foreground">
+              Estás por aprobar esta planilla de <strong>{planilla.usuario.nombre} {planilla.usuario.apellido}</strong>.
+              Esta acción no se puede deshacer.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowConfirmApproval(false)}
+                className="px-4 py-2 rounded-lg border border-border text-sm">Cancelar</button>
+              <button onClick={() => { setShowConfirmApproval(false); avanzarMutation.mutate(); }}
+                disabled={avanzarMutation.isPending}
+                className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                {avanzarMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Aprobar'}
+              </button>
             </div>
           </div>
         </div>

@@ -5,6 +5,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { upload } from '../middleware/upload.middleware.js';
 import { inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
+import { notificarAusencia } from '../utils/notificacion.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -532,6 +533,11 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       }
     }
 
+    // Notify absence requester
+    const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
+    const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}` : 'Un aprobador';
+    await notificarAusencia(ausencia.usuarioId, nuevoEstado as 'APROBADA' | 'EN_REVISION', aprobadorNombre);
+
     res.json(updated);
   } catch (error) {
     console.error('Error al avanzar ausencia:', error);
@@ -583,6 +589,11 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
         data: { compensatoriosPendientes: { decrement: ausencia.diasAusencia } },
       });
     }
+
+    // Notify absence requester
+    const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
+    const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}` : 'Un aprobador';
+    await notificarAusencia(ausencia.usuarioId, 'RECHAZADA', aprobadorNombre, motivo);
 
     res.json(updated);
   } catch (error) {
