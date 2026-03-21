@@ -81,6 +81,7 @@ export default function AusenciasPage() {
   const user = useAuthStore((s) => s.user);
   const [showForm, setShowForm] = useState(false);
   const [showCompForm, setShowCompForm] = useState(false);
+  const [showSolicitarForm, setShowSolicitarForm] = useState(false);
   const [filterTipo, setFilterTipo] = useState('');
   const [filterSector, setFilterSector] = useState('');
   const [periodo, setPeriodo] = useState(getCurrentPeriod());
@@ -176,7 +177,13 @@ export default function AusenciasPage() {
             {filteredAusencias.length} registro{filteredAusencias.length !== 1 ? 's' : ''} — {filteredTotalDias} días total
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setShowSolicitarForm(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition-colors"
+          >
+            <FileText className="h-4 w-4" /> Solicitar ausencia
+          </button>
           <button
             onClick={() => setShowCompForm(true)}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600 text-white text-sm font-medium hover:bg-cyan-700 transition-colors"
@@ -348,6 +355,17 @@ export default function AusenciasPage() {
             setShowCompForm(false);
             queryClient.invalidateQueries({ queryKey: ['ausencias'] });
             queryClient.invalidateQueries({ queryKey: ['compensatorio-saldo'] });
+          }}
+        />
+      )}
+
+      {/* Employee Self-Service Ausencia Modal */}
+      {showSolicitarForm && (
+        <SolicitarAusenciaModal
+          onClose={() => setShowSolicitarForm(false)}
+          onSuccess={() => {
+            setShowSolicitarForm(false);
+            queryClient.invalidateQueries({ queryKey: ['ausencias'] });
           }}
         />
       )}
@@ -691,6 +709,200 @@ function CompensatorioFormModal({
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               Solicitar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Employee Self-Service Ausencia Modal ─────────
+
+const EMPLOYEE_TIPO_OPTIONS: Record<string, string> = {
+  CERTIFICADO_MEDICO: 'Certificado Médico',
+  FALTA_JUSTIFICADA: 'Falta Justificada',
+  LICENCIA_ESPECIAL: 'Licencia Especial',
+};
+
+function SolicitarAusenciaModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [tipo, setTipo] = useState('CERTIFICADO_MEDICO');
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [descripcion, setDescripcion] = useState('');
+  const [numeroCertificado, setNumeroCertificado] = useState('');
+  const [archivo, setArchivo] = useState<File | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function calcDias(s: Date | null, e: Date | null) {
+    if (!s || !e) return 0;
+    return Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+  }
+
+  const diasAusencia = calcDias(startDate, endDate);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!startDate || !endDate) {
+      setError('Seleccioná un rango de fechas');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const res = await api.post('/ausencias/solicitar', {
+        tipo,
+        fechaInicio: startDate.toISOString(),
+        fechaFin: endDate.toISOString(),
+        diasAusencia,
+        descripcion: descripcion || undefined,
+        numeroCertificado: numeroCertificado || undefined,
+      });
+
+      if (archivo && res.data?.id) {
+        const fd = new FormData();
+        fd.append('archivo', archivo);
+        await api.post(`/ausencias/${res.data.id}/archivo`, fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+      }
+
+      onSuccess();
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'response' in err) {
+        const axiosErr = err as { response?: { data?: { error?: string } } };
+        setError(axiosErr.response?.data?.error ?? 'Error al crear');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const inputClass = 'w-full h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 overflow-y-auto">
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-2xl my-8">
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h2 className="text-lg font-semibold">Solicitar Ausencia</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-accent">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {error && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+            <p className="text-xs text-amber-400">
+              Tu solicitud será enviada automáticamente a la cadena de aprobación. Recibirás una notificación cuando sea aprobada o rechazada.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Tipo de ausencia *</label>
+            <select className={inputClass} value={tipo} onChange={(e) => setTipo(e.target.value)}>
+              {Object.entries(EMPLOYEE_TIPO_OPTIONS).map(([val, label]) => (
+                <option key={val} value={val}>{label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-2 block">Rango de fechas *</label>
+            <div className="rounded-lg border border-border p-3 bg-background">
+              <CalendarRangePicker
+                startDate={startDate}
+                endDate={endDate}
+                onSelect={(s, e) => { setStartDate(s); setEndDate(e); }}
+                allowPast={true}
+              />
+            </div>
+            {startDate && endDate && (
+              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {startDate.toLocaleDateString('es-AR')} — {endDate.toLocaleDateString('es-AR')} · {diasAusencia} día{diasAusencia !== 1 ? 's' : ''}
+              </p>
+            )}
+          </div>
+
+          {tipo === 'CERTIFICADO_MEDICO' && (
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">N° Certificado</label>
+              <input
+                className={inputClass}
+                value={numeroCertificado}
+                onChange={(e) => setNumeroCertificado(e.target.value)}
+                placeholder="Opcional"
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">
+              Certificado (imagen o PDF)
+            </label>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*,.pdf"
+              className="hidden"
+              onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className={cn(
+                'w-full flex items-center justify-center gap-2 py-3 rounded-lg border-2 border-dashed transition-colors',
+                archivo
+                  ? 'border-primary/50 bg-primary/5 text-primary'
+                  : 'border-border text-muted-foreground hover:border-primary/30 hover:text-foreground'
+              )}
+            >
+              <Upload className="h-4 w-4" />
+              {archivo ? archivo.name : 'Subir certificado'}
+            </button>
+            {archivo && (
+              <button
+                type="button"
+                onClick={() => { setArchivo(null); if (fileRef.current) fileRef.current.value = ''; }}
+                className="text-xs text-red-400 mt-1 hover:underline"
+              >
+                Quitar archivo
+              </button>
+            )}
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Descripción / Motivo</label>
+            <input
+              className={inputClass}
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value)}
+              placeholder="Describí el motivo de la ausencia..."
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={loading || !startDate || !endDate}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 disabled:opacity-50"
+            >
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              Enviar solicitud
             </button>
           </div>
         </form>

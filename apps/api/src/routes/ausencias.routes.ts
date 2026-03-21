@@ -5,7 +5,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { upload } from '../middleware/upload.middleware.js';
 import { inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
-import { notificarAusencia } from '../utils/notificacion.utils.js';
+import { notificarAusencia, crearNotificacion } from '../utils/notificacion.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -165,6 +165,135 @@ router.get('/subordinados', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
     res.json(subordinados.filter(u => u.id !== userId));
   } catch (error) {
     console.error('Error listing subordinados:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /ausencias/solicitar — Employee creates own absence (sick leave, etc.)
+router.post('/solicitar', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const empresaId = req.user!.empresaId;
+
+    const schema = z.object({
+      tipo: z.nativeEnum(AusenciaTipo),
+      fechaInicio: z.string(),
+      fechaFin: z.string(),
+      diasAusencia: z.number().int().min(1),
+      descripcion: z.string().max(500).optional(),
+      numeroCertificado: z.string().max(50).optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+
+    // Employees cannot self-request FRANCO_COMPENSATORIO here (use /compensatorio instead)
+    if (parsed.data.tipo === 'FRANCO_COMPENSATORIO') {
+      res.status(400).json({ error: 'Usá la sección de Franco Compensatorio para solicitar días compensatorios' });
+      return;
+    }
+
+    const descuentaSueldo = parsed.data.tipo === 'FALTA_INJUSTIFICADA';
+
+    // Find approval flow for AUSENCIA
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: userId },
+      select: { sectorId: true, nombre: true, apellido: true },
+    });
+
+    let flujo = await prisma.flujoAprobacion.findFirst({
+      where: {
+        empresaId,
+        tipoDocumento: 'AUSENCIA',
+        activo: true,
+        asignaciones: { some: { usuarioId: userId, activo: true, tipoDocumento: 'AUSENCIA' } },
+      },
+      include: { pasos: { orderBy: { orden: 'asc' } } },
+    });
+
+    if (!flujo && usuario?.sectorId) {
+      flujo = await prisma.flujoAprobacion.findFirst({
+        where: {
+          empresaId,
+          tipoDocumento: 'AUSENCIA',
+          activo: true,
+          asignaciones: { some: { sectorId: usuario.sectorId, activo: true, tipoDocumento: 'AUSENCIA' } },
+        },
+        include: { pasos: { orderBy: { orden: 'asc' } } },
+      });
+    }
+
+    if (!flujo) {
+      flujo = await prisma.flujoAprobacion.findFirst({
+        where: {
+          empresaId,
+          tipoDocumento: 'AUSENCIA',
+          activo: true,
+          asignaciones: { some: { sectorId: null, usuarioId: null, activo: true, tipoDocumento: 'AUSENCIA' } },
+        },
+        include: { pasos: { orderBy: { orden: 'asc' } } },
+      });
+    }
+
+    const ausencia = await prisma.ausencia.create({
+      data: {
+        usuarioId: userId,
+        cargadaPorId: userId,
+        tipo: parsed.data.tipo,
+        estado: 'PENDIENTE',
+        pasoActual: 1,
+        fechaInicio: new Date(parsed.data.fechaInicio),
+        fechaFin: new Date(parsed.data.fechaFin),
+        diasAusencia: parsed.data.diasAusencia,
+        descripcion: parsed.data.descripcion ?? null,
+        numeroCertificado: parsed.data.numeroCertificado ?? null,
+        descuentaSueldo,
+        porcentajeDescuento: descuentaSueldo ? 100 : 0,
+        requiereAprobacion: true,
+        aprobada: false,
+        flujoId: flujo?.id ?? null,
+      },
+    });
+
+    await prisma.ausenciaHistorial.create({
+      data: {
+        ausenciaId: ausencia.id,
+        usuarioId: userId,
+        estadoNuevo: 'PENDIENTE',
+        comentario: 'Solicitud del empleado',
+      },
+    });
+
+    // Notify supervisor/coordinator
+    const solicitanteNombre = usuario ? `${usuario.nombre} ${usuario.apellido}` : 'Un empleado';
+    const supervisores = await prisma.usuario.findMany({
+      where: {
+        empresaId,
+        activo: true,
+        OR: [
+          { subordinadosCoord: { some: { id: userId } } },
+          { subordinadosSup: { some: { id: userId } } },
+        ],
+      },
+      select: { id: true },
+    });
+
+    for (const sup of supervisores) {
+      await crearNotificacion({
+        usuarioId: sup.id,
+        tipo: 'AUSENCIA',
+        titulo: '📨 Nueva ausencia para revisar',
+        cuerpo: `${solicitanteNombre} solicitó una ausencia que requiere tu aprobación.`,
+        link: '/aprobaciones',
+      });
+    }
+
+    res.status(201).json(ausencia);
+  } catch (error) {
+    console.error('Error creating employee ausencia:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });

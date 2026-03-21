@@ -22,6 +22,7 @@ import backupRoutes from './backup.routes.js';
 import mensajesRoutes from './mensajes.routes.js';
 import adminAlertasRoutes from './admin.alertas.routes.js';
 import capacitacionesRoutes from './capacitaciones.routes.js';
+import sesionesCapacitacionRoutes from './sesiones-capacitacion.routes.js';
 import auditoriaRoutes from './auditoria.routes.js';
 import liquidacionRoutes from './liquidacion.routes.js';
 
@@ -75,6 +76,7 @@ router.use('/admin/alertas', adminAlertasRoutes);
 
 // Capacitaciones
 router.use('/capacitaciones', capacitacionesRoutes);
+router.use('/sesiones-capacitacion', sesionesCapacitacionRoutes);
 
 // Auditoría
 router.use('/auditoria', auditoriaRoutes);

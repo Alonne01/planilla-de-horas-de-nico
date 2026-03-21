@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
-import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { requireLevel, LEVEL_RRHH, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -55,7 +55,7 @@ router.get('/mis-capacitaciones', async (req: AuthRequest, res: Response): Promi
 
 // ─── GET /tipos — List training types ────────────
 
-router.get('/tipos', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/tipos', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const tipos = await prisma.tipoCapacitacion.findMany({
       where: { empresaId: req.user!.empresaId },
@@ -130,13 +130,30 @@ router.delete('/tipos/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, r
 
 // ─── GET /registros — List all training records (RRHH) ───
 
-router.get('/registros', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/registros', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { tipoId, usuarioId, estado } = req.query;
+    const userNivel = req.user!.rolNivel ?? 0;
+    const userId = req.user!.userId;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: any = {};
 
     if (tipoId) where.tipoId = tipoId;
     if (usuarioId) where.usuarioId = usuarioId;
+
+    // Sector filtering for non-RRHH
+    if (userNivel < 90) {
+      const me = await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } });
+      if (me?.sectorId) {
+        const sectorUsers = await prisma.usuario.findMany({
+          where: { sectorId: me.sectorId, empresaId: req.user!.empresaId, activo: true },
+          select: { id: true },
+        });
+        where.usuarioId = { in: sectorUsers.map(u => u.id) };
+      } else {
+        where.usuarioId = userId;
+      }
+    }
 
     const registros = await prisma.empleadoCapacitacion.findMany({
       where,
@@ -251,10 +268,31 @@ router.delete('/registros/:id', requireLevel(LEVEL_RRHH), async (req: AuthReques
 
 // ─── GET /resumen — Summary dashboard data ───────
 
-router.get('/resumen', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/resumen', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const now = new Date();
+    const userNivel = req.user!.rolNivel ?? 0;
+    const userId = req.user!.userId;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {};
+
+    // Sector filtering for non-RRHH
+    if (userNivel < 90) {
+      const me = await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } });
+      if (me?.sectorId) {
+        const sectorUsers = await prisma.usuario.findMany({
+          where: { sectorId: me.sectorId, empresaId: req.user!.empresaId, activo: true },
+          select: { id: true },
+        });
+        where.usuarioId = { in: sectorUsers.map(u => u.id) };
+      } else {
+        where.usuarioId = userId;
+      }
+    }
+
     const registros = await prisma.empleadoCapacitacion.findMany({
+      where,
       include: { tipo: true },
     });
 
