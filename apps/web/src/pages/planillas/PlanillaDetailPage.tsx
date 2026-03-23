@@ -608,11 +608,14 @@ export default function PlanillaDetailPage() {
       {/* ══════════════════════════════════════════════ */}
       {/* ── CALENDAR GRID (21→20) ──────────────────── */}
       {/* ══════════════════════════════════════════════ */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
         {/* Day-of-week header */}
-        <div className="grid grid-cols-7 border-b border-border">
-          {DOW_LABELS.map((d) => (
-            <div key={d} className="py-2 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        <div className="grid grid-cols-7 bg-muted/30 border-b border-border/60">
+          {DOW_LABELS.map((d, i) => (
+            <div key={d} className={cn(
+              'py-2.5 text-center text-[11px] font-semibold uppercase tracking-widest',
+              i >= 5 ? 'text-muted-foreground/60' : 'text-muted-foreground',
+            )}>
               {d}
             </div>
           ))}
@@ -620,10 +623,10 @@ export default function PlanillaDetailPage() {
 
         {/* Weeks */}
         {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7 border-b border-border last:border-b-0">
+          <div key={wi} className="grid grid-cols-7 divide-x divide-border/40 border-b border-border/40 last:border-b-0">
             {week.map((day, di) => {
               if (!day) {
-                return <div key={di} className="min-h-[80px] bg-muted/5" />;
+                return <div key={di} className="min-h-[90px] bg-muted/5" />;
               }
               const key = dateKey(day);
               const reg = registroMap[key];
@@ -631,7 +634,7 @@ export default function PlanillaDetailPage() {
               const isWeekend = day.getDay() === 0 || day.getDay() === 6;
               const hrs = reg ? Number(reg.horasTrabajadas) : 0;
               const hasData = !!reg;
-              const francoDay = isFranco(day); // from diagram cycle
+              const francoDay = isFranco(day);
               const isLocked = reg?.bloqueado === true;
               const isFaltante = diasFaltantes.includes(key);
               const isFeriado = buildArgHolidays(day.getFullYear()).has(key);
@@ -642,57 +645,57 @@ export default function PlanillaDetailPage() {
                   key={di}
                   onClick={() => isLocked ? undefined : (canEdit ? openDay(key) : (hasData ? openDay(key) : undefined))}
                   className={cn(
-                    'min-h-[80px] p-1.5 text-left transition-all relative group',
-                    'hover:bg-primary/5 focus:outline-none focus:ring-1 focus:ring-primary/30 focus:z-10',
-                    isLocked && 'bg-violet-500/10 cursor-not-allowed hover:bg-violet-500/10',
-                    !isLocked && francoDay && !hasData && 'bg-orange-500/5',
-                    !isLocked && isWeekend && !hasData && !francoDay && 'bg-muted/10',
-                    isToday && 'ring-1 ring-primary/40',
-                    isFaltante && 'border-l-2 border-l-red-500 bg-red-500/5',
+                    'min-h-[90px] p-2 text-left transition-all duration-150 relative group',
+                    'hover:bg-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:z-10',
+                    isLocked && 'bg-violet-500/8 cursor-not-allowed hover:bg-violet-500/8',
+                    !isLocked && francoDay && !hasData && 'bg-orange-500/[0.03]',
+                    !isLocked && isWeekend && !hasData && !francoDay && 'bg-muted/8',
+                    isToday && 'ring-2 ring-inset ring-primary/50 bg-primary/[0.03]',
+                    isFaltante && 'border-l-[3px] border-l-red-500/80 bg-red-500/[0.04]',
                   )}
                 >
-                  {/* Day number */}
-                  <div className="flex items-center justify-between">
+                  {/* Day number + badges row */}
+                  <div className="flex items-start justify-between gap-0.5">
                     <span className={cn(
-                      'text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full',
-                      isToday && 'bg-primary text-primary-foreground',
-                      reg?.esFeriado && 'text-red-400',
-                      reg?.esFrancoTrabajado && 'text-amber-400',
+                      'text-[13px] font-semibold w-7 h-7 flex items-center justify-center rounded-full transition-colors',
+                      isToday && 'bg-primary text-primary-foreground shadow-sm',
+                      !isToday && reg?.esFeriado && 'text-red-400',
+                      !isToday && reg?.esFrancoTrabajado && 'text-amber-400',
+                      !isToday && !reg?.esFeriado && !reg?.esFrancoTrabajado && 'text-foreground/80',
                     )}>
                       {day.getDate()}
                     </span>
-                    <div className="flex items-center gap-0.5">
-                      {/* Franco badge from diagram */}
+                    <div className="flex items-center gap-0.5 flex-wrap justify-end">
                       {francoDay && (
                         <span className={cn(
-                          'text-[8px] font-bold px-1 rounded',
+                          'text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full',
                           reg?.esFrancoTrabajado
-                            ? 'bg-amber-500/30 text-amber-400' // franco but worked
-                            : 'bg-orange-500/20 text-orange-400', // franco, not worked
+                            ? 'bg-amber-500/20 text-amber-300'
+                            : 'bg-orange-500/15 text-orange-400',
                         )}>
                           {reg?.esFrancoTrabajado ? 'FT' : 'F'}
                         </span>
                       )}
                       {reg?.lugarTrabajo && !reg?.esFrancoCompensatorio && (
                         <span className={cn(
-                          'text-[9px] font-medium px-1 rounded',
-                          reg.lugarTrabajo === 'CAMPO' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-400',
+                          'text-[8px] font-semibold leading-none px-1.5 py-0.5 rounded-full',
+                          reg.lugarTrabajo === 'CAMPO' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-blue-500/15 text-blue-400',
                         )}>
                           {reg.lugarTrabajo === 'CAMPO' ? 'C' : 'B'}
                         </span>
                       )}
                       {reg?.esFrancoCompensatorio && (
-                        <span className="text-[8px] font-bold px-1 rounded bg-blue-500/20 text-blue-400">
+                        <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400">
                           CC
                         </span>
                       )}
                       {isFeriado && (
-                        <span className="text-[8px] font-bold px-1 rounded bg-red-500/20 text-red-400">
+                        <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400">
                           FE
                         </span>
                       )}
                       {isNoLaborable && !isFeriado && (
-                        <span className="text-[8px] font-bold px-1 rounded bg-amber-500/20 text-amber-400">
+                        <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">
                           NL
                         </span>
                       )}
@@ -701,29 +704,29 @@ export default function PlanillaDetailPage() {
 
                   {/* Hour data */}
                   {hasData && !isLocked && (
-                    <div className="mt-1 space-y-0.5">
-                      <p className="text-sm font-bold text-foreground leading-none">{hrs.toFixed(1)}h</p>
+                    <div className="mt-1.5 space-y-1">
+                      <p className="text-[15px] font-bold text-foreground leading-none tracking-tight">{hrs.toFixed(1)}<span className="text-[11px] font-medium text-muted-foreground ml-0.5">h</span></p>
                       <div className="flex gap-1 flex-wrap">
                         {Number(reg.horasNormales) > 0 && (
-                          <span className="text-[9px] text-muted-foreground">{Number(reg.horasNormales).toFixed(0)}N</span>
+                          <span className="text-[9px] font-medium px-1 py-px rounded bg-muted/40 text-muted-foreground">{Number(reg.horasNormales).toFixed(0)}N</span>
                         )}
                         {Number(reg.horasExtra50) > 0 && (
-                          <span className="text-[9px] text-amber-400">{Number(reg.horasExtra50).toFixed(0)}E50</span>
+                          <span className="text-[9px] font-medium px-1 py-px rounded bg-amber-500/10 text-amber-400">{Number(reg.horasExtra50).toFixed(0)}E50</span>
                         )}
                         {Number(reg.horasExtra100) > 0 && (
-                          <span className="text-[9px] text-red-400">{Number(reg.horasExtra100).toFixed(0)}E100</span>
+                          <span className="text-[9px] font-medium px-1 py-px rounded bg-red-500/10 text-red-400">{Number(reg.horasExtra100).toFixed(0)}E100</span>
                         )}
                       </div>
-                      {reg.maneja && <Car className="h-3 w-3 text-muted-foreground/50" />}
+                      {reg.maneja && <Car className="h-3 w-3 text-muted-foreground/40 mt-0.5" />}
                     </div>
                   )}
 
                   {/* Locked day (ausencia/vacación) */}
                   {isLocked && (
-                    <div className="mt-1 space-y-0.5">
+                    <div className="mt-1.5 space-y-0.5">
                       <div className="flex items-center gap-1">
-                        <Lock className="h-3 w-3 text-violet-400" />
-                        <span className="text-[9px] font-semibold text-violet-400 leading-tight">
+                        <Lock className="h-3 w-3 text-violet-400/80" />
+                        <span className="text-[10px] font-semibold text-violet-400 leading-tight">
                           {reg.motivoBloqueo === 'VACACION' ? 'Vacaciones'
                             : reg.motivoBloqueo === 'CERTIFICADO_MEDICO' ? 'Cert. Médico'
                             : reg.motivoBloqueo === 'FALTA_JUSTIFICADA' ? 'Falta Just.'
@@ -733,24 +736,24 @@ export default function PlanillaDetailPage() {
                         </span>
                       </div>
                       {reg.observaciones && (
-                        <p className="text-[8px] text-muted-foreground leading-tight truncate max-w-full">
+                        <p className="text-[8px] text-muted-foreground/70 leading-tight truncate max-w-full">
                           {reg.observaciones}
                         </p>
                       )}
                     </div>
                   )}
 
-                  {/* Empty day indicator for editable planillas */}
+                  {/* Empty day indicator */}
                   {!hasData && canEdit && (
-                    <div className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="text-[10px] text-muted-foreground/50">+ agregar</span>
+                    <div className="mt-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      <span className="text-[10px] text-muted-foreground/40 font-medium">+ agregar</span>
                     </div>
                   )}
 
                   {/* Missing day badge */}
                   {isFaltante && (
-                    <div className="mt-1">
-                      <span className="text-[8px] font-semibold text-red-400">⚠️ Incompleto</span>
+                    <div className="absolute bottom-1.5 left-2">
+                      <span className="text-[8px] font-bold text-red-400/90">⚠ Incompleto</span>
                     </div>
                   )}
                 </button>
