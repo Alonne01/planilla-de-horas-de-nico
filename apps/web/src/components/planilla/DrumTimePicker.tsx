@@ -1,31 +1,76 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 
-/** Enable mouse-drag scrolling on a scroll container (desktop UX). */
-function useDragScroll(ref: React.RefObject<HTMLDivElement | null>) {
-  const drag = useRef({ active: false, startY: 0, startScroll: 0, moved: false });
+const ITEM_H = 40;
+const DETENT_PULL = 0.35; // 0 = free spin, 1 = locked to notches
 
+/**
+ * Mechanical-feeling pointer interaction for drum scroll containers.
+ * - Click an item: smooth-scroll to it
+ * - Drag: scroll with detent resistance — "notches" pull toward each item
+ *   like a mechanical rotary switch
+ * - Wheel & touch: native CSS scroll-snap (unaffected)
+ */
+function useDrumPointer(
+  ref: React.RefObject<HTMLDivElement | null>,
+  itemCount: number,
+) {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
 
+    let active = false;
+    let startY = 0;
+    let startScroll = 0;
+    let moved = false;
+    let capturedId = -1;
+
+    const snapTo = (idx: number) => {
+      const clamped = Math.max(0, Math.min(idx, itemCount - 1));
+      el.scrollTo({ top: clamped * ITEM_H, behavior: 'smooth' });
+    };
+
     const onDown = (e: PointerEvent) => {
-      if (e.pointerType === 'touch') return; // let native touch scroll handle it
-      drag.current = { active: true, startY: e.clientY, startScroll: el.scrollTop, moved: false };
+      if (e.pointerType === 'touch') return;
+      e.preventDefault();
+      active = true;
+      startY = e.clientY;
+      startScroll = el.scrollTop;
+      moved = false;
+      capturedId = e.pointerId;
       el.setPointerCapture(e.pointerId);
       el.style.cursor = 'grabbing';
+      el.style.scrollSnapType = 'none';
     };
+
     const onMove = (e: PointerEvent) => {
-      if (!drag.current.active) return;
-      const dy = e.clientY - drag.current.startY;
-      if (Math.abs(dy) > 3) drag.current.moved = true;
-      el.scrollTop = drag.current.startScroll - dy;
+      if (!active) return;
+      const dy = e.clientY - startY;
+      if (Math.abs(dy) > 2) moved = true;
+
+      const raw = startScroll - dy;
+      // Pull toward nearest item center → mechanical detent feel
+      const nearSnap = Math.round(raw / ITEM_H) * ITEM_H;
+      el.scrollTop = raw + (nearSnap - raw) * DETENT_PULL;
     };
+
     const onUp = (e: PointerEvent) => {
-      if (!drag.current.active) return;
-      drag.current.active = false;
-      el.releasePointerCapture(e.pointerId);
+      if (!active) return;
+      active = false;
+      el.releasePointerCapture(capturedId);
       el.style.cursor = '';
+      el.style.scrollSnapType = 'y mandatory';
+
+      if (!moved) {
+        // Click → find item under pointer and snap to it
+        const rect = el.getBoundingClientRect();
+        const contentY = el.scrollTop + (e.clientY - rect.top);
+        const idx = Math.round((contentY - ITEM_H - ITEM_H / 2) / ITEM_H);
+        snapTo(idx);
+      } else {
+        // Drag release → snap to nearest notch
+        snapTo(Math.round(el.scrollTop / ITEM_H));
+      }
     };
 
     el.addEventListener('pointerdown', onDown);
@@ -38,15 +83,14 @@ function useDragScroll(ref: React.RefObject<HTMLDivElement | null>) {
       el.removeEventListener('pointerup', onUp);
       el.removeEventListener('pointercancel', onUp);
     };
-  }, [ref]);
-
-  return drag;
+  }, [ref, itemCount]);
 }
 
 /**
- * Mobile-friendly drum/scroll time picker with hour and minute wheels.
+ * Drum/scroll time picker with hour and minute wheels.
  * Minutes snap to 15-minute intervals (0, 15, 30, 45).
- * Desktop: click items to select, drag to scroll.
+ * Desktop: click items to select, drag with mechanical detent feel.
+ * Mobile: native touch scroll with CSS snap.
  */
 export default function DrumTimePicker({
   value,
@@ -71,10 +115,8 @@ export default function DrumTimePicker({
   const expectedHour = useRef(currentHour);
   const expectedMin = useRef(currentMin);
 
-  const ITEM_H = 40;
-
-  const hourDrag = useDragScroll(hourRef);
-  const minDrag = useDragScroll(minRef);
+  useDrumPointer(hourRef, HOURS.length);
+  useDrumPointer(minRef, MINUTE_STEPS.length);
 
   const scrollTo = useCallback((ref: React.RefObject<HTMLDivElement | null>, index: number) => {
     if (!ref.current) return;
@@ -119,20 +161,6 @@ export default function DrumTimePicker({
     }, 80);
   };
 
-  const clickHour = (hr: number) => {
-    if (hourDrag.current.moved) return; // was a drag, not a click
-    expectedHour.current = hr;
-    scrollTo(hourRef, hr);
-    onChange(`${String(hr).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`);
-  };
-
-  const clickMin = (mn: number) => {
-    if (minDrag.current.moved) return;
-    expectedMin.current = mn;
-    scrollTo(minRef, MINUTE_STEPS.indexOf(mn));
-    onChange(`${String(currentHour).padStart(2, '0')}:${String(mn).padStart(2, '0')}`);
-  };
-
   useEffect(() => {
     return () => {
       clearTimeout(hourDebounce.current);
@@ -155,16 +183,15 @@ export default function DrumTimePicker({
         ref={hourRef}
         onScroll={handleHourScroll}
         className="h-[120px] overflow-y-scroll snap-y snap-mandatory scrollbar-none rounded-lg border border-input bg-background text-foreground relative w-16 cursor-grab"
-        style={{ scrollbarWidth: 'none', touchAction: 'pan-y' }}
+        style={{ scrollbarWidth: 'none' }}
       >
         <div style={{ height: ITEM_H }} />
         {HOURS.map((hr) => (
           <div
             key={hr}
-            onClick={() => clickHour(hr)}
             className={cn(
               'flex items-center justify-center snap-center h-10 text-lg font-mono transition-colors select-none',
-              hr === currentHour ? 'text-primary font-bold text-xl' : 'text-muted-foreground hover:text-foreground cursor-pointer',
+              hr === currentHour ? 'text-primary font-bold text-xl' : 'text-muted-foreground',
             )}
           >
             {String(hr).padStart(2, '0')}
@@ -180,16 +207,15 @@ export default function DrumTimePicker({
         ref={minRef}
         onScroll={handleMinScroll}
         className="h-[120px] overflow-y-scroll snap-y snap-mandatory scrollbar-none rounded-lg border border-input bg-background text-foreground relative w-16 cursor-grab"
-        style={{ scrollbarWidth: 'none', touchAction: 'pan-y' }}
+        style={{ scrollbarWidth: 'none' }}
       >
         <div style={{ height: ITEM_H }} />
         {MINUTE_STEPS.map((mn) => (
           <div
             key={mn}
-            onClick={() => clickMin(mn)}
             className={cn(
               'flex items-center justify-center snap-center h-10 text-lg font-mono transition-colors select-none',
-              mn === currentMin ? 'text-primary font-bold text-xl' : 'text-muted-foreground hover:text-foreground cursor-pointer',
+              mn === currentMin ? 'text-primary font-bold text-xl' : 'text-muted-foreground',
             )}
           >
             {String(mn).padStart(2, '0')}
