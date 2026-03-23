@@ -47,7 +47,9 @@ const queryClient = new QueryClient({
 
 function PrivateRoute() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const primerLogin = useAuthStore((s) => s.user?.primerLogin);
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (primerLogin) return <Navigate to="/cambiar-password" replace />;
   return <Outlet />;
 }
 
