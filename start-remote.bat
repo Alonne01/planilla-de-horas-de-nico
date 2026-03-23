@@ -41,7 +41,7 @@ timeout /t 5 /nobreak >nul
 :: Step 2: Start API tunnel
 :: ------------------------------------------------
 echo [2/4] Creando tunel Cloudflare para API...
-start "API-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:4000 2>"%TEMP_DIR%\api_tunnel.txt""
+start "API-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:4000 >"%TEMP_DIR%\api_tunnel.txt" 2>&1"
 echo       Esperando URL del tunel API...
 
 :: Wait for tunnel URL to appear in the log
@@ -54,11 +54,11 @@ if %ATTEMPTS% gtr 15 (
     echo [ERROR] Timeout esperando tunel API
     goto cleanup
 )
-findstr /C:"trycloudflare.com" "%TEMP_DIR%\api_tunnel.txt" >nul 2>&1
+findstr /I /C:"trycloudflare.com" "%TEMP_DIR%\api_tunnel.txt" >nul 2>&1
 if %ERRORLEVEL% neq 0 goto wait_api_url
 
 :: Extract URL using PowerShell
-for /f "usebackq delims=" %%u in (`powershell -NoProfile -Command "Get-Content '%TEMP_DIR%\api_tunnel.txt' | ForEach-Object { if ($_ -match 'https://[a-z0-9-]+\.trycloudflare\.com') { $Matches[0] } } | Select-Object -First 1"`) do (
+for /f "usebackq delims=" %%u in (`powershell -NoProfile -Command "Get-Content '%TEMP_DIR%\api_tunnel.txt' | ForEach-Object { if ($_ -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com') { $Matches[0] } } | Select-Object -First 1"`) do (
     set "API_URL=%%u"
 )
 
@@ -81,7 +81,7 @@ timeout /t 5 /nobreak >nul
 :: Step 4: Start frontend tunnel
 :: ------------------------------------------------
 echo [4/4] Creando tunel Cloudflare para Frontend...
-start "Frontend-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:3000 2>"%TEMP_DIR%\web_tunnel.txt""
+start "Frontend-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:3000 >"%TEMP_DIR%\web_tunnel.txt" 2>&1"
 echo       Esperando URL del tunel Frontend...
 
 :: Wait for tunnel URL
@@ -94,11 +94,11 @@ if %ATTEMPTS% gtr 15 (
     echo [ERROR] Timeout esperando tunel Frontend
     goto cleanup
 )
-findstr /C:"trycloudflare.com" "%TEMP_DIR%\web_tunnel.txt" >nul 2>&1
+findstr /I /C:"trycloudflare.com" "%TEMP_DIR%\web_tunnel.txt" >nul 2>&1
 if %ERRORLEVEL% neq 0 goto wait_web_url
 
 :: Extract URL using PowerShell
-for /f "usebackq delims=" %%u in (`powershell -NoProfile -Command "Get-Content '%TEMP_DIR%\web_tunnel.txt' | ForEach-Object { if ($_ -match 'https://[a-z0-9-]+\.trycloudflare\.com') { $Matches[0] } } | Select-Object -First 1"`) do (
+for /f "usebackq delims=" %%u in (`powershell -NoProfile -Command "Get-Content '%TEMP_DIR%\web_tunnel.txt' | ForEach-Object { if ($_ -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com') { $Matches[0] } } | Select-Object -First 1"`) do (
     set "WEB_URL=%%u"
 )
 
