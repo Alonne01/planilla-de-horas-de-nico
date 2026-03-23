@@ -127,6 +127,7 @@ export default function PlanillaDetailPage() {
       setShowSuccess(true);
       queryClient.invalidateQueries({ queryKey: ['planilla', id] });
       queryClient.invalidateQueries({ queryKey: ['planillas'] });
+      queryClient.invalidateQueries({ queryKey: ['aprobaciones'] });
     },
     onError: (err: any) => {
       if (err.response?.status === 400 && err.response?.data?.diasFaltantes) {
@@ -140,6 +141,7 @@ export default function PlanillaDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['planilla', id] });
       queryClient.invalidateQueries({ queryKey: ['planillas'] });
+      queryClient.invalidateQueries({ queryKey: ['aprobaciones'] });
     },
   });
 
@@ -148,6 +150,7 @@ export default function PlanillaDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['planilla', id] });
       queryClient.invalidateQueries({ queryKey: ['planillas'] });
+      queryClient.invalidateQueries({ queryKey: ['aprobaciones'] });
       setShowRechazo(false);
     },
   });

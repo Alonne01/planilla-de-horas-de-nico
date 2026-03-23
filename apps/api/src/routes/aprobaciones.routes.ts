@@ -182,7 +182,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         estado: { in: ['APROBADA', 'RECHAZADA', 'CERRADA'] },
       },
       include: {
-        usuario: { select: { id: true, nombre: true, apellido: true } },
+        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true, rol: true, sector: { select: { nombre: true } } } },
       },
       orderBy: { aprobadaAt: 'desc' },
       take: 15,
@@ -195,7 +195,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         estado: { in: ['APROBADA', 'RECHAZADA'] },
       },
       include: {
-        usuario: { select: { id: true, nombre: true, apellido: true } },
+        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true, rol: true, sector: { select: { nombre: true } } } },
       },
       orderBy: { aprobadaAt: 'desc' },
       take: 15,
@@ -208,7 +208,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         estado: { in: ['APROBADA', 'RECHAZADA'] },
       },
       include: {
-        usuario: { select: { id: true, nombre: true, apellido: true } },
+        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true, rol: true, sector: { select: { nombre: true } } } },
       },
       orderBy: { aprobadaAt: 'desc' },
       take: 15,

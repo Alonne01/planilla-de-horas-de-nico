@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
+import { toast } from '@/stores/toastStore';
 import {
   CheckCircle2, XCircle, Loader2, Clock, Palmtree, Calendar,
   History, AlertCircle, ChevronRight, X, Send, AlertTriangle, Filter, UserX
@@ -18,6 +19,7 @@ interface PlanillaItem {
   periodoFin: string;
   estado: string;
   enviadaAt: string | null;
+  obsRechazo?: string | null;
   usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
 }
 
@@ -28,6 +30,7 @@ interface VacacionItem {
   diasTotales: number;
   estado: string;
   motivo: string | null;
+  obsRechazo?: string | null;
   createdAt: string;
   usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
 }
@@ -40,6 +43,7 @@ interface AusenciaItem {
   diasAusencia: number;
   estado: string;
   descripcion: string | null;
+  obsRechazo?: string | null;
   usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
 }
 
@@ -150,35 +154,41 @@ export default function AprobacionesPage() {
 
   const aprobarPlanillaMutation = useMutation({
     mutationFn: (id: string) => api.post(`/planillas/${id}/avanzar`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setConfirmandoId(null); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setConfirmandoId(null); toast({ title: 'Planilla aprobada', variant: 'success' }); },
+    onError: () => { toast({ title: 'Error al aprobar planilla', variant: 'destructive' }); },
   });
 
   const rechazarPlanillaMutation = useMutation({
     mutationFn: ({ id, motivo }: { id: string; motivo: string }) =>
       api.post(`/planillas/${id}/rechazar`, { motivo }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setRechazandoId(null); setMotivoRechazo(''); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setRechazandoId(null); setMotivoRechazo(''); toast({ title: 'Planilla rechazada', variant: 'success' }); },
+    onError: () => { toast({ title: 'Error al rechazar planilla', variant: 'destructive' }); },
   });
 
   const aprobarVacacionMutation = useMutation({
     mutationFn: (id: string) => api.post(`/vacaciones/${id}/avanzar`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setConfirmandoId(null); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setConfirmandoId(null); toast({ title: 'Vacación aprobada', variant: 'success' }); },
+    onError: () => { toast({ title: 'Error al aprobar vacación', variant: 'destructive' }); },
   });
 
   const rechazarVacacionMutation = useMutation({
     mutationFn: ({ id, motivo }: { id: string; motivo: string }) =>
       api.post(`/vacaciones/${id}/rechazar`, { motivo }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setRechazandoId(null); setMotivoRechazo(''); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setRechazandoId(null); setMotivoRechazo(''); toast({ title: 'Vacación rechazada', variant: 'success' }); },
+    onError: () => { toast({ title: 'Error al rechazar vacación', variant: 'destructive' }); },
   });
 
   const aprobarAusenciaMutation = useMutation({
     mutationFn: (id: string) => api.post(`/ausencias/${id}/avanzar`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setConfirmandoId(null); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setConfirmandoId(null); toast({ title: 'Ausencia aprobada', variant: 'success' }); },
+    onError: () => { toast({ title: 'Error al aprobar ausencia', variant: 'destructive' }); },
   });
 
   const rechazarAusenciaMutation = useMutation({
     mutationFn: ({ id, motivo }: { id: string; motivo: string }) =>
       api.post(`/ausencias/${id}/rechazar`, { motivo }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setRechazandoId(null); setMotivoRechazo(''); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['aprobaciones'] }); setRechazandoId(null); setMotivoRechazo(''); toast({ title: 'Ausencia rechazada', variant: 'success' }); },
+    onError: () => { toast({ title: 'Error al rechazar ausencia', variant: 'destructive' }); },
   });
 
   const planillasPendienteCount = filteredPlanillas.length;
@@ -594,7 +604,7 @@ export default function AprobacionesPage() {
                     className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3 cursor-pointer hover:bg-muted/10 transition-colors"
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium">{p.usuario.apellido}, {p.usuario.nombre}</span>
                         <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[p.estado])}>
                           {p.estado === 'EN_REVISION' ? 'En revisión' : p.estado.charAt(0) + p.estado.slice(1).toLowerCase()}
@@ -603,6 +613,11 @@ export default function AprobacionesPage() {
                       <p className="text-xs text-muted-foreground">
                         {new Date(p.periodoInicio).toLocaleDateString('es-AR')} — {new Date(p.periodoFin).toLocaleDateString('es-AR')}
                       </p>
+                      {p.obsRechazo && p.estado === 'RECHAZADA' && (
+                        <p className="text-xs text-red-400 flex items-center gap-1 mt-0.5">
+                          <XCircle className="h-3 w-3 shrink-0" /> {p.obsRechazo}
+                        </p>
+                      )}
                     </div>
                     <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />
                   </div>
@@ -622,7 +637,7 @@ export default function AprobacionesPage() {
                 {filteredHistVacaciones.map((v) => (
                   <div key={v.id} className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium">{v.usuario.apellido}, {v.usuario.nombre}</span>
                         <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[v.estado])}>
                           {v.estado.charAt(0) + v.estado.slice(1).toLowerCase()}
@@ -632,6 +647,11 @@ export default function AprobacionesPage() {
                       <p className="text-xs text-muted-foreground">
                         {new Date(v.fechaInicio).toLocaleDateString('es-AR')} — {new Date(v.fechaFin).toLocaleDateString('es-AR')}
                       </p>
+                      {v.obsRechazo && v.estado === 'RECHAZADA' && (
+                        <p className="text-xs text-red-400 flex items-center gap-1 mt-0.5">
+                          <XCircle className="h-3 w-3 shrink-0" /> {v.obsRechazo}
+                        </p>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -650,7 +670,7 @@ export default function AprobacionesPage() {
                 {filteredHistAusencias.map((a) => (
                   <div key={a.id} className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium">{a.usuario.apellido}, {a.usuario.nombre}</span>
                         <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[a.estado])}>
                           {a.estado.charAt(0) + a.estado.slice(1).toLowerCase()}
@@ -660,6 +680,11 @@ export default function AprobacionesPage() {
                       <p className="text-xs text-muted-foreground">
                         {new Date(a.fechaInicio).toLocaleDateString('es-AR')} — {new Date(a.fechaFin).toLocaleDateString('es-AR')}
                       </p>
+                      {a.obsRechazo && a.estado === 'RECHAZADA' && (
+                        <p className="text-xs text-red-400 flex items-center gap-1 mt-0.5">
+                          <XCircle className="h-3 w-3 shrink-0" /> {a.obsRechazo}
+                        </p>
+                      )}
                     </div>
                   </div>
                 ))}
