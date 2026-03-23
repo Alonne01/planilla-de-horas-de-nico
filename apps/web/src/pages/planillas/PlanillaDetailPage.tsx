@@ -822,7 +822,8 @@ export default function PlanillaDetailPage() {
                     onClick={() => {
                       const fmtTime = (iso: string | null) => {
                         if (!iso) return '';
-                        return new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+                        const d = new Date(iso);
+                        return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
                       };
                       setFormData({
                         ...formData,

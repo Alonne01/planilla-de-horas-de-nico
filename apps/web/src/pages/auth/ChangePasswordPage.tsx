@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils';
 
 const changePasswordSchema = z
   .object({
-    currentPassword: z.string().min(1, 'Contraseña actual requerida'),
     newPassword: z
       .string()
       .min(8, 'Mínimo 8 caracteres')
@@ -47,7 +46,6 @@ export default function ChangePasswordPage() {
     setSuccess('');
     try {
       await api.post('/auth/change-password', {
-        currentPassword: data.currentPassword,
         newPassword: data.newPassword,
       });
       setSuccess('Contraseña actualizada correctamente');
@@ -93,25 +91,6 @@ export default function ChangePasswordPage() {
                 {success}
               </div>
             )}
-
-            <div className="space-y-2">
-              <label htmlFor="currentPassword" className="text-sm font-medium text-foreground">
-                Contraseña actual
-              </label>
-              <input
-                id="currentPassword"
-                type={showPasswords ? 'text' : 'password'}
-                className={cn(
-                  'flex h-10 w-full rounded-lg border border-input bg-background text-foreground px-3 py-2 text-sm',
-                  'placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent',
-                  errors.currentPassword && 'border-destructive'
-                )}
-                {...register('currentPassword')}
-              />
-              {errors.currentPassword && (
-                <p className="text-xs text-destructive">{errors.currentPassword.message}</p>
-              )}
-            </div>
 
             <div className="space-y-2">
               <label htmlFor="newPassword" className="text-sm font-medium text-foreground">

@@ -26,7 +26,6 @@ const loginSchema = z.object({
 });
 
 const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1, 'Password actual requerido'),
   newPassword: z
     .string()
     .min(8, 'Mínimo 8 caracteres')
@@ -283,7 +282,7 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
       return;
     }
 
-    const { currentPassword, newPassword } = parsed.data;
+    const { newPassword } = parsed.data;
 
     const usuario = await prisma.usuario.findUnique({
       where: { id: req.user!.userId },
@@ -291,12 +290,6 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
 
     if (!usuario) {
       res.status(404).json({ error: 'Usuario no encontrado' });
-      return;
-    }
-
-    const passwordValid = await bcrypt.compare(currentPassword, usuario.passwordHash);
-    if (!passwordValid) {
-      res.status(400).json({ error: 'La contraseña actual es incorrecta' });
       return;
     }
 
