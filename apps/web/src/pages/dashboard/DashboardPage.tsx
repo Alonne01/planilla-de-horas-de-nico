@@ -8,6 +8,7 @@ import {
   Loader2, TrendingUp, FileText, CheckCircle2,
   ArrowRight, MapPin, Send, CalendarCheck2, Shield, PenLine, BarChart3
 } from 'lucide-react';
+import { ESTADO_STYLES } from '@/constants/planillaConstants';
 
 interface DashboardData {
   planillaActual: {
@@ -35,15 +36,6 @@ interface DashboardData {
   horasTrend: { label: string; normales: number; extra50: number; extra100: number }[];
   recibos: { total: number; pendientesFirma: number; ultimoFirmado: string | null }[];
 }
-
-const ESTADO_STYLES: Record<string, string> = {
-  BORRADOR: 'bg-slate-500/20 text-slate-400',
-  ENVIADA: 'bg-blue-500/20 text-blue-400',
-  EN_REVISION: 'bg-amber-500/20 text-amber-400',
-  APROBADA: 'bg-emerald-500/20 text-emerald-400',
-  RECHAZADA: 'bg-red-500/20 text-red-400',
-  CERRADA: 'bg-purple-500/20 text-purple-400',
-};
 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user);

@@ -38,13 +38,6 @@ const TIPO_COLORS: Record<string, string> = {
   RECIBO_FIRMA: 'bg-purple-500/15 text-purple-400',
 };
 
-const TIPO_LABELS: Record<string, string> = {
-  PLANILLA: 'Planilla',
-  VACACION: 'Vacación',
-  AUSENCIA: 'Ausencia',
-  RECIBO_FIRMA: 'Recibo',
-};
-
 export default function AuditoriaPage() {
   const [tipo, setTipo] = useState('');
   const [limit, setLimit] = useState(50);

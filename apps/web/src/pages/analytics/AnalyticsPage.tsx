@@ -6,9 +6,10 @@ import { useAuthStore } from '@/stores/authStore';
 import {
   BarChart3, TrendingUp, Users, MapPin,
   Loader2, Clock, Palmtree, AlertTriangle,
-  Car, Bed, CalendarCheck, Award, Building2, Tent
+  Car, Bed, CalendarCheck, Award, Building2,
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
+import { ESTADO_COLORS } from '@/constants/planillaConstants';
 
 interface EmpresaAnalytics {
   totalUsuarios: number;
@@ -64,15 +65,6 @@ interface UsuarioAnalytics {
   ausencias: { tipo: string; dias: number; count: number }[];
   vacaciones: { saldo: number; usados: number; pendientes: number };
 }
-
-const ESTADO_COLORS: Record<string, string> = {
-  BORRADOR: 'bg-slate-500',
-  ENVIADA: 'bg-blue-500',
-  EN_REVISION: 'bg-amber-500',
-  APROBADA: 'bg-emerald-500',
-  RECHAZADA: 'bg-red-500',
-  CERRADA: 'bg-purple-500',
-};
 
 const TIPO_LABELS: Record<string, string> = {
   CERTIFICADO_MEDICO: 'Cert. Médico',

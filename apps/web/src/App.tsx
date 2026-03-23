@@ -1,5 +1,4 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { useEffect, useState } from 'react';
 import api from '@/services/api';
@@ -35,8 +34,18 @@ import AuditoriaPage from '@/pages/AuditoriaPage';
 import LiquidacionPage from '@/pages/LiquidacionPage';
 import EquipoPage from '@/pages/EquipoPage';
 import { Loader2 } from 'lucide-react';
+import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { toast } from '@/stores/toastStore';
+import Toaster from '@/components/ui/Toaster';
 
 const queryClient = new QueryClient({
+  mutationCache: new MutationCache({
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { error?: string }; status?: number } };
+      const message = err.response?.data?.error || 'Ocurrió un error inesperado';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    },
+  }),
   defaultOptions: {
     queries: {
       staleTime: 5 * 60 * 1000,
@@ -157,6 +166,7 @@ export default function App() {
         </Routes>
       </BrowserRouter>
       </AuthInitializer>
+      <Toaster />
     </QueryClientProvider>
   );
 }

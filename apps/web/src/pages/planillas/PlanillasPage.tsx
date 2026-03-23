@@ -8,6 +8,7 @@ import {
   Plus, FileText, Clock, XCircle, Loader2, Calendar, MapPin, Activity,
   Search, Users, Building2,
 } from 'lucide-react';
+import { ESTADO_STYLES, ESTADO_LABELS } from '@/constants/planillaConstants';
 
 interface Planilla {
   id: string;
@@ -27,23 +28,7 @@ interface Planilla {
   usuario: { id: string; nombre: string; apellido: string; legajo: string | null; sector?: { nombre: string } | null };
 }
 
-const ESTADO_STYLES: Record<string, string> = {
-  BORRADOR: 'bg-slate-500/20 text-slate-400',
-  ENVIADA: 'bg-blue-500/20 text-blue-400',
-  EN_REVISION: 'bg-amber-500/20 text-amber-400',
-  APROBADA: 'bg-emerald-500/20 text-emerald-400',
-  RECHAZADA: 'bg-red-500/20 text-red-400',
-  CERRADA: 'bg-purple-500/20 text-purple-400',
-};
 
-const ESTADO_LABELS: Record<string, string> = {
-  BORRADOR: 'Borrador',
-  ENVIADA: 'Enviada',
-  EN_REVISION: 'En Revisión',
-  APROBADA: 'Aprobada',
-  RECHAZADA: 'Rechazada',
-  CERRADA: 'Cerrada',
-};
 
 function formatPeriodo(inicio: string, fin: string): string {
   const d1 = new Date(inicio);

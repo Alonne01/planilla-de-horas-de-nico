@@ -49,12 +49,6 @@ const ROL_COLORS: Record<string, string> = {
   OPERADOR: 'bg-slate-500/20 text-slate-400',
 };
 
-const DIAGRAMA_BADGE: Record<string, string> = {
-  AZUL: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  AMARILLO: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  BASE: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
-};
-
 export default function UsuariosPage() {
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
@@ -68,7 +62,6 @@ export default function UsuariosPage() {
   const [resetResult, setResetResult] = useState<{ nombre: string; tempPassword: string } | null>(null);
 
   const canEdit = currentUser?.rol === 'ADMIN' || currentUser?.rol === 'RRHH';
-  const isWellTesting = currentUser?.sectorNombre?.toLowerCase().includes('well testing');
 
   // ─── Queries ────────────────────────────────────
 

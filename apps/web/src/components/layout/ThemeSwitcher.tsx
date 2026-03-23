@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useThemeStore, THEMES } from '@/stores/themeStore';
 import { cn } from '@/lib/utils';
 import { Palette, Check } from 'lucide-react';
@@ -7,6 +7,7 @@ export default function ThemeSwitcher() {
   const { theme, setTheme } = useThemeStore();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   // Close on click outside
   useEffect(() => {
@@ -20,13 +21,43 @@ export default function ThemeSwitcher() {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
+  // Keyboard navigation: Escape to close, arrow keys to navigate options
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape' && open) {
+      setOpen(false);
+      triggerRef.current?.focus();
+      return;
+    }
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && open) {
+      e.preventDefault();
+      const options = menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]');
+      if (!options?.length) return;
+      const focused = document.activeElement as HTMLElement;
+      const idx = Array.from(options).indexOf(focused as HTMLButtonElement);
+      const next = e.key === 'ArrowDown'
+        ? (idx + 1) % options.length
+        : (idx - 1 + options.length) % options.length;
+      options[next].focus();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open, handleKeyDown]);
+
   const current = THEMES.find((t) => t.id === theme);
 
   return (
     <div className="relative" ref={menuRef}>
       {/* Trigger button */}
       <button
+        ref={triggerRef}
         onClick={() => setOpen((v) => !v)}
+        aria-label="Cambiar tema"
+        aria-haspopup="listbox"
+        aria-expanded={open}
         className={cn(
           'flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm transition-all duration-200',
           'hover:bg-accent/20',
@@ -45,6 +76,8 @@ export default function ThemeSwitcher() {
 
       {/* Submenu */}
       <div
+        role="listbox"
+        aria-label="Temas disponibles"
         className={cn(
           'absolute bottom-full right-0 mb-2 w-52 max-h-[60vh] rounded-xl border border-border bg-card shadow-2xl overflow-hidden overflow-y-auto',
           'origin-bottom-right transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]',
@@ -59,6 +92,9 @@ export default function ThemeSwitcher() {
             return (
               <button
                 key={t.id}
+                role="option"
+                aria-selected={isActive}
+                tabIndex={open ? 0 : -1}
                 onClick={(e) => {
                   if (!isActive) {
                     const rect = e.currentTarget.getBoundingClientRect();

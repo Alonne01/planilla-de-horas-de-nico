@@ -192,7 +192,7 @@ function usePasosEditor(initial: PasoForm[]) {
   const updatePaso = (idx: number, field: string, value: unknown) =>
     setPasos((prev) => {
       const next = [...prev];
-      (next[idx] as Record<string, unknown>)[field] = value;
+      next[idx] = { ...next[idx], [field]: value };
       return next;
     });
 

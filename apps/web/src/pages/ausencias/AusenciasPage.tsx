@@ -6,8 +6,8 @@ import { useAuthStore } from '@/stores/authStore';
 import CalendarRangePicker from '@/components/layout/CalendarRangePicker';
 import {
   AlertTriangle, Plus, Trash2, Loader2, X,
-  Calendar, FileText, CheckCircle2, Send, Upload,
-  Clock, XCircle, UserCheck, RotateCcw, Filter
+  Calendar, FileText, Send, Upload,
+  Clock, UserCheck, RotateCcw, Filter,
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 import ScopeToggle from '@/components/layout/ScopeToggle';
@@ -136,8 +136,6 @@ export default function AusenciasPage() {
       queryClient.invalidateQueries({ queryKey: ['compensatorio-saldo'] });
     },
   });
-
-  const totalDias = ausencias.reduce((acc, a) => acc + a.diasAusencia, 0);
 
   const filteredAusencias = filterSector
     ? ausencias.filter(a => a.usuario.sector?.id === filterSector)

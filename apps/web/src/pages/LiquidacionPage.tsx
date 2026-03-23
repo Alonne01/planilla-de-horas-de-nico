@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
-import { Download, Loader2, FileSpreadsheet, ChevronDown } from 'lucide-react';
+import { Download, Loader2, FileSpreadsheet } from 'lucide-react';
 
 interface Sector { id: string; nombre: string }
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import api from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
@@ -45,7 +45,6 @@ interface PendienteUser {
 type TabKey = 'exportar' | 'pendientes' | 'aprobadas';
 
 export default function CierrePage() {
-  const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
 
   // Tab state

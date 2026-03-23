@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import {
   Loader2, GraduationCap, Plus, Trash2, Pencil, X, Save,
-  AlertTriangle, CheckCircle2, Clock, BookOpen, Filter,
+  AlertTriangle, CheckCircle2, Clock, BookOpen,
   CalendarPlus, Users, Send, Check, XCircle, UserCheck, Search,
 } from 'lucide-react';
 import ScopeToggle from '@/components/layout/ScopeToggle';

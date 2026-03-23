@@ -29,6 +29,10 @@ function getInitialTheme(): ThemeName {
   } catch {
     // localStorage unavailable
   }
+  // Respect OS color scheme preference on first visit
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches) {
+    return 'concrete';
+  }
   return 'dark';
 }
 
@@ -60,6 +64,7 @@ export function applyThemeWithRipple(theme: ThemeName, origin?: { x: number; y: 
     });
 
     transition.ready.then(() => {
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       document.documentElement.animate(
         {
           clipPath: [
@@ -68,7 +73,7 @@ export function applyThemeWithRipple(theme: ThemeName, origin?: { x: number; y: 
           ],
         },
         {
-          duration: 600,
+          duration: reducedMotion ? 0 : 600,
           easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)',
           pseudoElement: '::view-transition-new(root)',
         },

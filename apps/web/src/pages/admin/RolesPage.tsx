@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
-import { cn } from '@/lib/utils';
 import { Shield, Plus, Pencil, Trash2, X, Loader2 } from 'lucide-react';
 
 interface RolConfig {
