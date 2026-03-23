@@ -89,7 +89,7 @@ export default function NotificationBell() {
           {/* Backdrop */}
           <div className="fixed inset-0 z-[99]" onClick={() => setOpen(false)} />
           {/* Panel */}
-          <div className="fixed left-2 right-2 top-[3.75rem] z-[100] mx-auto max-w-sm lg:absolute lg:left-auto lg:right-0 lg:top-full lg:mt-2 lg:mx-0 lg:w-96 lg:max-w-none max-h-[80vh] rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
+          <div className="fixed left-2 right-2 top-[3.75rem] z-[100] mx-auto max-w-sm lg:absolute lg:left-0 lg:right-auto lg:bottom-full lg:top-auto lg:mb-2 lg:mx-0 lg:w-96 lg:max-w-none max-h-[80vh] rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between p-3 border-b border-border">
             <h3 className="text-sm font-semibold">Notificaciones</h3>
             <div className="flex items-center gap-1">

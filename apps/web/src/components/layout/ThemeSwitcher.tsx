@@ -46,7 +46,7 @@ export default function ThemeSwitcher() {
       {/* Submenu */}
       <div
         className={cn(
-          'absolute bottom-full right-0 mb-2 w-52 rounded-xl border border-border bg-card shadow-2xl overflow-hidden',
+          'absolute bottom-full right-0 mb-2 w-52 max-h-[60vh] rounded-xl border border-border bg-card shadow-2xl overflow-hidden overflow-y-auto',
           'origin-bottom-right transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]',
           open
             ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
