@@ -57,13 +57,15 @@ if %ATTEMPTS% gtr 15 (
 findstr /I /C:"trycloudflare.com" "%TEMP_DIR%\api_tunnel.txt" >nul 2>&1
 if %ERRORLEVEL% neq 0 goto wait_api_url
 
-:: Extract URL using PowerShell
-for /f "usebackq delims=" %%u in (`powershell -NoProfile -Command "Get-Content '%TEMP_DIR%\api_tunnel.txt' | ForEach-Object { if ($_ -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com') { $Matches[0] } } | Select-Object -First 1"`) do (
+:: Extract URL using type (can read locked files) piped to PowerShell
+for /f "usebackq delims=" %%u in (`type "%TEMP_DIR%\api_tunnel.txt" ^| powershell -NoProfile -Command "foreach($l in $input){if($l -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com'){$Matches[0];break}}"`) do (
     set "API_URL=%%u"
 )
 
 if "!API_URL!"=="" (
     echo [ERROR] No se pudo extraer URL del tunel API
+    echo [DEBUG] Contenido del log:
+    type "%TEMP_DIR%\api_tunnel.txt" 2>nul
     goto cleanup
 )
 
@@ -97,13 +99,15 @@ if %ATTEMPTS% gtr 15 (
 findstr /I /C:"trycloudflare.com" "%TEMP_DIR%\web_tunnel.txt" >nul 2>&1
 if %ERRORLEVEL% neq 0 goto wait_web_url
 
-:: Extract URL using PowerShell
-for /f "usebackq delims=" %%u in (`powershell -NoProfile -Command "Get-Content '%TEMP_DIR%\web_tunnel.txt' | ForEach-Object { if ($_ -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com') { $Matches[0] } } | Select-Object -First 1"`) do (
+:: Extract URL using type (can read locked files) piped to PowerShell
+for /f "usebackq delims=" %%u in (`type "%TEMP_DIR%\web_tunnel.txt" ^| powershell -NoProfile -Command "foreach($l in $input){if($l -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com'){$Matches[0];break}}"`) do (
     set "WEB_URL=%%u"
 )
 
 if "!WEB_URL!"=="" (
     echo [ERROR] No se pudo extraer URL del tunel Frontend
+    echo [DEBUG] Contenido del log:
+    type "%TEMP_DIR%\web_tunnel.txt" 2>nul
     goto cleanup
 )
 
