@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { upload } from '../middleware/upload.middleware.js';
+import { crearNotificacion } from '../utils/notificacion.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -232,6 +233,24 @@ router.post('/', requireLevel(LEVEL_RRHH), upload.single('archivo'), async (req:
       },
     });
 
+    // Notify all recipients
+    const remitente = await prisma.usuario.findUnique({
+      where: { id: remitenteId },
+      select: { nombre: true, apellido: true },
+    });
+    const nombreRemitente = remitente ? `${remitente.nombre} ${remitente.apellido}` : 'Alguien';
+    await Promise.all(
+      userIds.map(uid =>
+        crearNotificacion({
+          usuarioId: uid,
+          tipo: 'MENSAJE',
+          titulo: `📩 Nuevo mensaje: ${asunto}`,
+          cuerpo: `${nombreRemitente} te envió un mensaje.`,
+          link: '/mensajes',
+        })
+      )
+    );
+
     res.status(201).json({ ...mensaje, destinatariosCount: userIds.length });
   } catch (error) {
     console.error('Error creating mensaje:', error);
@@ -293,6 +312,18 @@ router.post('/:id/responder', upload.single('archivo'), async (req: AuthRequest,
         usuario: { select: { id: true, nombre: true, apellido: true, rol: true } },
       },
     });
+
+    // Notify the original sender about the reply
+    if (mensaje.remitenteId !== userId) {
+      const replier = respuesta.usuario;
+      await crearNotificacion({
+        usuarioId: mensaje.remitenteId,
+        tipo: 'MENSAJE',
+        titulo: `💬 Respuesta a: ${mensaje.asunto}`,
+        cuerpo: `${replier.nombre} ${replier.apellido} respondió tu mensaje.`,
+        link: '/mensajes',
+      });
+    }
 
     res.status(201).json(respuesta);
   } catch (error) {

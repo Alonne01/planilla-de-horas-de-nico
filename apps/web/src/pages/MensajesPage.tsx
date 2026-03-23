@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
-import api from '@/services/api';
+import api, { getUploadUrl } from '@/services/api';
 import { cn } from '@/lib/utils';
 import {
   MessageSquare,
@@ -469,7 +469,7 @@ function MensajeDetalleView({ mensaje, currentUserId }: { mensaje: MensajeDetall
         {mensaje.archivoUrl && (
           <div className="mt-4 pt-3 border-t border-border">
             <a
-              href={mensaje.archivoUrl}
+              href={getUploadUrl(mensaje.archivoUrl)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-accent text-sm text-foreground hover:bg-accent/80 transition-colors"
@@ -514,7 +514,7 @@ function MensajeDetalleView({ mensaje, currentUserId }: { mensaje: MensajeDetall
               <p className="text-sm text-foreground whitespace-pre-wrap">{r.cuerpo}</p>
               {r.archivoUrl && (
                 <a
-                  href={r.archivoUrl}
+                  href={getUploadUrl(r.archivoUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 mt-2 text-xs text-primary hover:underline"

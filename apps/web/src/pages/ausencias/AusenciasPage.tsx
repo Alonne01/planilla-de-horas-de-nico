@@ -1,13 +1,13 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '@/services/api';
+import api, { getUploadUrl } from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import CalendarRangePicker from '@/components/layout/CalendarRangePicker';
 import {
   AlertTriangle, Plus, Trash2, Loader2, X,
   Calendar, FileText, Send, Upload,
-  Clock, UserCheck, RotateCcw, Filter,
+  Clock, UserCheck, RotateCcw, Filter, XCircle,
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 import ScopeToggle from '@/components/layout/ScopeToggle';
@@ -25,6 +25,7 @@ interface Ausencia {
   requiereAprobacion: boolean;
   estado: string;
   archivoUrl: string | null;
+  obsRechazo?: string | null;
   usuarioId: string;
   usuario: { id: string; nombre: string; apellido: string; sector?: { id: string; nombre: string } | null };
   cargadaPor?: { id: string; nombre: string; apellido: string } | null;
@@ -286,7 +287,7 @@ export default function AusenciasPage() {
                     )}
                     {a.archivoUrl && (
                       <a
-                        href={a.archivoUrl}
+                        href={getUploadUrl(a.archivoUrl)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-primary hover:underline flex items-center gap-1"
@@ -297,6 +298,11 @@ export default function AusenciasPage() {
                     {a.descripcion && <span>{a.descripcion}</span>}
                     {a.descuentaSueldo && <span className="text-red-400">💰 Descuenta sueldo</span>}
                   </div>
+                  {a.obsRechazo && a.estado === 'RECHAZADA' && (
+                    <p className="text-xs text-red-400 flex items-center gap-1 mt-1">
+                      <XCircle className="h-3 w-3 shrink-0" /> {a.obsRechazo}
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2 shrink-0">
                   {canRevocar(a) && (

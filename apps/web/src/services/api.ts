@@ -1,7 +1,14 @@
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000`;
+export const API_BASE_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000`;
+
+/** Resolve a relative /uploads/… path to a full API URL */
+export function getUploadUrl(path: string | null | undefined): string {
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  return `${API_BASE_URL}${path}`;
+}
 
 const api = axios.create({
   baseURL: `${API_BASE_URL}/api/v1`,
