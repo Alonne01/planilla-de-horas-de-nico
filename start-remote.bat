@@ -54,7 +54,7 @@ if %ATTEMPTS% gtr 15 (
     echo [ERROR] Timeout esperando tunel API
     goto cleanup
 )
-findstr /I /C:"trycloudflare.com" "%TEMP_DIR%\api_tunnel.txt" >nul 2>&1
+findstr /I /R "https.*trycloudflare" "%TEMP_DIR%\api_tunnel.txt" >nul 2>&1
 if %ERRORLEVEL% neq 0 goto wait_api_url
 
 :: Extract URL using type (can read locked files) piped to PowerShell
@@ -96,7 +96,7 @@ if %ATTEMPTS% gtr 15 (
     echo [ERROR] Timeout esperando tunel Frontend
     goto cleanup
 )
-findstr /I /C:"trycloudflare.com" "%TEMP_DIR%\web_tunnel.txt" >nul 2>&1
+findstr /I /R "https.*trycloudflare" "%TEMP_DIR%\web_tunnel.txt" >nul 2>&1
 if %ERRORLEVEL% neq 0 goto wait_web_url
 
 :: Extract URL using type (can read locked files) piped to PowerShell
