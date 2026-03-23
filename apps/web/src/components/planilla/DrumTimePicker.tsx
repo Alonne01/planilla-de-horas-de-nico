@@ -1,9 +1,52 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 
+/** Enable mouse-drag scrolling on a scroll container (desktop UX). */
+function useDragScroll(ref: React.RefObject<HTMLDivElement | null>) {
+  const drag = useRef({ active: false, startY: 0, startScroll: 0, moved: false });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') return; // let native touch scroll handle it
+      drag.current = { active: true, startY: e.clientY, startScroll: el.scrollTop, moved: false };
+      el.setPointerCapture(e.pointerId);
+      el.style.cursor = 'grabbing';
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!drag.current.active) return;
+      const dy = e.clientY - drag.current.startY;
+      if (Math.abs(dy) > 3) drag.current.moved = true;
+      el.scrollTop = drag.current.startScroll - dy;
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!drag.current.active) return;
+      drag.current.active = false;
+      el.releasePointerCapture(e.pointerId);
+      el.style.cursor = '';
+    };
+
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+    return () => {
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onUp);
+    };
+  }, [ref]);
+
+  return drag;
+}
+
 /**
  * Mobile-friendly drum/scroll time picker with hour and minute wheels.
  * Minutes snap to 15-minute intervals (0, 15, 30, 45).
+ * Desktop: click items to select, drag to scroll.
  */
 export default function DrumTimePicker({
   value,
@@ -25,11 +68,13 @@ export default function DrumTimePicker({
   const minRef = useRef<HTMLDivElement>(null);
   const hourDebounce = useRef<ReturnType<typeof setTimeout>>(undefined);
   const minDebounce = useRef<ReturnType<typeof setTimeout>>(undefined);
-  // Track last programmatic scroll target to ignore resulting scroll events
   const expectedHour = useRef(currentHour);
   const expectedMin = useRef(currentMin);
 
   const ITEM_H = 40;
+
+  const hourDrag = useDragScroll(hourRef);
+  const minDrag = useDragScroll(minRef);
 
   const scrollTo = useCallback((ref: React.RefObject<HTMLDivElement | null>, index: number) => {
     if (!ref.current) return;
@@ -74,6 +119,20 @@ export default function DrumTimePicker({
     }, 80);
   };
 
+  const clickHour = (hr: number) => {
+    if (hourDrag.current.moved) return; // was a drag, not a click
+    expectedHour.current = hr;
+    scrollTo(hourRef, hr);
+    onChange(`${String(hr).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`);
+  };
+
+  const clickMin = (mn: number) => {
+    if (minDrag.current.moved) return;
+    expectedMin.current = mn;
+    scrollTo(minRef, MINUTE_STEPS.indexOf(mn));
+    onChange(`${String(currentHour).padStart(2, '0')}:${String(mn).padStart(2, '0')}`);
+  };
+
   useEffect(() => {
     return () => {
       clearTimeout(hourDebounce.current);
@@ -96,15 +155,16 @@ export default function DrumTimePicker({
         ref={hourRef}
         onScroll={handleHourScroll}
         className="h-[120px] overflow-y-scroll snap-y snap-mandatory scrollbar-none rounded-lg border border-input bg-background text-foreground relative w-16 cursor-grab"
-        style={{ scrollbarWidth: 'none' }}
+        style={{ scrollbarWidth: 'none', touchAction: 'pan-y' }}
       >
         <div style={{ height: ITEM_H }} />
         {HOURS.map((hr) => (
           <div
             key={hr}
+            onClick={() => clickHour(hr)}
             className={cn(
               'flex items-center justify-center snap-center h-10 text-lg font-mono transition-colors select-none',
-              hr === currentHour ? 'text-primary font-bold text-xl' : 'text-muted-foreground',
+              hr === currentHour ? 'text-primary font-bold text-xl' : 'text-muted-foreground hover:text-foreground cursor-pointer',
             )}
           >
             {String(hr).padStart(2, '0')}
@@ -120,15 +180,16 @@ export default function DrumTimePicker({
         ref={minRef}
         onScroll={handleMinScroll}
         className="h-[120px] overflow-y-scroll snap-y snap-mandatory scrollbar-none rounded-lg border border-input bg-background text-foreground relative w-16 cursor-grab"
-        style={{ scrollbarWidth: 'none' }}
+        style={{ scrollbarWidth: 'none', touchAction: 'pan-y' }}
       >
         <div style={{ height: ITEM_H }} />
         {MINUTE_STEPS.map((mn) => (
           <div
             key={mn}
+            onClick={() => clickMin(mn)}
             className={cn(
               'flex items-center justify-center snap-center h-10 text-lg font-mono transition-colors select-none',
-              mn === currentMin ? 'text-primary font-bold text-xl' : 'text-muted-foreground',
+              mn === currentMin ? 'text-primary font-bold text-xl' : 'text-muted-foreground hover:text-foreground cursor-pointer',
             )}
           >
             {String(mn).padStart(2, '0')}
