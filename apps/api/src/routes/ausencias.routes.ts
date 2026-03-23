@@ -68,11 +68,15 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const userId = req.user!.userId;
     const empresaId = req.user!.empresaId;
     const userNivel = req.user!.rolNivel ?? 0;
+    const scope = req.query.scope as string | undefined;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: any = {};
 
-    if (userNivel >= 90) {
+    if (scope === 'mio') {
+      // Only own records
+      where.usuarioId = userId;
+    } else if (userNivel >= 90) {
       // RRHH/ADMIN: all company
       where.usuario = { empresaId };
     } else if (userNivel >= 60) {

@@ -34,6 +34,7 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 
   /* ── Standard color palettes (needed by status badges, buttons, etc.) ── */
+  --color-slate-300: #cbd5e1;
   --color-slate-400: #94a3b8;
   --color-slate-500: #64748b;
   --color-slate-600: #475569;
@@ -64,6 +65,7 @@
   --color-yellow-100: #fef9c3;
   --color-yellow-400: #facc15;
   --color-yellow-500: #eab308;
+  --color-yellow-600: #ca8a04;
   --color-yellow-800: #854d0e;
 
   --color-green-100: #dcfce7;
@@ -76,13 +78,28 @@
   --color-purple-500: #a855f7;
   --color-purple-600: #9333ea;
 
+  --color-cyan-400: #22d3ee;
   --color-cyan-500: #06b6d4;
+  --color-cyan-600: #0891b2;
+  --color-cyan-700: #0e7490;
 
   --color-gray-500: #6b7280;
 
   --color-indigo-400: #818cf8;
   --color-indigo-500: #6366f1;
   --color-indigo-600: #4f46e5;
+
+  --color-violet-400: #a78bfa;
+  --color-violet-500: #8b5cf6;
+
+  --color-pink-500: #ec4899;
+
+  --color-rose-700: #be123c;
+
+  --color-zinc-400: #a1a1aa;
+
+  --color-white: #ffffff;
+  --color-black: #000000;
 }
 
 /* ══════════════════════════════════════════════
@@ -184,6 +201,83 @@
   --sidebar-ring: #898C26;
 }
 
+/* ══════════════════════════════════════════════
+   Theme: Elden (dark, golden/amber — Elden Ring)
+   ══════════════════════════════════════════════ */
+[data-theme="elden"] {
+  --background: #0E0C08;
+  --foreground: #D4C6A1;
+  --card: #1A1610;
+  --card-foreground: #D4C6A1;
+  --popover: #1A1610;
+  --popover-foreground: #D4C6A1;
+  --primary: #C8AA6E;
+  --primary-foreground: #0E0C08;
+  --secondary: #3D3428;
+  --secondary-foreground: #D4C6A1;
+  --muted: #2A2419;
+  --muted-foreground: #8B7D5E;
+  --accent: #8B6914;
+  --accent-foreground: #D4C6A1;
+  --destructive: #8B2020;
+  --destructive-foreground: #D4C6A1;
+  --border: #3D3428;
+  --input: #3D3428;
+  --ring: #C8AA6E;
+  --sidebar-background: #0E0C08;
+  --sidebar-foreground: #D4C6A1;
+  --sidebar-primary: #C8AA6E;
+  --sidebar-primary-foreground: #0E0C08;
+  --sidebar-accent: #3D3428;
+  --sidebar-accent-foreground: #D4C6A1;
+  --sidebar-border: #3D3428;
+  --sidebar-ring: #C8AA6E;
+}
+
+/* ══════════════════════════════════════════════
+   Theme: Yoco (light, sunflower/warm)
+   ══════════════════════════════════════════════ */
+[data-theme="yoco"] {
+  --background: #FDF8EE;
+  --foreground: #3A3209;
+  --card: #ffffff;
+  --card-foreground: #3A3209;
+  --popover: #ffffff;
+  --popover-foreground: #3A3209;
+  --primary: #F29F05;
+  --primary-foreground: #3A3209;
+  --secondary: #F5E6C4;
+  --secondary-foreground: #3A3209;
+  --muted: #F0E4CC;
+  --muted-foreground: #8A7D5A;
+  --accent: #6F730A;
+  --accent-foreground: #FDF8EE;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #E6D9B8;
+  --input: #E6D9B8;
+  --ring: #F2B705;
+  --sidebar-background: #F5E6C4;
+  --sidebar-foreground: #3A3209;
+  --sidebar-primary: #F29F05;
+  --sidebar-primary-foreground: #3A3209;
+  --sidebar-accent: #FDF8EE;
+  --sidebar-accent-foreground: #3A3209;
+  --sidebar-border: #E6D9B8;
+  --sidebar-ring: #F2B705;
+}
+
+/* Color scheme hint for browser UI (scrollbars, form controls, date pickers) */
+[data-theme="dark"],
+[data-theme="soul"],
+[data-theme="elden"] {
+  color-scheme: dark;
+}
+[data-theme="concrete"],
+[data-theme="yoco"] {
+  color-scheme: light;
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -206,11 +300,17 @@
   }
 }
 
-/* Color scheme hint for browser UI (scrollbars, form controls, date pickers) */
-[data-theme="dark"],
-[data-theme="soul"] {
-  color-scheme: dark;
+/* ══════════════════════════════════════════════
+   Theme transition: Circular reveal animation
+   ══════════════════════════════════════════════ */
+
+/* View Transitions API — freeze old snapshot while new one reveals */
+::view-transition-old(root) {
+  animation: none;
+  z-index: 1;
 }
-[data-theme="concrete"] {
-  color-scheme: light;
+::view-transition-new(root) {
+  animation: none;
+  z-index: 9999;
+  mix-blend-mode: normal;
 }

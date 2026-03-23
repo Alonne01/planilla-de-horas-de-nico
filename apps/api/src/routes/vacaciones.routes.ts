@@ -76,7 +76,7 @@ router.get('/saldo', async (req: AuthRequest, res: Response): Promise<void> => {
   }
 });
 
-// ─── GET /vacaciones/gantt — Calendar view for team ──
+// ─── GET /vacaciones/gantt — Calendar view for team (vacaciones + ausencias + capacitaciones) ──
 
 router.get('/gantt', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -95,68 +95,159 @@ router.get('/gantt', async (req: AuthRequest, res: Response): Promise<void> => {
     const startDate = new Date(year, 0, 1);
     const endDate = new Date(year, 11, 31, 23, 59, 59);
 
-    const where: any = {
-      usuario: { empresaId },
-      fechaInicio: { lte: endDate },
-      fechaFin: { gte: startDate },
-      estado: { in: ['PENDIENTE', 'EN_REVISION', 'APROBADA'] },
-    };
-
-    if (sectorId) {
-      where.usuario.sectorId = sectorId as string;
+    const userWhere: any = { empresaId };
+    // Below RRHH (< 90): force own sector only. RRHH+ can filter or see all.
+    if (userNivel < 90) {
+      const me = await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } });
+      if (me?.sectorId) userWhere.sectorId = me.sectorId;
+    } else if (sectorId) {
+      userWhere.sectorId = sectorId as string;
     }
 
+    // 1. Fetch vacaciones
     const vacaciones = await prisma.vacacion.findMany({
-      where,
+      where: {
+        usuario: userWhere,
+        fechaInicio: { lte: endDate },
+        fechaFin: { gte: startDate },
+        estado: { in: ['PENDIENTE', 'EN_REVISION', 'APROBADA'] },
+      },
       select: {
-        id: true,
-        fechaInicio: true,
-        fechaFin: true,
-        diasTotales: true,
-        estado: true,
-        motivo: true,
+        id: true, fechaInicio: true, fechaFin: true, diasTotales: true,
+        estado: true, motivo: true,
         usuario: {
-          select: {
-            id: true,
-            nombre: true,
-            apellido: true,
-            legajo: true,
-            sector: { select: { id: true, nombre: true } },
-          },
+          select: { id: true, nombre: true, apellido: true, legajo: true,
+            sector: { select: { id: true, nombre: true } } },
         },
       },
       orderBy: [{ usuario: { apellido: 'asc' } }, { fechaInicio: 'asc' }],
     });
 
-    // Group by employee
-    const empleadoMap = new Map<string, {
+    // 2. Fetch ausencias
+    const ausencias = await prisma.ausencia.findMany({
+      where: {
+        usuario: userWhere,
+        fechaInicio: { lte: endDate },
+        fechaFin: { gte: startDate },
+        estado: { in: ['PENDIENTE', 'EN_REVISION', 'APROBADA'] },
+      },
+      select: {
+        id: true, fechaInicio: true, fechaFin: true, diasAusencia: true,
+        estado: true, tipo: true, descripcion: true,
+        usuario: {
+          select: { id: true, nombre: true, apellido: true, legajo: true,
+            sector: { select: { id: true, nombre: true } } },
+        },
+      },
+      orderBy: [{ usuario: { apellido: 'asc' } }, { fechaInicio: 'asc' }],
+    });
+
+    // 3. Fetch capacitaciones (training sessions with accepted/attended invitations)
+    const invitaciones = await prisma.invitacionCapacitacion.findMany({
+      where: {
+        estado: { in: ['ACEPTADA', 'PENDIENTE'] },
+        sesion: {
+          empresaId,
+          fecha: { gte: startDate, lte: endDate },
+          estado: { notIn: ['CANCELADA'] },
+        },
+        usuario: userWhere,
+      },
+      select: {
+        id: true, estado: true, asistio: true,
+        usuario: {
+          select: { id: true, nombre: true, apellido: true, legajo: true,
+            sector: { select: { id: true, nombre: true } } },
+        },
+        sesion: {
+          select: { id: true, titulo: true, fecha: true, horaInicio: true, horaFin: true,
+            tipo: { select: { nombre: true } } },
+        },
+      },
+    });
+
+    // Group everything by employee
+    type Block = {
+      id: string; fechaInicio: string; fechaFin: string;
+      dias: number; estado: string; tipo: string; detalle: string | null;
+    };
+    type EmpleadoGantt = {
       id: string; nombre: string; apellido: string; legajo: string;
       sector: { id: string; nombre: string } | null;
-      vacaciones: typeof vacaciones;
-    }>();
+      bloques: Block[];
+    };
 
-    for (const v of vacaciones) {
-      if (!empleadoMap.has(v.usuario.id)) {
-        empleadoMap.set(v.usuario.id, {
-          ...v.usuario,
-          vacaciones: [],
-        });
+    const empleadoMap = new Map<string, EmpleadoGantt>();
+
+    const ensureEmp = (u: { id: string; nombre: string; apellido: string; legajo: string; sector: { id: string; nombre: string } | null }) => {
+      if (!empleadoMap.has(u.id)) {
+        empleadoMap.set(u.id, { ...u, bloques: [] });
       }
-      empleadoMap.get(v.usuario.id)!.vacaciones.push(v);
+      return empleadoMap.get(u.id)!;
+    };
+
+    // Add vacaciones blocks
+    for (const v of vacaciones) {
+      const emp = ensureEmp(v.usuario);
+      emp.bloques.push({
+        id: v.id, tipo: 'VACACION',
+        fechaInicio: (v.fechaInicio as Date).toISOString(),
+        fechaFin: (v.fechaFin as Date).toISOString(),
+        dias: v.diasTotales, estado: v.estado,
+        detalle: v.motivo,
+      });
     }
 
-    // Also fetch sectors for filter dropdown
+    // Add ausencias blocks
+    const TIPO_LABELS: Record<string, string> = {
+      CERTIFICADO_MEDICO: 'Certificado médico',
+      FALTA_INJUSTIFICADA: 'Falta injustificada',
+      FALTA_JUSTIFICADA: 'Falta justificada',
+      LICENCIA_ESPECIAL: 'Licencia especial',
+      FRANCO_COMPENSATORIO: 'Franco compensatorio',
+      ACCIDENTE_TRABAJO: 'Accidente de trabajo',
+      LICENCIA_GREMIAL: 'Lic. gremial',
+      SUSPENSION: 'Suspensión',
+    };
+
+    for (const a of ausencias) {
+      const emp = ensureEmp(a.usuario);
+      emp.bloques.push({
+        id: a.id, tipo: `AUSENCIA_${a.tipo}`,
+        fechaInicio: (a.fechaInicio as Date).toISOString(),
+        fechaFin: (a.fechaFin as Date).toISOString(),
+        dias: a.diasAusencia, estado: a.estado,
+        detalle: a.descripcion || TIPO_LABELS[a.tipo] || a.tipo,
+      });
+    }
+
+    // Add capacitacion blocks
+    for (const inv of invitaciones) {
+      const emp = ensureEmp(inv.usuario);
+      const fecha = (inv.sesion.fecha as Date).toISOString();
+      emp.bloques.push({
+        id: inv.id, tipo: 'CAPACITACION',
+        fechaInicio: fecha, fechaFin: fecha,
+        dias: 1,
+        estado: inv.estado === 'ACEPTADA' ? 'APROBADA' : 'PENDIENTE',
+        detalle: inv.sesion.titulo || inv.sesion.tipo?.nombre || 'Capacitación',
+      });
+    }
+
+    // Sort employees by apellido, blocks by date
+    const empleados = Array.from(empleadoMap.values())
+      .sort((a, b) => a.apellido.localeCompare(b.apellido));
+    for (const emp of empleados) {
+      emp.bloques.sort((a, b) => a.fechaInicio.localeCompare(b.fechaInicio));
+    }
+
     const sectores = await prisma.sector.findMany({
       where: { empresaId },
       select: { id: true, nombre: true },
       orderBy: { nombre: 'asc' },
     });
 
-    res.json({
-      anio: year,
-      sectores,
-      empleados: Array.from(empleadoMap.values()),
-    });
+    res.json({ anio: year, sectores, empleados });
   } catch (err) {
     console.error('Error fetching gantt:', err);
     res.status(500).json({ error: 'Error interno' });
@@ -171,11 +262,15 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const userNivel = req.user!.rolNivel ?? 0;
     const userId = req.user!.userId;
     const empresaId = req.user!.empresaId;
+    const scope = req.query.scope as string | undefined;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let where: any = {};
 
-    if (userNivel >= 90) {
+    if (scope === 'mio') {
+      // Only own records
+      where = { usuarioId: userId };
+    } else if (userNivel >= 90) {
       // RRHH/ADMIN: see all vacations in the company
       where = { usuario: { empresaId } };
     } else if (userNivel >= 60) {

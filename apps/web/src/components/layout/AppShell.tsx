@@ -49,11 +49,12 @@ const navItems: NavItem[] = [
   { label: 'Planillas', path: '/planillas', icon: Clock },
   { label: 'Vacaciones', path: '/vacaciones', icon: Palmtree },
   { label: 'Ausencias', path: '/ausencias', icon: FileX },
-  { label: 'Aprobaciones', path: '/aprobaciones', icon: CheckCircle2 },
+  { label: 'Aprobaciones', path: '/aprobaciones', icon: CheckCircle2, minLevel: 60 },
   { label: 'Mensajes', path: '/mensajes', icon: MessageSquare },
   { label: 'Recibos', path: '/recibos', icon: FileText },
   { label: 'Calendario Vac.', path: '/vacaciones/gantt', icon: CalendarRange, minLevel: 70 },
   { label: 'Capacitaciones', path: '/capacitaciones', icon: GraduationCap },
+  { label: 'Mi Equipo', path: '/equipo', icon: Users },
   { label: 'Analytics', path: '/analytics', icon: FileBarChart },
 ];
 
@@ -193,7 +194,7 @@ export default function AppShell() {
       <aside
         className={cn(
           'fixed top-0 left-0 z-40 h-full w-64 bg-card border-r border-border flex flex-col transition-transform duration-300',
-          sidebarOpen ? 'translate-x-0' : 'max-lg:-translate-x-full'
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         )}
       >
         {/* Sidebar header */}

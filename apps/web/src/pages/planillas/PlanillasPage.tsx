@@ -268,48 +268,50 @@ export default function PlanillasPage() {
 
       {/* Tabs */}
       {hasSubTabs && (
-        <div className="flex gap-1 bg-muted/20 rounded-lg p-1 w-fit">
-          <button
-            onClick={() => setTab('mias')}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all',
-              tab === 'mias' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <div className="flex gap-1 bg-muted/20 rounded-lg p-1 w-fit">
+            <button
+              onClick={() => setTab('mias')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
+                tab === 'mias' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <Clock className="h-4 w-4 hidden sm:block" /> Mis Planillas
+            </button>
+            {isManager && (
+              <button
+                onClick={() => setTab('equipo')}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
+                  tab === 'equipo' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <Users className="h-4 w-4 hidden sm:block" /> Mi Equipo
+                {otherPlanillas.length > 0 && (
+                  <span className="bg-muted text-muted-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
+                    {otherPlanillas.length}
+                  </span>
+                )}
+              </button>
             )}
-          >
-            <Clock className="h-4 w-4" /> Mis Planillas
-          </button>
-          {isManager && (
-            <button
-              onClick={() => setTab('equipo')}
-              className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all',
-                tab === 'equipo' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Users className="h-4 w-4" /> Mi Equipo
-              {otherPlanillas.length > 0 && (
-                <span className="bg-muted text-muted-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
-                  {otherPlanillas.length}
-                </span>
-              )}
+            {isRRHH && (
+              <button
+                onClick={() => setTab('sectores')}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
+                  tab === 'sectores' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <Building2 className="h-4 w-4 hidden sm:block" /> Por Sector
+                {otherPlanillas.length > 0 && (
+                  <span className="bg-muted text-muted-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
+                    {otherPlanillas.length}
+                  </span>
+                )}
             </button>
           )}
-          {isRRHH && (
-            <button
-              onClick={() => setTab('sectores')}
-              className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all',
-                tab === 'sectores' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Building2 className="h-4 w-4" /> Por Sector
-              {otherPlanillas.length > 0 && (
-                <span className="bg-muted text-muted-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
-                  {otherPlanillas.length}
-                </span>
-              )}
-            </button>
-          )}
+        </div>
         </div>
       )}
 

@@ -37,7 +37,7 @@ async function main() {
   // ─────────────────────────────────
   const empresa = await prisma.empresa.create({
     data: {
-      nombre: 'Planilla de Horas Demo',
+      nombre: 'WENLEN',
       cuit: '30-12345678-9',
     },
   });

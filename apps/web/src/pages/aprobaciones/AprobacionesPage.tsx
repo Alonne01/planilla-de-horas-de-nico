@@ -9,6 +9,7 @@ import {
   History, AlertCircle, ChevronRight, X, Send, AlertTriangle, Filter
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
+import ScopeToggle from '@/components/layout/ScopeToggle';
 
 // ─── Types ───────────────────────────────────────
 interface PlanillaItem {
@@ -90,6 +91,9 @@ export default function AprobacionesPage() {
   const [confirmandoNombre, setConfirmandoNombre] = useState('');
   const [filterSector, setFilterSector] = useState('');
   const [periodo, setPeriodo] = useState(getCurrentPeriod());
+  const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
+  const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
+  const showScopeToggle = (user?.rolNivel ?? 0) >= 60 && !isRRHH;
 
   interface Sector { id: string; nombre: string; }
   const { data: sectores = [] } = useQuery<Sector[]>({
@@ -98,9 +102,13 @@ export default function AprobacionesPage() {
   });
 
   const { data, isLoading, refetch } = useQuery<AprobacionesData>({
-    queryKey: ['aprobaciones', periodo.inicio, periodo.fin],
-    queryFn: () => api.get(`/aprobaciones?periodoInicio=${encodeURIComponent(periodo.inicio)}&periodoFin=${encodeURIComponent(periodo.fin)}`).then(r => r.data),
-    refetchInterval: 30000, // auto-refresh every 30s
+    queryKey: ['aprobaciones', periodo.inicio, periodo.fin, scope],
+    queryFn: () => {
+      const params = new URLSearchParams({ periodoInicio: periodo.inicio, periodoFin: periodo.fin });
+      if (showScopeToggle && scope === 'mio') params.set('scope', 'mio');
+      return api.get(`/aprobaciones?${params.toString()}`).then(r => r.data);
+    },
+    refetchInterval: 30000,
   });
 
   const filterBySector = <T extends { usuario: { sector?: { nombre: string } | null } }>(items: T[]) =>
@@ -183,6 +191,7 @@ export default function AprobacionesPage() {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <PeriodSelector value={periodo} onChange={setPeriodo} />
+        {showScopeToggle && <ScopeToggle value={scope} onChange={setScope} />}
         {sectores.length > 0 && (
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground" />
@@ -201,72 +210,74 @@ export default function AprobacionesPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-muted/20 rounded-lg p-1 w-fit">
-        <button
-          onClick={() => setTab('planillas')}
-          className={cn(
-            'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all',
-            tab === 'planillas' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <Clock className="h-4 w-4" /> Planillas
-          {planillasPendienteCount > 0 && (
-            <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
-              {planillasPendienteCount}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setTab('vacaciones')}
-          className={cn(
-            'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all',
-            tab === 'vacaciones' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <Palmtree className="h-4 w-4" /> Vacaciones
-          {vacacionesPendienteCount > 0 && (
-            <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
-              {vacacionesPendienteCount}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setTab('ausencias')}
-          className={cn(
-            'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all',
-            tab === 'ausencias' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <AlertTriangle className="h-4 w-4" /> Ausencias
-          {ausenciasPendienteCount > 0 && (
-            <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
-              {ausenciasPendienteCount}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setTab('compensatorios')}
-          className={cn(
-            'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all',
-            tab === 'compensatorios' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <Calendar className="h-4 w-4" /> Compensatorios
-          {compensatoriosPendienteCount > 0 && (
-            <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
-              {compensatoriosPendienteCount}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setTab('historial')}
-          className={cn(
-            'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all',
-            tab === 'historial' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <History className="h-4 w-4" /> Historial
-        </button>
+      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+        <div className="flex gap-1 bg-muted/20 rounded-lg p-1 w-fit">
+          <button
+            onClick={() => setTab('planillas')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
+              tab === 'planillas' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Clock className="h-4 w-4 hidden sm:block" /> Planillas
+            {planillasPendienteCount > 0 && (
+              <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
+                {planillasPendienteCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setTab('vacaciones')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
+              tab === 'vacaciones' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Palmtree className="h-4 w-4 hidden sm:block" /> Vac.
+            {vacacionesPendienteCount > 0 && (
+              <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
+                {vacacionesPendienteCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setTab('ausencias')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
+              tab === 'ausencias' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <AlertTriangle className="h-4 w-4 hidden sm:block" /> Aus.
+            {ausenciasPendienteCount > 0 && (
+              <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
+                {ausenciasPendienteCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setTab('compensatorios')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
+              tab === 'compensatorios' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Calendar className="h-4 w-4 hidden sm:block" /> Comp.
+            {compensatoriosPendienteCount > 0 && (
+              <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
+                {compensatoriosPendienteCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setTab('historial')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
+              tab === 'historial' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <History className="h-4 w-4 hidden sm:block" /> Historial
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -283,10 +294,10 @@ export default function AprobacionesPage() {
               </div>
               <div className="space-y-2">
                 {filteredPlanillas.map((p) => (
-                  <div key={p.id} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
+                  <div key={p.id} className="rounded-xl border border-border bg-card p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="font-medium text-sm">{p.usuario.apellido}, {p.usuario.nombre}</span>
+                        <span className="font-medium text-sm truncate">{p.usuario.apellido}, {p.usuario.nombre}</span>
                         <span className="text-xs text-muted-foreground">{p.usuario.sector?.nombre ?? p.usuario.rol}</span>
                         <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[p.estado])}>
                           {p.estado === 'EN_REVISION' ? 'En revisión' : p.estado.charAt(0) + p.estado.slice(1).toLowerCase()}
@@ -296,7 +307,7 @@ export default function AprobacionesPage() {
                         {new Date(p.periodoInicio).toLocaleDateString('es-AR')} — {new Date(p.periodoFin).toLocaleDateString('es-AR')}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         onClick={() => navigate(`/planillas/${p.id}`)}
                         className="p-2 rounded-lg hover:bg-accent text-muted-foreground"

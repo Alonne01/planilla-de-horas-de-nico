@@ -8,6 +8,7 @@ import {
   Loader2, X, Calendar, ChevronLeft, ChevronRight, Filter
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
+import ScopeToggle from '@/components/layout/ScopeToggle';
 
 
 interface Vacacion {
@@ -43,7 +44,9 @@ export default function VacacionesPage() {
   const [showForm, setShowForm] = useState(false);
   const [filterSector, setFilterSector] = useState('');
   const [periodo, setPeriodo] = useState(getCurrentPeriod());
+  const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
+  const showScopeToggle = (user?.rolNivel ?? 0) >= 60 && !isRRHH;
 
   interface Sector { id: string; nombre: string; }
   const { data: sectores = [] } = useQuery<Sector[]>({
@@ -53,8 +56,12 @@ export default function VacacionesPage() {
   });
 
   const { data: vacaciones = [], isLoading } = useQuery<Vacacion[]>({
-    queryKey: ['vacaciones', periodo.inicio, periodo.fin],
-    queryFn: async () => (await api.get(`/vacaciones?periodoInicio=${encodeURIComponent(periodo.inicio)}&periodoFin=${encodeURIComponent(periodo.fin)}`)).data,
+    queryKey: ['vacaciones', periodo.inicio, periodo.fin, scope],
+    queryFn: async () => {
+      const params = new URLSearchParams({ periodoInicio: periodo.inicio, periodoFin: periodo.fin });
+      if (showScopeToggle && scope === 'mio') params.set('scope', 'mio');
+      return (await api.get(`/vacaciones?${params.toString()}`)).data;
+    },
   });
 
   const { data: saldo } = useQuery<Saldo>({
@@ -87,6 +94,7 @@ export default function VacacionesPage() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <PeriodSelector value={periodo} onChange={setPeriodo} />
+          {showScopeToggle && <ScopeToggle value={scope} onChange={setScope} />}
           {isRRHH && sectores.length > 0 && (
             <div className="flex items-center gap-2">
               <Filter className="h-4 w-4 text-muted-foreground" />

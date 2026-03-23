@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
@@ -8,6 +8,128 @@ import {
   ArrowLeft, Send, CheckCircle2, XCircle, Loader2,
   Clock, MapPin, Car, Moon, AlertCircle, AlertTriangle, X, Download, CalendarClock, Lock, Zap, Printer
 } from 'lucide-react';
+
+// ─── Success Animation Component ─────────────────────────────────────────────
+function SuccessOverlay({ show, onDone }: { show: boolean; onDone: () => void }) {
+  const [phase, setPhase] = useState<'enter' | 'visible' | 'exit' | 'done'>('enter');
+  const particles = useMemo(() =>
+    Array.from({ length: 24 }, (_, i) => ({
+      id: i,
+      angle: (i / 24) * 360 + Math.random() * 15,
+      distance: 80 + Math.random() * 120,
+      size: 4 + Math.random() * 6,
+      delay: Math.random() * 0.3,
+      color: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'][i % 6],
+      shape: i % 3, // 0=circle, 1=square, 2=triangle
+    })),
+    []
+  );
+
+  useEffect(() => {
+    if (!show) { setPhase('done'); return; }
+    setPhase('enter');
+    const t1 = setTimeout(() => setPhase('visible'), 50);
+    const t2 = setTimeout(() => setPhase('exit'), 2200);
+    const t3 = setTimeout(() => { setPhase('done'); onDone(); }, 2800);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [show, onDone]);
+
+  if (phase === 'done' || !show) return null;
+
+  const opacity = phase === 'enter' ? 0 : phase === 'exit' ? 0 : 1;
+  const scale = phase === 'enter' ? 0.5 : phase === 'exit' ? 1.1 : 1;
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none"
+      style={{ opacity, transition: 'opacity 0.4s ease' }}
+    >
+      {/* Backdrop blur */}
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+
+      {/* Confetti particles */}
+      <div className="absolute inset-0 overflow-hidden">
+        {particles.map((p) => {
+          const rad = (p.angle * Math.PI) / 180;
+          const tx = Math.cos(rad) * p.distance;
+          const ty = Math.sin(rad) * p.distance;
+          const isVisible = phase === 'visible';
+          return (
+            <div
+              key={p.id}
+              className="absolute left-1/2 top-1/2"
+              style={{
+                width: p.size,
+                height: p.size,
+                marginLeft: -p.size / 2,
+                marginTop: -p.size / 2,
+                backgroundColor: p.color,
+                borderRadius: p.shape === 0 ? '50%' : p.shape === 1 ? '2px' : '0',
+                clipPath: p.shape === 2 ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : undefined,
+                transform: isVisible
+                  ? `translate(${tx}px, ${ty}px) rotate(${p.angle + 180}deg) scale(1)`
+                  : 'translate(0, 0) rotate(0deg) scale(0)',
+                opacity: isVisible ? 0 : 1,
+                transition: `transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) ${p.delay}s, opacity 0.6s ease ${p.delay + 0.5}s`,
+              }}
+            />
+          );
+        })}
+      </div>
+
+      {/* Central success card */}
+      <div
+        className="relative flex flex-col items-center gap-3 p-8 rounded-2xl bg-card/95 border border-border shadow-2xl"
+        style={{
+          transform: `scale(${scale})`,
+          transition: 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        }}
+      >
+        {/* Animated checkmark circle */}
+        <div className="relative w-20 h-20">
+          {/* Glow ring */}
+          <div
+            className="absolute inset-0 rounded-full"
+            style={{
+              background: 'conic-gradient(from 0deg, #3b82f6, #10b981, #3b82f6)',
+              opacity: phase === 'visible' ? 0.4 : 0,
+              transform: phase === 'visible' ? 'scale(1.3)' : 'scale(1)',
+              filter: 'blur(8px)',
+              transition: 'all 0.8s ease',
+            }}
+          />
+          {/* Circle background */}
+          <div
+            className="absolute inset-0 rounded-full bg-emerald-500 flex items-center justify-center"
+            style={{
+              transform: phase === 'enter' ? 'scale(0)' : 'scale(1)',
+              transition: 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
+            }}
+          >
+            {/* SVG Checkmark with draw animation */}
+            <svg className="w-10 h-10 text-white" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M5 13l4 4L19 7"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{
+                  strokeDasharray: 30,
+                  strokeDashoffset: phase === 'visible' ? 0 : 30,
+                  transition: 'stroke-dashoffset 0.4s ease 0.3s',
+                }}
+              />
+            </svg>
+          </div>
+        </div>
+
+        <p className="text-lg font-semibold text-foreground">¡Planilla enviada!</p>
+        <p className="text-sm text-muted-foreground">Tu planilla fue enviada para revisión</p>
+      </div>
+    </div>
+  );
+}
 
 // ─── Argentine public holidays (fixed + movable approx.) ─────────────────────
 function buildArgHolidays(year: number): Set<string> {
@@ -210,6 +332,8 @@ export default function PlanillaDetailPage() {
   const [applyingDiagram, setApplyingDiagram] = useState(false);
   const [quickFilling, setQuickFilling] = useState(false);
   const [diasFaltantes, setDiasFaltantes] = useState<string[]>([]);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const handleSuccessDone = useCallback(() => setShowSuccess(false), []);
 
   // Form state for the day editor
   const [formData, setFormData] = useState({
@@ -252,7 +376,9 @@ export default function PlanillaDetailPage() {
     mutationFn: () => api.post(`/planillas/${id}/enviar`),
     onSuccess: () => {
       setDiasFaltantes([]);
+      setShowSuccess(true);
       queryClient.invalidateQueries({ queryKey: ['planilla', id] });
+      queryClient.invalidateQueries({ queryKey: ['planillas'] });
     },
     onError: (err: any) => {
       if (err.response?.status === 400 && err.response?.data?.diasFaltantes) {
@@ -263,12 +389,19 @@ export default function PlanillaDetailPage() {
 
   const avanzarMutation = useMutation({
     mutationFn: () => api.post(`/planillas/${id}/avanzar`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['planilla', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['planilla', id] });
+      queryClient.invalidateQueries({ queryKey: ['planillas'] });
+    },
   });
 
   const rechazarMutation = useMutation({
     mutationFn: (motivo: string) => api.post(`/planillas/${id}/rechazar`, { motivo }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); setShowRechazo(false); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['planilla', id] });
+      queryClient.invalidateQueries({ queryKey: ['planillas'] });
+      setShowRechazo(false);
+    },
   });
 
   const saveRegistroMutation = useMutation({
@@ -353,9 +486,20 @@ export default function PlanillaDetailPage() {
         if (franco && reg && !reg.esFrancoTrabajado) {
           // Existing registro on a franco day → mark as franco trabajado
           promises.push(api.put(`/planillas/${id}/registros/${reg.id}`, {
-            ...reg,
             fecha: reg.fecha,
+            entradaTurno1: reg.entradaTurno1,
+            salidaTurno1: reg.salidaTurno1,
+            entradaTurno2: reg.entradaTurno2 ?? null,
+            salidaTurno2: reg.salidaTurno2 ?? null,
+            lugarTrabajo: reg.lugarTrabajo,
+            pernocte: reg.pernocte,
+            maneja: reg.maneja,
+            horasViajeInput: Number(reg.horasViajeInput) || 0,
+            esFeriado: reg.esFeriado,
+            esFrancoCompensatorio: reg.esFrancoCompensatorio,
             esFrancoTrabajado: true,
+            distanciaViaje: reg.distanciaViaje ?? null,
+            observaciones: reg.observaciones ?? null,
           }));
         }
       }
@@ -1228,6 +1372,9 @@ export default function PlanillaDetailPage() {
           </div>
         </div>
       )}
+
+      {/* ── Success animation overlay ── */}
+      <SuccessOverlay show={showSuccess} onDone={handleSuccessDone} />
     </div>
   );
 }

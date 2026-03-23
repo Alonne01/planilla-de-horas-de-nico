@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { Bell, Check, X } from 'lucide-react';
@@ -16,6 +17,7 @@ interface Notificacion {
 
 export default function NotificationBell() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -83,7 +85,11 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-80 max-h-96 rounded-xl border border-border bg-card shadow-2xl overflow-hidden z-50">
+        <>
+          {/* Backdrop */}
+          <div className="fixed inset-0 z-[99]" onClick={() => setOpen(false)} />
+          {/* Panel */}
+          <div className="fixed left-2 right-2 top-[3.75rem] z-[100] mx-auto max-w-sm lg:absolute lg:left-auto lg:right-0 lg:top-full lg:mt-2 lg:mx-0 lg:w-96 lg:max-w-none max-h-[80vh] rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between p-3 border-b border-border">
             <h3 className="text-sm font-semibold">Notificaciones</h3>
             <div className="flex items-center gap-1">
@@ -101,7 +107,7 @@ export default function NotificationBell() {
             </div>
           </div>
 
-          <div className="overflow-y-auto max-h-72">
+          <div className="overflow-y-auto max-h-[calc(80vh-3rem)]">
             {notifs.length === 0 ? (
               <div className="p-6 text-center">
                 <Bell className="h-8 w-8 mx-auto mb-2 text-muted-foreground/20" />
@@ -113,7 +119,7 @@ export default function NotificationBell() {
                   key={n.id}
                   onClick={() => {
                     if (!n.leida) markReadMutation.mutate(n.id);
-                    if (n.link) window.location.href = n.link;
+                    if (n.link) navigate(n.link);
                     setOpen(false);
                   }}
                   className={cn(
@@ -124,8 +130,8 @@ export default function NotificationBell() {
                   <div className="flex items-start gap-2">
                     {!n.leida && <div className="mt-1.5 h-2 w-2 rounded-full bg-primary shrink-0" />}
                     <div className="flex-1 min-w-0">
-                      <p className={cn('text-sm', !n.leida && 'font-medium')}>{n.titulo}</p>
-                      <p className="text-xs text-muted-foreground line-clamp-2">{n.cuerpo}</p>
+                      <p className={cn('text-sm truncate', !n.leida && 'font-medium')}>{n.titulo}</p>
+                      <p className="text-xs text-muted-foreground line-clamp-2 break-words">{n.cuerpo}</p>
                       <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(n.createdAt)}</p>
                     </div>
                   </div>
@@ -134,6 +140,7 @@ export default function NotificationBell() {
             )}
           </div>
         </div>
+        </>
       )}
     </div>
   );

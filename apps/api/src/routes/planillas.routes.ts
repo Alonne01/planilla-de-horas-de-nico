@@ -274,11 +274,61 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    // Validate completeness: all days in period must have a registro
+    // Validate completeness: days must have a registro UNLESS they are franco (rest) days or feriados
     const registros = await prisma.registroHoras.findMany({
       where: { planillaId },
       select: { fecha: true, bloqueado: true, lugarTrabajo: true, horasTrabajadas: true, entradaTurno1: true },
     });
+
+    // Look up user's active diagram to determine franco days
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: req.user!.userId },
+      select: { empresaId: true },
+    });
+    const diagramaAsignacion = await prisma.usuarioDiagrama.findFirst({
+      where: { usuarioId: req.user!.userId, activo: true },
+      include: { diagrama: true },
+      orderBy: { fechaInicio: 'desc' },
+    });
+
+    // Load feriados from empresa config
+    let feriadosDates: Set<string> = new Set();
+    if (usuario) {
+      const config = await prisma.empresaConfig.findFirst({
+        where: { empresaId: usuario.empresaId },
+        select: { feriadosPersonalizados: true },
+      });
+      if (config?.feriadosPersonalizados) {
+        const feriados = config.feriadosPersonalizados as unknown as string[];
+        if (Array.isArray(feriados)) {
+          feriadosDates = new Set(feriados.map(f => typeof f === 'string' ? f.split('T')[0] : ''));
+        }
+      }
+    }
+
+    // Helper: check if a date is a franco (rest) day per the diagram
+    function esDiaFranco(fecha: Date): boolean {
+      if (!diagramaAsignacion) return false;
+      const diag = diagramaAsignacion.diagrama;
+      if (diag.tipo === 'ROTATIVO') {
+        const ciclo = (diag.diasTrabajo ?? 0) + (diag.diasDescanso ?? 0);
+        if (ciclo === 0) return false;
+        const msPerDay = 86400000;
+        const startMs = Date.UTC(
+          diagramaAsignacion.fechaInicio.getFullYear(),
+          diagramaAsignacion.fechaInicio.getMonth(),
+          diagramaAsignacion.fechaInicio.getDate(),
+        );
+        const fechaMs = Date.UTC(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
+        const diffDias = Math.round((fechaMs - startMs) / msPerDay);
+        const pos = ((diffDias % ciclo) + ciclo) % ciclo;
+        return pos >= (diag.diasTrabajo ?? 0);
+      }
+      if (diag.tipo === 'FIJO_SEMANA') {
+        return !diag.diasSemana.includes(fecha.getDay());
+      }
+      return false;
+    }
 
     const inicio = new Date(planilla.periodoInicio);
     const fin = new Date(planilla.periodoFin);
@@ -286,6 +336,12 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
 
     for (let d = new Date(inicio); d <= fin; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
+
+      // Skip franco (rest) days — no registro needed
+      if (esDiaFranco(d)) continue;
+      // Skip feriados — no registro needed
+      if (feriadosDates.has(dateStr)) continue;
+
       const reg = registros.find(r => {
         const rDate = new Date(r.fecha).toISOString().split('T')[0];
         return rDate === dateStr;

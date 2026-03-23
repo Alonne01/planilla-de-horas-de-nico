@@ -3,16 +3,17 @@ import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useState, useMemo } from 'react';
 import { Loader2, ChevronLeft, ChevronRight, Calendar, Users } from 'lucide-react';
+import { useAuthStore } from '@/stores/authStore';
 
 interface Sector { id: string; nombre: string }
-interface VacacionBlock {
+interface Bloque {
   id: string;
   fechaInicio: string;
   fechaFin: string;
-  diasTotales: number;
+  dias: number;
   estado: string;
-  motivo: string | null;
-  usuario: { id: string; nombre: string; apellido: string; legajo: string; sector: Sector | null };
+  tipo: string;
+  detalle: string | null;
 }
 interface Empleado {
   id: string;
@@ -20,7 +21,7 @@ interface Empleado {
   apellido: string;
   legajo: string;
   sector: Sector | null;
-  vacaciones: VacacionBlock[];
+  bloques: Bloque[];
 }
 interface GanttData {
   anio: number;
@@ -29,28 +30,56 @@ interface GanttData {
 }
 
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-const ESTADO_COLORS: Record<string, string> = {
-  APROBADA: 'bg-emerald-500',
-  EN_REVISION: 'bg-amber-500',
-  PENDIENTE: 'bg-blue-500',
+
+// Colors by block type
+const TIPO_COLORS: Record<string, string> = {
+  VACACION: 'bg-emerald-500',
+  CAPACITACION: 'bg-violet-500',
+  AUSENCIA_CERTIFICADO_MEDICO: 'bg-red-500',
+  AUSENCIA_FALTA_INJUSTIFICADA: 'bg-rose-700',
+  AUSENCIA_FALTA_JUSTIFICADA: 'bg-orange-500',
+  AUSENCIA_LICENCIA_ESPECIAL: 'bg-pink-500',
+  AUSENCIA_FRANCO_COMPENSATORIO: 'bg-cyan-500',
+  AUSENCIA_ACCIDENTE_TRABAJO: 'bg-red-700',
+  AUSENCIA_LICENCIA_GREMIAL: 'bg-yellow-600',
+  AUSENCIA_SUSPENSION: 'bg-gray-500',
+};
+
+const TIPO_LABELS: Record<string, string> = {
+  VACACION: 'Vacación',
+  CAPACITACION: 'Capacitación',
+  AUSENCIA_CERTIFICADO_MEDICO: 'Cert. médico',
+  AUSENCIA_FALTA_INJUSTIFICADA: 'Falta injust.',
+  AUSENCIA_FALTA_JUSTIFICADA: 'Falta just.',
+  AUSENCIA_LICENCIA_ESPECIAL: 'Lic. especial',
+  AUSENCIA_FRANCO_COMPENSATORIO: 'Compensatorio',
+  AUSENCIA_ACCIDENTE_TRABAJO: 'Acc. trabajo',
+  AUSENCIA_LICENCIA_GREMIAL: 'Lic. gremial',
+  AUSENCIA_SUSPENSION: 'Suspensión',
+};
+
+const ESTADO_BADGE: Record<string, string> = {
+  APROBADA: 'bg-emerald-500/20 text-emerald-400',
+  EN_REVISION: 'bg-amber-500/20 text-amber-400',
+  PENDIENTE: 'bg-blue-500/20 text-blue-400',
 };
 
 export default function VacacionesGanttPage() {
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [sectorId, setSectorId] = useState('');
-  const [hoveredVac, setHoveredVac] = useState<VacacionBlock | null>(null);
+  const [hoveredBlock, setHoveredBlock] = useState<(Bloque & { empNombre: string }) | null>(null);
+  const user = useAuthStore((s) => s.user);
+  const isRRHH = (user?.rolNivel ?? 0) >= 90;
 
   const { data, isLoading } = useQuery<GanttData>({
     queryKey: ['vacaciones-gantt', anio, sectorId],
     queryFn: async () => {
       const params = new URLSearchParams({ anio: String(anio) });
       if (sectorId) params.set('sectorId', sectorId);
-      const res = await api.get(`/vacaciones/gantt?${params}`);
-      return res.data;
+      return (await api.get(`/vacaciones/gantt?${params}`)).data;
     },
   });
 
-  // Build month columns with day counts
   const months = useMemo(() => {
     return MESES.map((label, i) => {
       const days = new Date(anio, i + 1, 0).getDate();
@@ -60,13 +89,22 @@ export default function VacacionesGanttPage() {
 
   const totalDays = useMemo(() => months.reduce((s, m) => s + m.days, 0), [months]);
 
-  // Convert a date to a day-of-year offset (0-indexed)
   const dateToDayOffset = (dateStr: string) => {
     const d = new Date(dateStr);
     const start = new Date(anio, 0, 1);
     const diff = Math.max(0, Math.floor((d.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
     return Math.min(diff, totalDays - 1);
   };
+
+  // Collect which tipos exist for the legend
+  const activeTipos = useMemo(() => {
+    if (!data) return [];
+    const set = new Set<string>();
+    for (const emp of data.empleados) {
+      for (const b of emp.bloques) set.add(b.tipo);
+    }
+    return Array.from(set);
+  }, [data]);
 
   if (isLoading) {
     return (
@@ -79,25 +117,25 @@ export default function VacacionesGanttPage() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Calendar className="h-6 w-6 text-primary" />
-          Calendario de Vacaciones
+          Calendario de Ausencias
         </h1>
         <div className="flex items-center gap-3">
-          {/* Sector filter */}
-          <select
-            value={sectorId}
-            onChange={(e) => setSectorId(e.target.value)}
-            className="rounded-lg border border-border bg-card px-3 py-2 text-sm"
-          >
-            <option value="">Todos los sectores</option>
-            {data?.sectores.map((s) => (
-              <option key={s.id} value={s.id}>{s.nombre}</option>
-            ))}
-          </select>
+          {isRRHH && (
+            <select
+              value={sectorId}
+              onChange={(e) => setSectorId(e.target.value)}
+              className="rounded-lg border border-border bg-card px-3 py-2 text-sm"
+            >
+              <option value="">Todos los sectores</option>
+              {data?.sectores.map((s) => (
+                <option key={s.id} value={s.id}>{s.nombre}</option>
+              ))}
+            </select>
+          )}
 
-          {/* Year navigation */}
           <div className="flex items-center gap-1">
             <button
               onClick={() => setAnio((a) => a - 1)}
@@ -116,11 +154,15 @@ export default function VacacionesGanttPage() {
         </div>
       </div>
 
-      {/* Legend */}
-      <div className="flex items-center gap-4 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-500" /> Aprobada</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-500" /> En revisión</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-500" /> Pendiente</span>
+      {/* Legend — dynamic based on what types exist */}
+      <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
+        {activeTipos.map((t) => (
+          <span key={t} className="flex items-center gap-1.5">
+            <span className={cn('w-3 h-3 rounded', TIPO_COLORS[t] ?? 'bg-slate-500')} />
+            {TIPO_LABELS[t] ?? t}
+          </span>
+        ))}
+        {activeTipos.length === 0 && <span>Sin datos</span>}
       </div>
 
       {/* Gantt Chart */}
@@ -128,7 +170,7 @@ export default function VacacionesGanttPage() {
         {(!data?.empleados.length) ? (
           <div className="p-12 text-center">
             <Users className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
-            <p className="text-muted-foreground">No hay vacaciones en {anio}</p>
+            <p className="text-muted-foreground">No hay registros en {anio}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -154,7 +196,6 @@ export default function VacacionesGanttPage() {
               {/* Employee rows */}
               {data.empleados.map((emp) => (
                 <div key={emp.id} className="flex border-b border-border/50 hover:bg-muted/10 transition-colors">
-                  {/* Name column */}
                   <div className="w-48 min-w-48 px-3 py-2.5 border-r border-border flex flex-col justify-center">
                     <span className="text-sm font-medium truncate">{emp.apellido}, {emp.nombre}</span>
                     {emp.sector && (
@@ -162,7 +203,6 @@ export default function VacacionesGanttPage() {
                     )}
                   </div>
 
-                  {/* Timeline column */}
                   <div className="flex-1 relative py-1.5 px-0.5" style={{ minHeight: '40px' }}>
                     {/* Month gridlines */}
                     {months.map((m) => {
@@ -187,28 +227,28 @@ export default function VacacionesGanttPage() {
                       );
                     })()}
 
-                    {/* Vacation bars */}
-                    {emp.vacaciones.map((v) => {
-                      const startDay = dateToDayOffset(v.fechaInicio);
-                      const endDay = dateToDayOffset(v.fechaFin);
+                    {/* Blocks */}
+                    {emp.bloques.map((b) => {
+                      const startDay = dateToDayOffset(b.fechaInicio);
+                      const endDay = dateToDayOffset(b.fechaFin);
                       const duration = Math.max(endDay - startDay + 1, 1);
                       const leftPct = (startDay / totalDays) * 100;
                       const widthPct = (duration / totalDays) * 100;
 
                       return (
                         <div
-                          key={v.id}
+                          key={`${b.tipo}-${b.id}`}
                           className={cn(
                             'absolute top-1/2 -translate-y-1/2 h-5 rounded-md cursor-pointer opacity-80 hover:opacity-100 transition-opacity',
-                            ESTADO_COLORS[v.estado] ?? 'bg-slate-500'
+                            TIPO_COLORS[b.tipo] ?? 'bg-slate-500'
                           )}
                           style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 0.5)}%` }}
-                          onMouseEnter={() => setHoveredVac(v)}
-                          onMouseLeave={() => setHoveredVac(null)}
+                          onMouseEnter={() => setHoveredBlock({ ...b, empNombre: `${emp.apellido}, ${emp.nombre}` })}
+                          onMouseLeave={() => setHoveredBlock(null)}
                         >
                           {widthPct > 3 && (
                             <span className="absolute inset-0 flex items-center justify-center text-[9px] font-medium text-white truncate px-1">
-                              {v.diasTotales}d
+                              {b.dias}d
                             </span>
                           )}
                         </div>
@@ -223,38 +263,41 @@ export default function VacacionesGanttPage() {
       </div>
 
       {/* Tooltip */}
-      {hoveredVac && (
+      {hoveredBlock && (
         <div className="fixed bottom-6 right-6 z-50 rounded-xl border border-border bg-card shadow-lg p-4 max-w-xs">
-          <p className="font-semibold text-sm">
-            {hoveredVac.usuario.apellido}, {hoveredVac.usuario.nombre}
-          </p>
+          <p className="font-semibold text-sm">{hoveredBlock.empNombre}</p>
           <p className="text-xs text-muted-foreground mt-1">
-            {new Date(hoveredVac.fechaInicio).toLocaleDateString('es-AR')} — {new Date(hoveredVac.fechaFin).toLocaleDateString('es-AR')}
+            {new Date(hoveredBlock.fechaInicio).toLocaleDateString('es-AR')} — {new Date(hoveredBlock.fechaFin).toLocaleDateString('es-AR')}
           </p>
+          <div className="flex items-center gap-2 mt-1">
+            <span className={cn('w-2.5 h-2.5 rounded', TIPO_COLORS[hoveredBlock.tipo] ?? 'bg-slate-500')} />
+            <span className="text-xs font-medium">{TIPO_LABELS[hoveredBlock.tipo] ?? hoveredBlock.tipo}</span>
+          </div>
           <p className="text-xs mt-1">
-            <span className="font-medium">{hoveredVac.diasTotales} días</span> · 
-            <span className={cn(
-              'ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium',
-              hoveredVac.estado === 'APROBADA' ? 'bg-emerald-500/20 text-emerald-400' :
-              hoveredVac.estado === 'EN_REVISION' ? 'bg-amber-500/20 text-amber-400' :
-              'bg-blue-500/20 text-blue-400'
-            )}>
-              {hoveredVac.estado}
+            <span className="font-medium">{hoveredBlock.dias} día{hoveredBlock.dias !== 1 ? 's' : ''}</span> · 
+            <span className={cn('ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium', ESTADO_BADGE[hoveredBlock.estado] ?? 'bg-slate-500/20 text-slate-400')}>
+              {hoveredBlock.estado}
             </span>
           </p>
-          {hoveredVac.motivo && (
-            <p className="text-xs text-muted-foreground mt-1 italic">"{hoveredVac.motivo}"</p>
+          {hoveredBlock.detalle && (
+            <p className="text-xs text-muted-foreground mt-1 italic">"{hoveredBlock.detalle}"</p>
           )}
         </div>
       )}
 
       {/* Summary */}
       {data && data.empleados.length > 0 && (
-        <div className="flex gap-4 text-sm text-muted-foreground">
+        <div className="flex gap-4 text-sm text-muted-foreground flex-wrap">
           <span>{data.empleados.length} empleados</span>
-          <span>{data.empleados.reduce((s, e) => s + e.vacaciones.length, 0)} solicitudes</span>
+          <span>{data.empleados.reduce((s, e) => s + e.bloques.length, 0)} registros</span>
           <span>
-            {data.empleados.reduce((s, e) => s + e.vacaciones.filter(v => v.estado === 'APROBADA').length, 0)} aprobadas
+            {data.empleados.reduce((s, e) => s + e.bloques.filter(b => b.tipo === 'VACACION').length, 0)} vacaciones
+          </span>
+          <span>
+            {data.empleados.reduce((s, e) => s + e.bloques.filter(b => b.tipo.startsWith('AUSENCIA_')).length, 0)} ausencias
+          </span>
+          <span>
+            {data.empleados.reduce((s, e) => s + e.bloques.filter(b => b.tipo === 'CAPACITACION').length, 0)} capacitaciones
           </span>
         </div>
       )}

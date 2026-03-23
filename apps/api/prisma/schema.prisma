@@ -391,6 +391,7 @@ model Usuario {
   sueldoBasicoOverride Decimal?     @map("sueldo_basico_override") @db.Decimal(12, 2)
   activo               Boolean      @default(true)
   primerLogin          Boolean      @default(true) @map("primer_login")
+  diagramaColor        String?      @map("diagrama_color") // AZUL | AMARILLO | BASE — visual badge for Well Testing
   createdAt            DateTime     @default(now()) @map("created_at")
   updatedAt            DateTime     @updatedAt @map("updated_at")
 

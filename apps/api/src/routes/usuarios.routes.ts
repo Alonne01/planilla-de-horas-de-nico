@@ -3,7 +3,7 @@ import { PrismaClient, ContratoTipo, Prisma } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
-import { requireLevel, LEVEL_ADMIN, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { requireLevel, LEVEL_ADMIN, LEVEL_RRHH, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -31,6 +31,7 @@ const createUsuarioSchema = z.object({
   fechaFinPrueba: z.string().datetime().optional().nullable(),
   coordinadorId: z.string().uuid().optional().nullable(),
   supervisorId: z.string().uuid().optional().nullable(),
+  diagramaColor: z.enum(['AZUL', 'AMARILLO', 'BASE']).optional().nullable(),
 });
 
 const updateUsuarioSchema = z.object({
@@ -54,6 +55,7 @@ const updateUsuarioSchema = z.object({
   supervisorId: z.string().uuid().optional().nullable(),
   activo: z.boolean().optional(),
   sueldoBasicoOverride: z.number().optional().nullable(),
+  diagramaColor: z.enum(['AZUL', 'AMARILLO', 'BASE']).optional().nullable(),
 });
 
 const assignDiagramaSchema = z.object({
@@ -83,16 +85,17 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       ];
     }
 
-    // Role-based visibility
-    if (userRole === 'SUPERVISOR') {
-      where.supervisorId = req.user!.userId;
-    } else if (userRole === 'COORDINADOR') {
-      where.OR = [
-        { coordinadorId: req.user!.userId },
-        { id: req.user!.userId },
-      ];
-    } else if (userRole === 'OPERADOR') {
-      where.id = req.user!.userId;
+    // Role-based visibility — below RRHH see only their own sector
+    const RRHH_LEVEL = 90;
+    const userNivel = req.user!.rolNivel ?? 0;
+    if (userNivel < RRHH_LEVEL) {
+      // Look up the user's sector to filter
+      const me = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } });
+      if (me?.sectorId) {
+        where.sectorId = me.sectorId;
+      } else {
+        where.id = req.user!.userId; // fallback: only self
+      }
     }
 
     const usuarios = await prisma.usuario.findMany({
@@ -109,6 +112,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         tipoContrato: true,
         fechaIngreso: true,
         primerLogin: true,
+        diagramaColor: true,
         sector: { select: { id: true, nombre: true } },
         categoria: { select: { id: true, codigo: true, nombre: true } },
         convenio: { select: { id: true, nombre: true } },
@@ -201,6 +205,7 @@ router.post('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respons
         fechaFinPrueba: parsed.data.fechaFinPrueba ? new Date(parsed.data.fechaFinPrueba) : null,
         coordinadorId: parsed.data.coordinadorId ?? null,
         supervisorId: parsed.data.supervisorId ?? null,
+        diagramaColor: parsed.data.diagramaColor ?? null,
         primerLogin: true,
       },
       include: {
@@ -266,6 +271,7 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
         ...(d.fechaNacimiento && { fechaNacimiento: new Date(d.fechaNacimiento) }),
         ...(d.fechaFinPrueba !== undefined && d.fechaFinPrueba !== null && { fechaFinPrueba: new Date(d.fechaFinPrueba) }),
         ...(d.fechaEgreso !== undefined && d.fechaEgreso !== null && { fechaEgreso: new Date(d.fechaEgreso) }),
+        ...(d.diagramaColor !== undefined && { diagramaColor: d.diagramaColor }),
       },
     });
 
@@ -342,6 +348,50 @@ router.patch('/:id/diagrama', requireLevel(LEVEL_RRHH), async (req: AuthRequest,
     res.json(assignment);
   } catch (error) {
     console.error('Error assigning diagrama:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ─── PATCH /usuarios/:id/sector ──────────────────
+
+// ─── PATCH /usuarios/:id/diagrama-color ──────────
+// Coordinadores of Well Testing can set diagrama color for their sector members
+
+router.patch('/:id/diagrama-color', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const schema = z.object({ diagramaColor: z.enum(['AZUL', 'AMARILLO', 'BASE']).nullable() });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Valor inválido. Usar AZUL, AMARILLO, BASE o null.' });
+      return;
+    }
+
+    // Verify the target user is in the same sector
+    const caller = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } });
+    const target = await prisma.usuario.findFirst({
+      where: { id: req.params.id as string, empresaId: req.user!.empresaId },
+      select: { sectorId: true },
+    });
+
+    if (!target) {
+      res.status(404).json({ error: 'Usuario no encontrado' });
+      return;
+    }
+
+    if (caller?.sectorId !== target.sectorId) {
+      res.status(403).json({ error: 'Solo puedes modificar empleados de tu sector' });
+      return;
+    }
+
+    const updated = await prisma.usuario.update({
+      where: { id: req.params.id as string },
+      data: { diagramaColor: parsed.data.diagramaColor },
+      select: { id: true, diagramaColor: true },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating diagrama color:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

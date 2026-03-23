@@ -33,6 +33,7 @@ import AlertasPage from '@/pages/AlertasPage';
 import CapacitacionesPage from '@/pages/CapacitacionesPage';
 import AuditoriaPage from '@/pages/AuditoriaPage';
 import LiquidacionPage from '@/pages/LiquidacionPage';
+import EquipoPage from '@/pages/EquipoPage';
 import { Loader2 } from 'lucide-react';
 
 const queryClient = new QueryClient({
@@ -130,6 +131,7 @@ export default function App() {
               <Route path="/recibos" element={<RecibosPage />} />
               <Route path="/vacaciones/gantt" element={<VacacionesGanttPage />} />
               <Route path="/capacitaciones" element={<CapacitacionesPage />} />
+              <Route path="/equipo" element={<EquipoPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               {/* Admin routes — Phase 2 */}
               <Route path="/admin/usuarios" element={<UsuariosPage />} />

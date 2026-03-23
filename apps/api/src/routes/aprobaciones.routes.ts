@@ -20,17 +20,20 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const userId = req.user!.userId;
     const empresaId = req.user!.empresaId;
     const userNivel = req.user!.rolNivel ?? 0;
+    const scope = req.query.scope as string | undefined;
 
-    if (userNivel < 60) {
+    if (userNivel < 60 && scope !== 'mio') {
       // OPERADOR can't approve anything
-      res.json({ planillasPendientes: [], vacacionesPendientes: [], compensatoriosPendientes: [], historial: [] });
+      res.json({ planillasPendientes: [], vacacionesPendientes: [], ausenciasPendientes: [], compensatoriosPendientes: [], historial: { planillas: [], vacaciones: [], ausencias: [] } });
       return;
     }
 
     // ── Determine which user IDs this user can approve ────────────
     let approvableUserIds: string[] | null = null; // null = all company
 
-    if (userNivel < 90) {
+    if (scope === 'mio') {
+      approvableUserIds = [userId];
+    } else if (userNivel < 90) {
       // SUPERVISOR/COORDINADOR/GERENTE: can approve subordinates + own sector
       const subordinados = await prisma.usuario.findMany({
         where: {

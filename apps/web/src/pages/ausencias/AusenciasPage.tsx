@@ -10,6 +10,7 @@ import {
   Clock, XCircle, UserCheck, RotateCcw, Filter
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
+import ScopeToggle from '@/components/layout/ScopeToggle';
 
 interface Ausencia {
   id: string;
@@ -85,7 +86,9 @@ export default function AusenciasPage() {
   const [filterTipo, setFilterTipo] = useState('');
   const [filterSector, setFilterSector] = useState('');
   const [periodo, setPeriodo] = useState(getCurrentPeriod());
+  const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
+  const showScopeToggle = (user?.rolNivel ?? 0) >= 60 && !isRRHH;
 
   interface Sector { id: string; nombre: string; }
   const { data: sectores = [] } = useQuery<Sector[]>({
@@ -97,12 +100,13 @@ export default function AusenciasPage() {
   const isSuperior = (user?.rolNivel ?? 0) >= 60;
 
   const { data: ausencias = [], isLoading } = useQuery<Ausencia[]>({
-    queryKey: ['ausencias', filterTipo, periodo.inicio, periodo.fin],
+    queryKey: ['ausencias', filterTipo, periodo.inicio, periodo.fin, scope],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filterTipo) params.set('tipo', filterTipo);
       params.set('periodoInicio', periodo.inicio);
       params.set('periodoFin', periodo.fin);
+      if (showScopeToggle && scope === 'mio') params.set('scope', 'mio');
       return (await api.get(`/ausencias?${params.toString()}`)).data;
     },
   });
@@ -180,13 +184,13 @@ export default function AusenciasPage() {
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => setShowSolicitarForm(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition-colors"
+            className="inline-flex items-center gap-2 px-3 py-2 sm:px-4 rounded-lg bg-amber-600 text-white text-xs sm:text-sm font-medium hover:bg-amber-700 transition-colors"
           >
             <FileText className="h-4 w-4" /> Solicitar ausencia
           </button>
           <button
             onClick={() => setShowCompForm(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600 text-white text-sm font-medium hover:bg-cyan-700 transition-colors"
+            className="inline-flex items-center gap-2 px-3 py-2 sm:px-4 rounded-lg bg-cyan-600 text-white text-xs sm:text-sm font-medium hover:bg-cyan-700 transition-colors"
           >
             <Calendar className="h-4 w-4" /> Pedir compensatorio
           </button>
@@ -204,6 +208,7 @@ export default function AusenciasPage() {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <PeriodSelector value={periodo} onChange={setPeriodo} />
+        {showScopeToggle && <ScopeToggle value={scope} onChange={setScope} />}
         {isRRHH && sectores.length > 0 && (
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />

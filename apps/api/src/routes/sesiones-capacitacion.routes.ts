@@ -252,6 +252,16 @@ router.post('/:id/invitar', requireLevel(LEVEL_COORDINADOR), async (req: AuthReq
       return;
     }
 
+    // Check vacancy limit
+    const currentInvites = sesion._count.invitaciones;
+    const newTotal = currentInvites + parsed.data.usuarioIds.length;
+    if (newTotal > sesion.vacantes) {
+      res.status(400).json({
+        error: `No se pueden invitar ${parsed.data.usuarioIds.length} personas. Vacantes disponibles: ${sesion.vacantes - currentInvites} de ${sesion.vacantes}`,
+      });
+      return;
+    }
+
     // Validate all users are subordinates
     const allowedIds = await getSubordinateIds(req.user!.userId, req.user!.empresaId, req.user!.rolNivel ?? 0);
     const invalidIds = parsed.data.usuarioIds.filter(id => !allowedIds.includes(id));

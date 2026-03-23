@@ -19,6 +19,7 @@ interface User {
   tipoContrato: string;
   fechaIngreso: string;
   primerLogin: boolean;
+  diagramaColor: string | null;
   sector: { id: string; nombre: string } | null;
   categoria: { id: string; codigo: string; nombre: string } | null;
   convenio: { id: string; nombre: string } | null;
@@ -48,6 +49,12 @@ const ROL_COLORS: Record<string, string> = {
   OPERADOR: 'bg-slate-500/20 text-slate-400',
 };
 
+const DIAGRAMA_BADGE: Record<string, string> = {
+  AZUL: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  AMARILLO: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+  BASE: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
+};
+
 export default function UsuariosPage() {
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
@@ -60,6 +67,7 @@ export default function UsuariosPage() {
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
 
   const canEdit = currentUser?.rol === 'ADMIN' || currentUser?.rol === 'RRHH';
+  const isWellTesting = currentUser?.sectorNombre?.toLowerCase().includes('well testing');
 
   // ─── Queries ────────────────────────────────────
 
@@ -210,6 +218,7 @@ export default function UsuariosPage() {
                     <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ROL_COLORS[u.rol])}>
                       {u.rol}
                     </span>
+
                     {!u.activo && (
                       <span className="px-2 py-0.5 rounded-full text-xs bg-destructive/20 text-destructive">INACTIVO</span>
                     )}
@@ -383,6 +392,7 @@ function UserFormModal({
     legajo: user?.legajo ?? '',
     tipoContrato: user?.tipoContrato ?? 'INDEFINIDO',
     fechaIngreso: user?.fechaIngreso ? new Date(user.fechaIngreso).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+    diagramaColor: user?.diagramaColor ?? '',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -402,6 +412,7 @@ function UserFormModal({
         legajo: form.legajo || null,
         tipoContrato: form.tipoContrato,
         fechaIngreso: new Date(form.fechaIngreso).toISOString(),
+        diagramaColor: form.diagramaColor || null,
       };
 
       if (!isEdit) {
@@ -584,6 +595,8 @@ function UserFormModal({
                 </p>
               );
             })()}
+
+
           </div>
 
           <div className="flex justify-end gap-3 pt-2">

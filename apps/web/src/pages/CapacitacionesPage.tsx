@@ -6,8 +6,9 @@ import { useState } from 'react';
 import {
   Loader2, GraduationCap, Plus, Trash2, Pencil, X, Save,
   AlertTriangle, CheckCircle2, Clock, BookOpen, Filter,
-  CalendarPlus, Users, Send, Check, XCircle, UserCheck,
+  CalendarPlus, Users, Send, Check, XCircle, UserCheck, Search,
 } from 'lucide-react';
+import ScopeToggle from '@/components/layout/ScopeToggle';
 
 interface TipoCapacitacion {
   id: string;
@@ -121,23 +122,26 @@ export default function CapacitacionesPage() {
 
   const [tab, setTab] = useState<'registros' | 'sesiones' | 'tipos' | 'mis-invitaciones'>('registros');
   const [statusFilter, setStatusFilter] = useState('');
+  const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
+  const showScopeToggle = isManager && !isRRHH;
   const [showForm, setShowForm] = useState(false);
   const [showTipoForm, setShowTipoForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showSesionForm, setShowSesionForm] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState<string | null>(null);
   const [selectedInvitees, setSelectedInvitees] = useState<string[]>([]);
+  const [inviteSearch, setInviteSearch] = useState('');
   const [showFinalizarModal, setShowFinalizarModal] = useState<string | null>(null);
   const [asistieronIds, setAsistieronIds] = useState<string[]>([]);
 
   // ─── Data fetching ─────────────────────────────
 
   const { data: registros, isLoading: loadingReg } = useQuery<EmpleadoCapacitacion[]>({
-    queryKey: ['capacitaciones-registros', statusFilter],
+    queryKey: ['capacitaciones-registros', statusFilter, scope],
     queryFn: () => {
-      const url = isManager
-        ? `/capacitaciones/registros${statusFilter ? `?estado=${statusFilter}` : ''}`
-        : '/capacitaciones/mis-capacitaciones';
+      const useMio = showScopeToggle && scope === 'mio';
+      if (!isManager || useMio) return api.get('/capacitaciones/mis-capacitaciones').then((r) => r.data);
+      const url = `/capacitaciones/registros${statusFilter ? `?estado=${statusFilter}` : ''}`;
       return api.get(url).then((r) => r.data);
     },
   });
@@ -324,11 +328,12 @@ export default function CapacitacionesPage() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <GraduationCap className="h-6 w-6 text-primary" />
           Capacitaciones
         </h1>
+        {showScopeToggle && <ScopeToggle value={scope} onChange={setScope} />}
       </div>
 
       {/* KPI cards (COORDINADOR+) */}
@@ -349,44 +354,46 @@ export default function CapacitacionesPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 rounded-lg bg-muted/30 p-1 w-fit flex-wrap">
-        <button
-          onClick={() => setTab('registros')}
-          className={cn('px-4 py-1.5 rounded-md text-sm font-medium transition-colors',
-            tab === 'registros' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}
-        >
-          {isManager ? 'Registros' : 'Mis Capacitaciones'}
-        </button>
-        <button
-          onClick={() => setTab('mis-invitaciones')}
-          className={cn('px-4 py-1.5 rounded-md text-sm font-medium transition-colors relative',
-            tab === 'mis-invitaciones' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}
-        >
-          Invitaciones
-          {pendingInvitations.length > 0 && (
-            <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 text-[10px] text-white flex items-center justify-center">
-              {pendingInvitations.length}
-            </span>
+      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+        <div className="flex items-center gap-1 rounded-lg bg-muted/30 p-1 w-fit">
+          <button
+            onClick={() => setTab('registros')}
+            className={cn('px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap',
+              tab === 'registros' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}
+          >
+            {isManager ? 'Registros' : 'Mis Cap.'}
+          </button>
+          <button
+            onClick={() => setTab('mis-invitaciones')}
+            className={cn('px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap',
+              tab === 'mis-invitaciones' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}
+          >
+            Invitaciones
+            {pendingInvitations.length > 0 && (
+              <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 text-[10px] text-white flex items-center justify-center">
+                {pendingInvitations.length}
+              </span>
+            )}
+          </button>
+          {isManager && (
+            <button
+              onClick={() => setTab('sesiones')}
+              className={cn('px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap',
+                tab === 'sesiones' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}
+            >
+              Sesiones
+            </button>
           )}
-        </button>
-        {isManager && (
-          <button
-            onClick={() => setTab('sesiones')}
-            className={cn('px-4 py-1.5 rounded-md text-sm font-medium transition-colors',
-              tab === 'sesiones' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}
-          >
-            Sesiones
-          </button>
-        )}
-        {isRRHH && (
-          <button
-            onClick={() => setTab('tipos')}
-            className={cn('px-4 py-1.5 rounded-md text-sm font-medium transition-colors',
-              tab === 'tipos' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}
-          >
-            Tipos
-          </button>
-        )}
+          {isRRHH && (
+            <button
+              onClick={() => setTab('tipos')}
+              className={cn('px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap',
+                tab === 'tipos' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}
+            >
+              Tipos
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ═══ REGISTROS TAB ═══ */}
@@ -810,20 +817,47 @@ export default function CapacitacionesPage() {
           )}
 
           {/* Invite Modal */}
-          {showInviteModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowInviteModal(null)}>
+          {showInviteModal && (() => {
+            const currentSesion = sesiones?.find(s => s.id === showInviteModal);
+            const alreadyCount = currentSesion?.invitaciones.length ?? 0;
+            const vacantesDisp = (currentSesion?.vacantes ?? 0) - alreadyCount;
+            const limitReached = selectedInvitees.length >= vacantesDisp;
+
+            return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { setShowInviteModal(null); setInviteSearch(''); }}>
               <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md max-h-[80vh] overflow-y-auto space-y-4" onClick={e => e.stopPropagation()}>
                 <h2 className="text-lg font-semibold">Invitar empleados</h2>
-                <p className="text-xs text-muted-foreground">Seleccioná los empleados a invitar:</p>
+                <p className="text-xs text-muted-foreground">
+                  Vacantes disponibles: <span className="font-semibold text-foreground">{vacantesDisp}</span> de {currentSesion?.vacantes ?? 0}
+                  {selectedInvitees.length > 0 && <span className="ml-1">· Seleccionados: {selectedInvitees.length}</span>}
+                </p>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Buscar empleado..."
+                    value={inviteSearch}
+                    onChange={(e) => setInviteSearch(e.target.value)}
+                    className="w-full h-9 pl-9 pr-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
                 <div className="space-y-1 max-h-64 overflow-y-auto">
-                  {(subordinados ?? []).map((sub) => {
-                    const alreadyInvited = sesiones?.find(s => s.id === showInviteModal)?.invitaciones.some(i => i.usuarioId === sub.id);
+                  {(subordinados ?? [])
+                    .filter((sub) => {
+                      if (!inviteSearch) return true;
+                      const q = inviteSearch.toLowerCase();
+                      return sub.nombre.toLowerCase().includes(q) || sub.apellido.toLowerCase().includes(q);
+                    })
+                    .map((sub) => {
+                    const alreadyInvited = currentSesion?.invitaciones.some(i => i.usuarioId === sub.id);
+                    const isSelected = selectedInvitees.includes(sub.id);
+                    const disabled = alreadyInvited || (!isSelected && limitReached);
                     return (
-                      <label key={sub.id} className={cn('flex items-center gap-3 p-2 rounded-lg hover:bg-muted/30 cursor-pointer text-sm', alreadyInvited && 'opacity-40')}>
+                      <label key={sub.id} className={cn('flex items-center gap-3 p-2 rounded-lg hover:bg-muted/30 cursor-pointer text-sm', disabled && 'opacity-40')}>
                         <input
                           type="checkbox"
-                          disabled={alreadyInvited}
-                          checked={selectedInvitees.includes(sub.id)}
+                          disabled={disabled}
+                          checked={isSelected}
                           onChange={(e) => setSelectedInvitees(prev =>
                             e.target.checked ? [...prev, sub.id] : prev.filter(id => id !== sub.id)
                           )}
@@ -849,7 +883,7 @@ export default function CapacitacionesPage() {
                 </div>
               </div>
             </div>
-          )}
+          )})()}
 
           {/* Finalizar Modal */}
           {showFinalizarModal && (() => {
