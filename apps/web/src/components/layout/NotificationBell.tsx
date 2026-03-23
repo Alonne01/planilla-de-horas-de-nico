@@ -84,64 +84,78 @@ export default function NotificationBell() {
         )}
       </button>
 
-      {open && (
-        <>
-          {/* Backdrop */}
-          <div className="fixed inset-0 z-[99]" onClick={() => setOpen(false)} />
-          {/* Panel */}
-          <div className="fixed left-2 right-2 top-[3.75rem] z-[100] mx-auto max-w-sm lg:absolute lg:left-0 lg:right-auto lg:bottom-full lg:top-auto lg:mb-2 lg:mx-0 lg:w-96 lg:max-w-none max-h-[80vh] rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between p-3 border-b border-border">
-            <h3 className="text-sm font-semibold">Notificaciones</h3>
-            <div className="flex items-center gap-1">
-              {unread > 0 && (
-                <button
-                  onClick={() => markAllMutation.mutate()}
-                  className="text-[10px] text-primary hover:underline flex items-center gap-1"
-                >
-                  <Check className="h-3 w-3" /> Marcar todas
-                </button>
-              )}
-              <button onClick={() => setOpen(false)} className="p-1 hover:bg-accent rounded">
-                <X className="h-3.5 w-3.5 text-muted-foreground" />
-              </button>
-            </div>
-          </div>
+      {/* Backdrop */}
+      <div
+        className={cn(
+          'fixed inset-0 z-[99] transition-opacity duration-300',
+          open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        )}
+        onClick={() => setOpen(false)}
+      />
 
-          <div className="overflow-y-auto max-h-[calc(80vh-3rem)]">
-            {notifs.length === 0 ? (
-              <div className="p-6 text-center">
-                <Bell className="h-8 w-8 mx-auto mb-2 text-muted-foreground/20" />
-                <p className="text-sm text-muted-foreground">Sin notificaciones</p>
-              </div>
-            ) : (
-              notifs.map((n) => (
-                <button
-                  key={n.id}
-                  onClick={() => {
-                    if (!n.leida) markReadMutation.mutate(n.id);
-                    if (n.link) navigate(n.link);
-                    setOpen(false);
-                  }}
-                  className={cn(
-                    'w-full text-left p-3 border-b border-border/50 hover:bg-muted/20 transition-colors',
-                    !n.leida && 'bg-primary/5'
-                  )}
-                >
-                  <div className="flex items-start gap-2">
-                    {!n.leida && <div className="mt-1.5 h-2 w-2 rounded-full bg-primary shrink-0" />}
-                    <div className="flex-1 min-w-0">
-                      <p className={cn('text-sm truncate', !n.leida && 'font-medium')}>{n.titulo}</p>
-                      <p className="text-xs text-muted-foreground line-clamp-2 break-words">{n.cuerpo}</p>
-                      <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(n.createdAt)}</p>
-                    </div>
-                  </div>
-                </button>
-              ))
+      {/* Panel */}
+      <div
+        className={cn(
+          'fixed left-2 right-2 top-[3.75rem] z-[100] mx-auto max-w-sm',
+          'lg:absolute lg:left-0 lg:right-auto lg:bottom-full lg:top-auto lg:mb-2 lg:mx-0 lg:w-96 lg:max-w-none',
+          'max-h-[80vh] rounded-xl border border-border bg-card shadow-2xl overflow-hidden',
+          'transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]',
+          'origin-top lg:origin-bottom-left',
+          open
+            ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
+            : 'opacity-0 scale-95 -translate-y-2 lg:translate-y-2 pointer-events-none'
+        )}
+      >
+        <div className="flex items-center justify-between p-3 border-b border-border">
+          <h3 className="text-sm font-semibold">Notificaciones</h3>
+          <div className="flex items-center gap-1">
+            {unread > 0 && (
+              <button
+                onClick={() => markAllMutation.mutate()}
+                className="text-[10px] text-primary hover:underline flex items-center gap-1"
+              >
+                <Check className="h-3 w-3" /> Marcar todas
+              </button>
             )}
+            <button onClick={() => setOpen(false)} className="p-1 hover:bg-accent rounded">
+              <X className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
           </div>
         </div>
-        </>
-      )}
+
+        <div className="overflow-y-auto max-h-[calc(80vh-3rem)]">
+          {notifs.length === 0 ? (
+            <div className="p-6 text-center">
+              <Bell className="h-8 w-8 mx-auto mb-2 text-muted-foreground/20" />
+              <p className="text-sm text-muted-foreground">Sin notificaciones</p>
+            </div>
+          ) : (
+            notifs.map((n) => (
+              <button
+                key={n.id}
+                onClick={() => {
+                  if (!n.leida) markReadMutation.mutate(n.id);
+                  if (n.link) navigate(n.link);
+                  setOpen(false);
+                }}
+                className={cn(
+                  'w-full text-left p-3 border-b border-border/50 hover:bg-muted/20 transition-colors',
+                  !n.leida && 'bg-primary/5'
+                )}
+              >
+                <div className="flex items-start gap-2">
+                  {!n.leida && <div className="mt-1.5 h-2 w-2 rounded-full bg-primary shrink-0" />}
+                  <div className="flex-1 min-w-0">
+                    <p className={cn('text-sm truncate', !n.leida && 'font-medium')}>{n.titulo}</p>
+                    <p className="text-xs text-muted-foreground line-clamp-2 break-words">{n.cuerpo}</p>
+                    <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(n.createdAt)}</p>
+                  </div>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }
