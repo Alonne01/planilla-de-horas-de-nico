@@ -332,7 +332,7 @@ const EMPLEADOS: { nombre: string; apellido: string; sector: string; rol: string
   { nombre: 'Florencia Anabela', apellido: 'Spagnolo', sector: 'ADMINISTRACION', rol: 'OPERADOR', legajo: 'WL-0293', email: 'florencia.spagnolo@wenlen.com' },
   { nombre: 'Alicia', apellido: 'Strillevsky', sector: 'ADMINISTRACION', rol: 'RRHH', legajo: 'WL-0294', email: 'alicia.strillevsky@wenlen.com' },
   { nombre: 'David Ariel', apellido: 'Valenzuela', sector: 'ADMINISTRACION', rol: 'OPERADOR', legajo: 'WL-0295', email: 'david.valenzuela@wenlen.com' },
-  { nombre: 'Ricardo Leopoldo', apellido: 'Winkler', sector: 'ADMINISTRACION', rol: 'ADMIN', legajo: 'WL-0296', email: 'ricardo.winkler@wenlen.com' },
+  { nombre: 'Ricardo Leopoldo', apellido: 'Winkler', sector: 'ADMINISTRACION', rol: 'GERENTE', legajo: 'WL-0296', email: 'ricardo.winkler@wenlen.com' },
   // -- ALMACEN --
   { nombre: 'Jorge Ricardo', apellido: 'Alegría', sector: 'ALMACEN', rol: 'OPERADOR', legajo: 'WL-0297', email: 'jorge.alegria@wenlen.com' },
   { nombre: 'Luciano', apellido: 'Angelino', sector: 'ALMACEN', rol: 'OPERADOR', legajo: 'WL-0298', email: 'luciano.angelino@wenlen.com' },
@@ -829,6 +829,27 @@ async function main() {
   // 9. USUARIOS (nómina completa)
   // ─────────────────────────────────
   const passwordHash = await hashPassword('Wenlen2026!');
+  const adminPasswordHash = await hashPassword('Admin2026!');
+
+  // Cuenta de sistema (superusuario)
+  await prisma.usuario.create({
+    data: {
+      empresaId: empresa.id,
+      sectorId: null,
+      nombre: 'Administrador',
+      apellido: 'Sistema',
+      email: 'admin@wenlen.com',
+      passwordHash: adminPasswordHash,
+      legajo: 'WL-SYS',
+      rol: 'ADMIN',
+      tipoContrato: ContratoTipo.INDEFINIDO,
+      fechaIngreso: new Date('2024-01-01'),
+      convenioId: convenioPJ.id,
+      categoriaId: categoriasPJ['JER-B'],
+      primerLogin: true,
+    },
+  });
+  console.log('✅ Cuenta admin del sistema creada: admin@wenlen.com');
 
   const sectorMap: Record<string, string> = {
     'FRACTURA': sectores['Fractura'],
@@ -906,20 +927,21 @@ async function main() {
   console.log('═══════════════════════════════════════════');
   console.log('  8 sectores');
   console.log('  9 flujos de aprobación (3 patrones × 3 tipos documento)');
-  console.log(`  ${userCount} usuarios`);
+  console.log(`  ${userCount + 1} usuarios (1 admin sistema + ${userCount} empleados)`);
   console.log('  Convenios: CCT 644/12 PP (15 cats, 25 conceptos) + CCT 637/11 PJ (4 cats, 22 conceptos)');
   console.log('  7 diagramas de trabajo');
   console.log('  ' + feriados.length + ' feriados configurados');
   console.log('───────────────────────────────────────────');
-  console.log('Usuarios ADMIN/RRHH para login:');
-  console.log('  ricardo.winkler@wenlen.com    → ADMIN');
+  console.log('Usuarios clave para login:');
+  console.log('  admin@wenlen.com             → ADMIN (sistema) — Contraseña: Admin2026!');
+  console.log('  ricardo.winkler@wenlen.com    → GERENTE (Gerente General)');
   console.log('  mariela.aguero@wenlen.com     → RRHH');
   console.log('  eliana.cejas@wenlen.com       → RRHH');
   console.log('  amalia.gonzalez@wenlen.com    → RRHH');
   console.log('  alicia.strillevsky@wenlen.com → RRHH');
   console.log('  carlos.diaz@wenlen.com        → GERENTE');
   console.log('  leopoldo.silveira@wenlen.com  → GERENTE');
-  console.log('  Contraseña: Wenlen2026!');
+  console.log('  Contraseña empleados: Wenlen2026!');
 }
 
 main()
