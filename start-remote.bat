@@ -41,7 +41,7 @@ timeout /t 5 /nobreak >nul
 :: Step 2: Start API tunnel
 :: ------------------------------------------------
 echo [2/4] Creando tunel Cloudflare para API...
-start "API-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:4000 >"%TEMP_DIR%\api_tunnel.txt" 2>&1"
+start "API-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:4000 >%TEMP_DIR%\api_tunnel.txt 2>&1"
 echo       Esperando URL del tunel API...
 
 :: Wait for tunnel URL to appear in the log
@@ -81,7 +81,7 @@ timeout /t 5 /nobreak >nul
 :: Step 4: Start frontend tunnel
 :: ------------------------------------------------
 echo [4/4] Creando tunel Cloudflare para Frontend...
-start "Frontend-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:3000 >"%TEMP_DIR%\web_tunnel.txt" 2>&1"
+start "Frontend-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:3000 >%TEMP_DIR%\web_tunnel.txt 2>&1"
 echo       Esperando URL del tunel Frontend...
 
 :: Wait for tunnel URL
@@ -142,6 +142,7 @@ pause >nul
 :cleanup
 echo.
 echo Deteniendo servicios...
+pause
 taskkill /FI "WINDOWTITLE eq API-Server*" /F >nul 2>&1
 taskkill /FI "WINDOWTITLE eq Frontend-Server*" /F >nul 2>&1
 taskkill /FI "WINDOWTITLE eq API-Tunnel*" /F >nul 2>&1
