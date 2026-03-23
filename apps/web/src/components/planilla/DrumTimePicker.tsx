@@ -2,16 +2,13 @@ import { useRef, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 
 const ITEM_H = 40;
-const DETENT_PULL = 0.35; // 0 = free spin, 1 = locked to notches
 
 /**
- * Mechanical-feeling pointer interaction for drum scroll containers.
- * - Click an item: smooth-scroll to it
- * - Drag: scroll with detent resistance — "notches" pull toward each item
- *   like a mechanical rotary switch
- * - Wheel & touch: native CSS scroll-snap (unaffected)
+ * Click-to-select for drum scroll containers (desktop).
+ * Click any visible item → smooth-scroll to it.
+ * Wheel & touch: native CSS scroll-snap (unaffected).
  */
-function useDrumPointer(
+function useDrumClick(
   ref: React.RefObject<HTMLDivElement | null>,
   itemCount: number,
 ) {
@@ -19,70 +16,16 @@ function useDrumPointer(
     const el = ref.current;
     if (!el) return;
 
-    let active = false;
-    let startY = 0;
-    let startScroll = 0;
-    let moved = false;
-    let capturedId = -1;
-
-    const snapTo = (idx: number) => {
+    const onClick = (e: MouseEvent) => {
+      const rect = el.getBoundingClientRect();
+      const contentY = el.scrollTop + (e.clientY - rect.top);
+      const idx = Math.round((contentY - ITEM_H - ITEM_H / 2) / ITEM_H);
       const clamped = Math.max(0, Math.min(idx, itemCount - 1));
       el.scrollTo({ top: clamped * ITEM_H, behavior: 'smooth' });
     };
 
-    const onDown = (e: PointerEvent) => {
-      if (e.pointerType === 'touch') return;
-      e.preventDefault();
-      active = true;
-      startY = e.clientY;
-      startScroll = el.scrollTop;
-      moved = false;
-      capturedId = e.pointerId;
-      el.setPointerCapture(e.pointerId);
-      el.style.cursor = 'grabbing';
-      el.style.scrollSnapType = 'none';
-    };
-
-    const onMove = (e: PointerEvent) => {
-      if (!active) return;
-      const dy = e.clientY - startY;
-      if (Math.abs(dy) > 2) moved = true;
-
-      const raw = startScroll - dy;
-      // Pull toward nearest item center → mechanical detent feel
-      const nearSnap = Math.round(raw / ITEM_H) * ITEM_H;
-      el.scrollTop = raw + (nearSnap - raw) * DETENT_PULL;
-    };
-
-    const onUp = (e: PointerEvent) => {
-      if (!active) return;
-      active = false;
-      el.releasePointerCapture(capturedId);
-      el.style.cursor = '';
-      el.style.scrollSnapType = 'y mandatory';
-
-      if (!moved) {
-        // Click → find item under pointer and snap to it
-        const rect = el.getBoundingClientRect();
-        const contentY = el.scrollTop + (e.clientY - rect.top);
-        const idx = Math.round((contentY - ITEM_H - ITEM_H / 2) / ITEM_H);
-        snapTo(idx);
-      } else {
-        // Drag release → snap to nearest notch
-        snapTo(Math.round(el.scrollTop / ITEM_H));
-      }
-    };
-
-    el.addEventListener('pointerdown', onDown);
-    el.addEventListener('pointermove', onMove);
-    el.addEventListener('pointerup', onUp);
-    el.addEventListener('pointercancel', onUp);
-    return () => {
-      el.removeEventListener('pointerdown', onDown);
-      el.removeEventListener('pointermove', onMove);
-      el.removeEventListener('pointerup', onUp);
-      el.removeEventListener('pointercancel', onUp);
-    };
+    el.addEventListener('click', onClick);
+    return () => el.removeEventListener('click', onClick);
   }, [ref, itemCount]);
 }
 
@@ -115,8 +58,8 @@ export default function DrumTimePicker({
   const expectedHour = useRef(currentHour);
   const expectedMin = useRef(currentMin);
 
-  useDrumPointer(hourRef, HOURS.length);
-  useDrumPointer(minRef, MINUTE_STEPS.length);
+  useDrumClick(hourRef, HOURS.length);
+  useDrumClick(minRef, MINUTE_STEPS.length);
 
   const scrollTo = useCallback((ref: React.RefObject<HTMLDivElement | null>, index: number) => {
     if (!ref.current) return;
