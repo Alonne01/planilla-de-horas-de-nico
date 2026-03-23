@@ -78,6 +78,7 @@ export default function PlanillaDetailPage() {
   const [motivoRechazo, setMotivoRechazo] = useState('');
   const [showRechazo, setShowRechazo] = useState(false);
   const [showConfirmApproval, setShowConfirmApproval] = useState(false);
+  const [approvalChecked, setApprovalChecked] = useState(false);
   const [applyingDiagram, setApplyingDiagram] = useState(false);
   const [quickFilling, setQuickFilling] = useState(false);
   const [diasFaltantes, setDiasFaltantes] = useState<string[]>([]);
@@ -1134,14 +1135,25 @@ export default function PlanillaDetailPage() {
             <h3 className="font-semibold text-cal-emerald">¿Confirmar aprobación?</h3>
             <p className="text-sm text-muted-foreground">
               Estás por aprobar esta planilla de <strong>{planilla.usuario.nombre} {planilla.usuario.apellido}</strong>.
-              Esta acción no se puede deshacer.
+              Una vez aprobada, la planilla no podrá ser editada por el empleado.
             </p>
+            <label className="flex items-start gap-3 cursor-pointer select-none p-3 rounded-lg border border-border hover:bg-muted/20 transition-colors">
+              <input
+                type="checkbox"
+                checked={approvalChecked}
+                onChange={(e) => setApprovalChecked(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-emerald-500"
+              />
+              <span className="text-sm font-medium">
+                Confirmo que revisé la planilla y es correcta
+              </span>
+            </label>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowConfirmApproval(false)}
+              <button onClick={() => { setShowConfirmApproval(false); setApprovalChecked(false); }}
                 className="px-4 py-2 rounded-lg border border-border text-sm">Cancelar</button>
-              <button onClick={() => { setShowConfirmApproval(false); avanzarMutation.mutate(); }}
-                disabled={avanzarMutation.isPending}
-                className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+              <button onClick={() => { setShowConfirmApproval(false); setApprovalChecked(false); avanzarMutation.mutate(); }}
+                disabled={!approvalChecked || avanzarMutation.isPending}
+                className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed">
                 {avanzarMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Aprobar'}
               </button>
             </div>

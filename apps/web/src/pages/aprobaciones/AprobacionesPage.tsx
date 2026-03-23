@@ -107,6 +107,7 @@ export default function AprobacionesPage() {
   const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
   const [confirmandoTipo, setConfirmandoTipo] = useState<'planilla' | 'vacacion' | 'ausencia'>('planilla');
   const [confirmandoNombre, setConfirmandoNombre] = useState('');
+  const [confirmandoChecked, setConfirmandoChecked] = useState(false);
   const [filterSector, setFilterSector] = useState('');
   const [periodo, setPeriodo] = useState(getCurrentPeriod());
   const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
@@ -710,13 +711,29 @@ export default function AprobacionesPage() {
                 <CheckCircle2 className="h-5 w-5 text-emerald-400" />
                 Confirmar aprobación
               </h3>
-              <button onClick={() => setConfirmandoId(null)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
+              <button onClick={() => { setConfirmandoId(null); setConfirmandoChecked(false); }} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
             </div>
             <p className="text-sm text-muted-foreground">
               ¿Estás seguro de que querés aprobar {confirmandoTipo === 'planilla' ? 'la planilla' : confirmandoTipo === 'vacacion' ? 'la solicitud de vacaciones' : 'la ausencia'} de <span className="font-medium text-foreground">{confirmandoNombre}</span>?
             </p>
+            {confirmandoTipo === 'planilla' && (
+              <p className="text-xs text-muted-foreground">
+                Una vez aprobada, la planilla no podrá ser editada por el empleado.
+              </p>
+            )}
+            <label className="flex items-start gap-3 cursor-pointer select-none p-3 rounded-lg border border-border hover:bg-muted/20 transition-colors">
+              <input
+                type="checkbox"
+                checked={confirmandoChecked}
+                onChange={(e) => setConfirmandoChecked(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-emerald-500"
+              />
+              <span className="text-sm font-medium">
+                Confirmo que revisé {confirmandoTipo === 'planilla' ? 'la planilla' : confirmandoTipo === 'vacacion' ? 'la solicitud' : 'la ausencia'} y es correcta
+              </span>
+            </label>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setConfirmandoId(null)}
+              <button onClick={() => { setConfirmandoId(null); setConfirmandoChecked(false); }}
                 className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent">
                 Cancelar
               </button>
@@ -730,8 +747,8 @@ export default function AprobacionesPage() {
                     aprobarAusenciaMutation.mutate(confirmandoId);
                   }
                 }}
-                disabled={aprobarPlanillaMutation.isPending || aprobarVacacionMutation.isPending || aprobarAusenciaMutation.isPending}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+                disabled={!confirmandoChecked || aprobarPlanillaMutation.isPending || aprobarVacacionMutation.isPending || aprobarAusenciaMutation.isPending}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {(aprobarPlanillaMutation.isPending || aprobarVacacionMutation.isPending || aprobarAusenciaMutation.isPending)
                   ? <Loader2 className="h-4 w-4 animate-spin" />

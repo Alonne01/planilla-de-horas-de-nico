@@ -3,7 +3,7 @@ import { PrismaClient, PlanillaEstado, LugarTrabajo, PernocteEnum } from '@prism
 import { Decimal } from '@prisma/client/runtime/library';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
-import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH, LEVEL_ADMIN } from '../middleware/roles.middleware.js';
 import { notificarPlanilla } from '../utils/notificacion.utils.js';
 import { getFlowVisibleUserIds } from '../utils/visibility.utils.js';
 import {
@@ -596,6 +596,55 @@ router.post('/:id/cerrar', requireLevel(LEVEL_RRHH), async (req: AuthRequest, re
     res.json(updated);
   } catch (error) {
     console.error('Error al cerrar planilla:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /planillas/:id/reabrir ──────────────────
+
+router.post('/:id/reabrir', requireLevel(LEVEL_ADMIN), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const planillaId = req.params.id as string;
+    const { motivo } = req.body;
+    if (!motivo) {
+      res.status(400).json({ error: 'Se requiere un motivo para reabrir' });
+      return;
+    }
+
+    const planilla = await prisma.planilla.findUnique({
+      where: { id: planillaId },
+      include: { usuario: { select: { empresaId: true } } },
+    });
+
+    if (!planilla || planilla.usuario.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Planilla no encontrada' });
+      return;
+    }
+    if (planilla.estado !== 'CERRADA') {
+      res.status(400).json({ error: 'Solo se puede reabrir una planilla CERRADA' });
+      return;
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.planilla.update({
+        where: { id: planillaId },
+        data: { estado: 'APROBADA', cerradaAt: null },
+      });
+      await tx.planillaHistorial.create({
+        data: {
+          planillaId: planilla.id,
+          usuarioId: req.user!.userId,
+          estadoAnterior: 'CERRADA',
+          estadoNuevo: 'APROBADA',
+          comentario: `[REABRIR] ${motivo}`,
+        },
+      });
+      return result;
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error al reabrir planilla:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });

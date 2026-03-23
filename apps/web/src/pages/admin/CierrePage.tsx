@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
 import {
   Lock, FileText, Loader2, CheckCircle2,
   DollarSign, Download, Eye, FileSpreadsheet,
-  AlertTriangle, Users, Filter
+  AlertTriangle, Users, Filter, RotateCcw, ShieldAlert
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 
@@ -46,6 +46,7 @@ type TabKey = 'exportar' | 'pendientes' | 'aprobadas';
 
 export default function CierrePage() {
   const user = useAuthStore((s) => s.user);
+  const queryClient = useQueryClient();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabKey>('exportar');
@@ -65,10 +66,21 @@ export default function CierrePage() {
   // Aprobadas tab state
   const [previewPlanillaId, setPreviewPlanillaId] = useState<string | null>(null);
 
+  // Cierre confirmation state
+  const [cerrarTarget, setCerrarTarget] = useState<Planilla | null>(null);
+  const [cerrarConfirmed, setCerrarConfirmed] = useState(false);
+  const [cerrarLoading, setCerrarLoading] = useState(false);
+
+  // Reabrir state
+  const [reabrirTarget, setReabrirTarget] = useState<Planilla | null>(null);
+  const [reabrirMotivo, setReabrirMotivo] = useState('');
+  const [reabrirLoading, setReabrirLoading] = useState(false);
+
   // Period selector state
   const [periodo, setPeriodo] = useState(getCurrentPeriod());
 
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
+  const isAdmin = user?.rol === 'ADMIN';
 
   const { data: sectores = [] } = useQuery<Sector[]>({
     queryKey: ['sectores-cierre'],
@@ -83,6 +95,7 @@ export default function CierrePage() {
   });
 
   const planillasAprobadas = allPlanillas.filter((p) => p.estado === 'APROBADA');
+  const planillasCerradas = allPlanillas.filter((p) => p.estado === 'CERRADA');
 
   const { data: allUsers = [] } = useQuery<{ id: string; nombre: string; apellido: string; legajo: string | null; activo: boolean; rol: string; sector?: { id: string; nombre: string } }[]>({
     queryKey: ['usuarios-cierre'],
@@ -178,6 +191,36 @@ export default function CierrePage() {
       }
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleCerrar = async () => {
+    if (!cerrarTarget) return;
+    setCerrarLoading(true);
+    try {
+      await api.post(`/planillas/${cerrarTarget.id}/cerrar`);
+      queryClient.invalidateQueries({ queryKey: ['planillas-cierre'] });
+      setCerrarTarget(null);
+      setCerrarConfirmed(false);
+    } catch (err: any) {
+      alert(err.response?.data?.error ?? 'Error al cerrar planilla');
+    } finally {
+      setCerrarLoading(false);
+    }
+  };
+
+  const handleReabrir = async () => {
+    if (!reabrirTarget || !reabrirMotivo.trim()) return;
+    setReabrirLoading(true);
+    try {
+      await api.post(`/planillas/${reabrirTarget.id}/reabrir`, { motivo: reabrirMotivo.trim() });
+      queryClient.invalidateQueries({ queryKey: ['planillas-cierre'] });
+      setReabrirTarget(null);
+      setReabrirMotivo('');
+    } catch (err: any) {
+      alert(err.response?.data?.error ?? 'Error al reabrir planilla');
+    } finally {
+      setReabrirLoading(false);
     }
   };
 
@@ -414,56 +457,105 @@ export default function CierrePage() {
 
       {/* ─── Tab: Aprobadas ─── */}
       {activeTab === 'aprobadas' && (
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <FileText className="h-5 w-5 text-blue-400" />
-              Planillas aprobadas ({planillasAprobadas.length})
-            </h2>
+        <div className="space-y-4">
+          {/* Aprobadas section */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <FileText className="h-5 w-5 text-blue-400" />
+                Planillas aprobadas ({planillasAprobadas.length})
+              </h2>
+            </div>
+
+            {loadingPlanillas ? (
+              <div className="flex items-center justify-center h-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+            ) : planillasAprobadas.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No hay planillas aprobadas pendientes de cierre</p>
+            ) : (
+              <div className="space-y-1">
+                {planillasAprobadas.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/20 transition-colors">
+                    <div>
+                      <p className="text-sm font-medium">{p.usuario.apellido} {p.usuario.nombre}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {p.usuario.legajo && `Legajo ${p.usuario.legajo} · `}
+                        {Number(p.totalHorasNormales).toFixed(0)}h normales
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setPreviewPlanillaId(p.id)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted/30 transition-colors border border-border"
+                      >
+                        <Eye className="h-3 w-3" /> Preview
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            const res = await api.get(`/export/planilla/${p.id}`, { responseType: 'blob' });
+                            const url = window.URL.createObjectURL(new Blob([res.data]));
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `planilla_${p.usuario.apellido}.csv`;
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                          } catch { /* noop */ }
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted/30 transition-colors border border-border"
+                      >
+                        <Download className="h-3 w-3" /> CSV
+                      </button>
+                      <button
+                        onClick={() => { setCerrarTarget(p); setCerrarConfirmed(false); }}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/30"
+                      >
+                        <Lock className="h-3 w-3" /> Cerrar
+                      </button>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/20 text-emerald-400">APROBADA</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {loadingPlanillas ? (
-            <div className="flex items-center justify-center h-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-          ) : planillasAprobadas.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">No hay planillas aprobadas pendientes de cierre</p>
-          ) : (
-            <div className="space-y-1">
-              {planillasAprobadas.map((p) => (
-                <div key={p.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/20 transition-colors">
-                  <div>
-                    <p className="text-sm font-medium">{p.usuario.apellido} {p.usuario.nombre}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {p.usuario.legajo && `Legajo ${p.usuario.legajo} · `}
-                      {Number(p.totalHorasNormales).toFixed(0)}h normales
-                    </p>
+          {/* Cerradas section */}
+          {planillasCerradas.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Lock className="h-5 w-5 text-zinc-400" />
+                  Planillas cerradas ({planillasCerradas.length})
+                </h2>
+              </div>
+              <div className="space-y-1">
+                {planillasCerradas.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/20 transition-colors">
+                    <div>
+                      <p className="text-sm font-medium">{p.usuario.apellido} {p.usuario.nombre}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {p.usuario.legajo && `Legajo ${p.usuario.legajo} · `}
+                        {Number(p.totalHorasNormales).toFixed(0)}h normales
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {isAdmin ? (
+                        <button
+                          onClick={() => { setReabrirTarget(p); setReabrirMotivo(''); }}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-amber-400 hover:bg-amber-500/10 transition-colors border border-amber-500/30"
+                        >
+                          <RotateCcw className="h-3 w-3" /> Reabrir
+                        </button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground italic flex items-center gap-1">
+                          <ShieldAlert className="h-3 w-3" /> Contacte al administrador para reabrir
+                        </span>
+                      )}
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-zinc-500/20 text-zinc-400">CERRADA</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setPreviewPlanillaId(p.id)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted/30 transition-colors border border-border"
-                    >
-                      <Eye className="h-3 w-3" /> Preview
-                    </button>
-                    <button
-                      onClick={async () => {
-                        try {
-                          const res = await api.get(`/export/planilla/${p.id}`, { responseType: 'blob' });
-                          const url = window.URL.createObjectURL(new Blob([res.data]));
-                          const a = document.createElement('a');
-                          a.href = url;
-                          a.download = `planilla_${p.usuario.apellido}.csv`;
-                          a.click();
-                          window.URL.revokeObjectURL(url);
-                        } catch { /* noop */ }
-                      }}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted/30 transition-colors border border-border"
-                    >
-                      <Download className="h-3 w-3" /> CSV
-                    </button>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/20 text-emerald-400">APROBADA</span>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -611,6 +703,116 @@ export default function CierrePage() {
                   <span className="text-emerald-400">NETO A COBRAR</span>
                   <span className="font-mono text-emerald-400">${fmt(preview.totales.neto)}</span>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Cerrar Confirmation Modal (double confirmation) ─── */}
+      {cerrarTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-red-400" /> Cerrar planilla
+              </h2>
+              <button onClick={() => setCerrarTarget(null)} className="p-1 rounded-lg hover:bg-accent text-muted-foreground">&times;</button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3">
+                <p className="text-sm text-red-400">
+                  Está por cerrar la planilla de <strong>{cerrarTarget.usuario.apellido} {cerrarTarget.usuario.nombre}</strong>.
+                  Una vez cerrada <strong>no se podrá modificar</strong>.
+                </p>
+              </div>
+
+              <div className="text-sm text-muted-foreground">
+                <p>Esta acción:</p>
+                <ul className="list-disc ml-4 mt-1 space-y-1">
+                  <li>Bloquea la planilla permanentemente</li>
+                  <li>Habilita la generación del recibo de sueldo</li>
+                  <li>Incluye la planilla en la liquidación</li>
+                </ul>
+              </div>
+
+              <label className="flex items-start gap-3 cursor-pointer select-none p-3 rounded-lg border border-border hover:bg-muted/20 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={cerrarConfirmed}
+                  onChange={(e) => setCerrarConfirmed(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-red-500"
+                />
+                <span className="text-sm font-medium">
+                  Confirmo que revisé esta planilla y es correcta
+                </span>
+              </label>
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-border">
+                <button
+                  onClick={() => setCerrarTarget(null)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted/30 transition-colors border border-border"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleCerrar}
+                  disabled={!cerrarConfirmed || cerrarLoading}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {cerrarLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+                  Cerrar definitivamente
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Reabrir Modal (ADMIN only) ─── */}
+      {reabrirTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <RotateCcw className="h-5 w-5 text-amber-400" /> Reabrir planilla
+              </h2>
+              <button onClick={() => setReabrirTarget(null)} className="p-1 rounded-lg hover:bg-accent text-muted-foreground">&times;</button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3">
+                <p className="text-sm text-amber-400">
+                  Reabriendo planilla de <strong>{reabrirTarget.usuario.apellido} {reabrirTarget.usuario.nombre}</strong>.
+                  Volverá al estado APROBADA y podrá ser modificada.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">Motivo de la reapertura <span className="text-red-400">*</span></label>
+                <textarea
+                  value={reabrirMotivo}
+                  onChange={(e) => setReabrirMotivo(e.target.value)}
+                  placeholder="Ej: Error en las horas cargadas del día 15..."
+                  rows={3}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-border">
+                <button
+                  onClick={() => setReabrirTarget(null)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted/30 transition-colors border border-border"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleReabrir}
+                  disabled={!reabrirMotivo.trim() || reabrirLoading}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {reabrirLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                  Reabrir planilla
+                </button>
               </div>
             </div>
           </div>
