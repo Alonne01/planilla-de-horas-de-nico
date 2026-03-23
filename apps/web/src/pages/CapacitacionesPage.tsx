@@ -2,13 +2,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   Loader2, GraduationCap, Plus, Trash2, Pencil, X, Save,
   AlertTriangle, CheckCircle2, Clock, BookOpen,
   CalendarPlus, Users, Send, Check, XCircle, UserCheck, Search,
 } from 'lucide-react';
 import ScopeToggle from '@/components/layout/ScopeToggle';
+import { toast } from '@/stores/toastStore';
 
 interface TipoCapacitacion {
   id: string;
@@ -225,7 +226,11 @@ export default function CapacitacionesPage() {
       : api.post('/capacitaciones/tipos', body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['capacitaciones-tipos'] });
+      toast({ title: editingTipoId ? 'Tipo actualizado' : 'Tipo creado correctamente', variant: 'success' });
       resetTipoForm();
+    },
+    onError: (err: any) => {
+      toast({ title: 'Error al guardar el tipo', description: err?.response?.data?.error, variant: 'destructive' });
     },
   });
 
@@ -254,16 +259,32 @@ export default function CapacitacionesPage() {
 
   // ─── Sesion form ──────────────────────────────
 
-  const [sesionForm, setSesionForm] = useState({
-    tipoId: '', titulo: '', descripcion: '', fecha: '', horaInicio: '', horaFin: '', lugar: '', vacantes: '3',
-  });
+  const emptySesionForm = { tipoId: '', titulo: '', descripcion: '', fecha: '', horaInicio: '', horaFin: '', lugar: '', vacantes: '3' };
+  const [sesionForm, setSesionForm] = useState(emptySesionForm);
+
+  const isSesionFormDirty = useCallback(() => {
+    return sesionForm.titulo !== '' || sesionForm.tipoId !== '' || sesionForm.fecha !== '' ||
+      sesionForm.descripcion !== '' || sesionForm.horaInicio !== '' || sesionForm.horaFin !== '' ||
+      sesionForm.lugar !== '' || sesionForm.vacantes !== '3';
+  }, [sesionForm]);
+
+  const closeSesionForm = useCallback(() => {
+    if (isSesionFormDirty() && !confirm('¿Descartar la sesión sin guardar?')) return;
+    setShowSesionForm(false);
+    setSesionForm(emptySesionForm);
+  }, [isSesionFormDirty]);
 
   const sesionMut = useMutation({
     mutationFn: (body: any) => api.post('/sesiones-capacitacion', body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sesiones-capacitacion'] });
+      toast({ title: 'Sesión creada correctamente', variant: 'success' });
       setShowSesionForm(false);
-      setSesionForm({ tipoId: '', titulo: '', descripcion: '', fecha: '', horaInicio: '', horaFin: '', lugar: '', vacantes: '3' });
+      setSesionForm(emptySesionForm);
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error || err?.message || 'Error al crear la sesión';
+      toast({ title: 'Error al crear sesión', description: msg, variant: 'destructive' });
     },
   });
 
@@ -646,7 +667,7 @@ export default function CapacitacionesPage() {
             <div className="rounded-xl border border-border bg-card p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Nueva sesión de capacitación</h2>
-                <button onClick={() => setShowSesionForm(false)} className="p-1 rounded hover:bg-muted/50"><X className="h-4 w-4" /></button>
+                <button onClick={closeSesionForm} className="p-1 rounded hover:bg-muted/50"><X className="h-4 w-4" /></button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -659,12 +680,22 @@ export default function CapacitacionesPage() {
                 <div>
                   <label className="text-xs font-medium text-muted-foreground mb-1 block">Tipo de capacitación</label>
                   <select value={sesionForm.tipoId}
-                    onChange={(e) => setSesionForm(f => ({ ...f, tipoId: e.target.value }))}
+                    onChange={(e) => {
+                      if (e.target.value === '__crear_tipo__') {
+                        setTab('tipos');
+                        resetTipoForm();
+                        setShowTipoForm(true);
+                        setShowSesionForm(false);
+                        return;
+                      }
+                      setSesionForm(f => ({ ...f, tipoId: e.target.value }));
+                    }}
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm">
                     <option value="">Seleccionar...</option>
                     {(tipos ?? []).filter(t => t.activo).map(t => (
                       <option key={t.id} value={t.id}>{t.nombre}</option>
                     ))}
+                    {isRRHH && <option value="__crear_tipo__">➕ Crear nuevo tipo...</option>}
                   </select>
                 </div>
                 <div>
@@ -706,7 +737,7 @@ export default function CapacitacionesPage() {
                 </div>
               </div>
               <div className="flex justify-end gap-2">
-                <button onClick={() => setShowSesionForm(false)} className="px-4 py-2 rounded-lg text-sm hover:bg-muted/50">Cancelar</button>
+                <button onClick={closeSesionForm} className="px-4 py-2 rounded-lg text-sm hover:bg-muted/50">Cancelar</button>
                 <button
                   onClick={() => sesionMut.mutate({
                     tipoId: sesionForm.tipoId,

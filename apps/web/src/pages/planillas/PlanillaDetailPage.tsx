@@ -995,37 +995,44 @@ export default function PlanillaDetailPage() {
                 )}
 
                 {/* Franco compensatorio: selectable, zeroes hours */}
-                {canEdit && (
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={formData.esFrancoCompensatorio}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        if (checked) {
-                          setFormData({
-                            ...formData,
-                            esFrancoCompensatorio: true,
-                            entradaTurno1: '00:00', salidaTurno1: '00:00',
-                          });
-                        } else {
-                          // Restore last used defaults
-                          let lastEntry = '07:00';
-                          let lastExit = '15:00';
-                          try {
-                            const saved = JSON.parse(localStorage.getItem(LAST_DEFAULTS_KEY) || '{}');
-                            if (saved.entrada) lastEntry = saved.entrada;
-                            if (saved.salida) lastExit = saved.salida;
-                          } catch { /* ignore */ }
-                          setFormData({
-                            ...formData,
-                            esFrancoCompensatorio: false,
-                            entradaTurno1: lastEntry, salidaTurno1: lastExit,
-                          });
-                        }
-                      }}
-                      className="rounded border-input" />
-                    <span className="text-sm text-cal-blue">Franco comp.</span>
-                  </label>
-                )}
+                {canEdit && (() => {
+                  const saved = selectedDate ? registroMap[selectedDate] : null;
+                  const hasSavedWork = saved && !saved.esFrancoCompensatorio && (saved.entradaTurno1 || saved.salidaTurno1);
+                  return hasSavedWork ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted/30 text-muted-foreground border border-border">
+                      Franco comp. no disponible (tiene horario)
+                    </span>
+                  ) : (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={formData.esFrancoCompensatorio}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          if (checked) {
+                            setFormData({
+                              ...formData,
+                              esFrancoCompensatorio: true,
+                              entradaTurno1: '00:00', salidaTurno1: '00:00',
+                            });
+                          } else {
+                            let lastEntry = '07:00';
+                            let lastExit = '15:00';
+                            try {
+                              const saved = JSON.parse(localStorage.getItem(LAST_DEFAULTS_KEY) || '{}');
+                              if (saved.entrada) lastEntry = saved.entrada;
+                              if (saved.salida) lastExit = saved.salida;
+                            } catch { /* ignore */ }
+                            setFormData({
+                              ...formData,
+                              esFrancoCompensatorio: false,
+                              entradaTurno1: lastEntry, salidaTurno1: lastExit,
+                            });
+                          }
+                        }}
+                        className="rounded border-input" />
+                      <span className="text-sm text-cal-blue">Franco comp.</span>
+                    </label>
+                  );
+                })()}
                 {!canEdit && formData.esFrancoCompensatorio && (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-cal-blue border border-cal-blue/30">
                     Franco compensatorio
