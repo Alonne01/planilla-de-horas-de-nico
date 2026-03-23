@@ -25,7 +25,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     if (userNivel < 60 && scope !== 'mio') {
       // OPERADOR can't approve anything
-      res.json({ planillasPendientes: [], vacacionesPendientes: [], ausenciasPendientes: [], compensatoriosPendientes: [], historial: { planillas: [], vacaciones: [], ausencias: [] } });
+      res.json({ planillasPendientes: [], vacacionesPendientes: [], ausenciasPendientes: [], compensatoriosPendientes: [], faltantes: { actual: null, anterior: null }, historial: { planillas: [], vacaciones: [], ausencias: [] } });
       return;
     }
 
@@ -214,11 +214,98 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       take: 15,
     });
 
+    // ── Faltantes: users who haven't submitted their planilla ────
+    // Computes for BOTH the selected period and the previous one.
+    const MESES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+    type FaltanteUser = { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector: { id: string; nombre: string } | null };
+    type FaltanteEntry = { usuario: FaltanteUser; planillaId: string | null; estado: string };
+    type FaltantesPeriodo = { label: string; periodoInicio: string; periodoFin: string; items: FaltanteEntry[] } | null;
+
+    const computeFaltantes = async (
+      pInicio: Date, pFin: Date, users: FaltanteUser[],
+    ): Promise<FaltanteEntry[]> => {
+      const ids = users.map(u => u.id);
+      if (ids.length === 0) return [];
+      const finEnd = new Date(pFin); finEnd.setHours(23, 59, 59, 999);
+      const planillas = await prisma.planilla.findMany({
+        where: {
+          usuarioId: { in: ids },
+          periodoInicio: { gte: pInicio },
+          periodoFin: { lte: finEnd },
+        },
+        select: { id: true, usuarioId: true, estado: true },
+      });
+
+      const bestMap = new Map<string, { id: string; estado: string }>();
+      const prio: Record<string, number> = { CERRADA: 5, APROBADA: 4, EN_REVISION: 3, ENVIADA: 2, RECHAZADA: 1, BORRADOR: 0 };
+      for (const p of planillas) {
+        const ex = bestMap.get(p.usuarioId);
+        if (!ex || (prio[p.estado] ?? 0) > (prio[ex.estado] ?? 0)) {
+          bestMap.set(p.usuarioId, { id: p.id, estado: p.estado });
+        }
+      }
+
+      const SUBMITTED = new Set(['ENVIADA', 'EN_REVISION', 'APROBADA', 'CERRADA']);
+      const result: FaltanteEntry[] = [];
+      for (const u of users) {
+        const best = bestMap.get(u.id);
+        if (best && SUBMITTED.has(best.estado)) continue;
+        result.push({ usuario: u, planillaId: best?.id ?? null, estado: best?.estado ?? 'SIN_PLANILLA' });
+      }
+      const order: Record<string, number> = { SIN_PLANILLA: 0, RECHAZADA: 1, BORRADOR: 2 };
+      result.sort((a, b) => (order[a.estado] ?? 9) - (order[b.estado] ?? 9));
+      return result;
+    };
+
+    const buildLabel = (inicio: Date, fin: Date): string => {
+      return `${inicio.getDate()} ${MESES_ES[inicio.getMonth()]} — ${fin.getDate()} ${MESES_ES[fin.getMonth()]} ${fin.getFullYear()}`;
+    };
+
+    let faltantesActual: FaltantesPeriodo = null;
+    let faltantesAnterior: FaltantesPeriodo = null;
+
+    if (qPeriodoInicio && qPeriodoFin) {
+      const visibleUsersWhere = approvableUserIds
+        ? { id: { in: approvableUserIds }, activo: true }
+        : { empresaId, activo: true };
+      const visibleUsers = await prisma.usuario.findMany({
+        where: visibleUsersWhere,
+        select: {
+          id: true, nombre: true, apellido: true, legajo: true, rol: true,
+          sector: { select: { id: true, nombre: true } },
+        },
+      });
+
+      // Current period
+      const curInicio = new Date(qPeriodoInicio);
+      const curFin = new Date(qPeriodoFin);
+      const actualItems = await computeFaltantes(curInicio, curFin, visibleUsers);
+      faltantesActual = {
+        label: buildLabel(curInicio, curFin),
+        periodoInicio: qPeriodoInicio,
+        periodoFin: qPeriodoFin,
+        items: actualItems,
+      };
+
+      // Previous period (one month back in the 21-20 cycle)
+      const prevInicio = new Date(curInicio.getFullYear(), curInicio.getMonth() - 1, curInicio.getDate());
+      const prevFin = new Date(curFin.getFullYear(), curFin.getMonth() - 1, curFin.getDate());
+      const anteriorItems = await computeFaltantes(prevInicio, prevFin, visibleUsers);
+      faltantesAnterior = {
+        label: buildLabel(prevInicio, prevFin),
+        periodoInicio: prevInicio.toISOString(),
+        periodoFin: prevFin.toISOString(),
+        items: anteriorItems,
+      };
+    }
+
     res.json({
       planillasPendientes,
       vacacionesPendientes,
       ausenciasPendientes,
       compensatoriosPendientes,
+      faltantes: { actual: faltantesActual, anterior: faltantesAnterior },
       historial: {
         planillas: planillasHistory,
         vacaciones: vacacionesHistory,

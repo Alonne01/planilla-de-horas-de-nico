@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import {
   CheckCircle2, XCircle, Loader2, Clock, Palmtree, Calendar,
-  History, AlertCircle, ChevronRight, X, Send, AlertTriangle, Filter
+  History, AlertCircle, ChevronRight, X, Send, AlertTriangle, Filter, UserX
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 import ScopeToggle from '@/components/layout/ScopeToggle';
@@ -56,11 +56,25 @@ interface CompensatorioItem {
   };
 }
 
+interface FaltanteItem {
+  usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { id: string; nombre: string } | null };
+  planillaId: string | null;
+  estado: string; // 'SIN_PLANILLA' | 'BORRADOR' | 'RECHAZADA'
+}
+
+interface FaltantesPeriodo {
+  label: string;
+  periodoInicio: string;
+  periodoFin: string;
+  items: FaltanteItem[];
+}
+
 interface AprobacionesData {
   planillasPendientes: PlanillaItem[];
   vacacionesPendientes: VacacionItem[];
   ausenciasPendientes: AusenciaItem[];
   compensatoriosPendientes: CompensatorioItem[];
+  faltantes: { actual: FaltantesPeriodo | null; anterior: FaltantesPeriodo | null };
   historial: {
     planillas: PlanillaItem[];
     vacaciones: VacacionItem[];
@@ -82,7 +96,7 @@ export default function AprobacionesPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
-  const [tab, setTab] = useState<'planillas' | 'vacaciones' | 'ausencias' | 'compensatorios' | 'historial'>('planillas');
+  const [tab, setTab] = useState<'planillas' | 'vacaciones' | 'ausencias' | 'compensatorios' | 'faltantes' | 'historial'>('planillas');
   const [rechazandoId, setRechazandoId] = useState<string | null>(null);
   const [rechazandoTipo, setRechazandoTipo] = useState<'planilla' | 'vacacion' | 'ausencia'>('planilla');
   const [motivoRechazo, setMotivoRechazo] = useState('');
@@ -124,6 +138,15 @@ export default function AprobacionesPage() {
   const filteredHistPlanillas = filterBySector(data?.historial.planillas ?? []);
   const filteredHistVacaciones = filterBySector(data?.historial.vacaciones ?? []);
   const filteredHistAusencias = filterBySector(data?.historial.ausencias ?? []);
+
+  const filterFaltantesPeriodo = (p: FaltantesPeriodo | null | undefined): FaltantesPeriodo | null => {
+    if (!p) return null;
+    const items = filterSector ? p.items.filter(f => f.usuario.sector?.nombre === filterSector) : p.items;
+    return { ...p, items };
+  };
+  const faltantesActual = filterFaltantesPeriodo(data?.faltantes?.actual);
+  const faltantesAnterior = filterFaltantesPeriodo(data?.faltantes?.anterior);
+  const faltantesCount = (faltantesActual?.items.length ?? 0) + (faltantesAnterior?.items.length ?? 0);
 
   const aprobarPlanillaMutation = useMutation({
     mutationFn: (id: string) => api.post(`/planillas/${id}/avanzar`),
@@ -265,6 +288,20 @@ export default function AprobacionesPage() {
             {compensatoriosPendienteCount > 0 && (
               <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
                 {compensatoriosPendienteCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setTab('faltantes')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
+              tab === 'faltantes' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <UserX className="h-4 w-4 hidden sm:block" /> Faltantes
+            {faltantesCount > 0 && (
+              <span className="bg-destructive text-destructive-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
+                {faltantesCount}
               </span>
             )}
           </button>
@@ -484,7 +521,64 @@ export default function AprobacionesPage() {
             </div>
           )}
         </div>
-      ) : (
+      ) : tab === 'faltantes' ? (
+        <div className="space-y-6">
+          {[
+            { periodo: faltantesActual, titulo: 'Período actual' },
+            { periodo: faltantesAnterior, titulo: 'Período anterior' },
+          ].map(({ periodo, titulo }) => (
+            <section key={titulo}>
+              <div className="flex items-center gap-2 mb-2">
+                <UserX className="h-4 w-4 text-destructive" />
+                <h2 className="text-sm font-semibold text-foreground">{titulo}</h2>
+                {periodo && (
+                  <span className="text-xs text-muted-foreground">
+                    {periodo.label} · {periodo.items.length} faltante{periodo.items.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+
+              {periodo && periodo.items.length > 0 ? (
+                <div className="space-y-2">
+                  {periodo.items.map((f) => (
+                    <div key={f.usuario.id} className="rounded-xl border border-border bg-card p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="font-medium text-sm truncate">{f.usuario.apellido}, {f.usuario.nombre}</span>
+                          {f.usuario.legajo && <span className="text-xs text-muted-foreground">#{f.usuario.legajo}</span>}
+                          <span className="text-xs text-muted-foreground">{f.usuario.sector?.nombre ?? f.usuario.rol}</span>
+                          <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium',
+                            f.estado === 'SIN_PLANILLA' ? 'bg-muted/40 text-muted-foreground' :
+                            f.estado === 'RECHAZADA' ? 'bg-red-500/20 text-red-400' :
+                            'bg-muted/30 text-muted-foreground'
+                          )}>
+                            {f.estado === 'SIN_PLANILLA' ? 'Sin planilla' :
+                             f.estado === 'RECHAZADA' ? 'Rechazada' : 'Borrador'}
+                          </span>
+                        </div>
+                      </div>
+                      {f.planillaId && (
+                        <button
+                          onClick={() => navigate(`/planillas/${f.planillaId}`)}
+                          className="p-2 rounded-lg hover:bg-accent text-muted-foreground shrink-0"
+                          title="Ver planilla"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground border border-dashed border-border rounded-xl">
+                  <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-30 text-emerald-400" />
+                  <p className="text-xs">Todos enviaron su planilla</p>
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
+      ) : tab === 'historial' ? (
         <div className="space-y-4">
           {/* Planillas historial */}
           {filteredHistPlanillas.length > 0 && (
@@ -580,7 +674,7 @@ export default function AprobacionesPage() {
             </div>
           )}
         </div>
-      )}
+      ) : null}
 
       {/* Confirmación de aprobación */}
       {confirmandoId && (
