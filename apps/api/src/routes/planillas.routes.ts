@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { notificarPlanilla } from '../utils/notificacion.utils.js';
+import { getFlowVisibleUserIds } from '../utils/visibility.utils.js';
 import {
   calcularHorasRegistro,
   getEmpresaConfig,
@@ -17,6 +18,23 @@ const prisma = new PrismaClient();
 const router = Router();
 
 router.use(authMiddleware);
+
+/** Check if the current user can access a planilla (by fetching the planilla's owner info) */
+async function assertPlanillaAccess(req: AuthRequest, planillaId: string): Promise<boolean> {
+  const planilla = await prisma.planilla.findUnique({
+    where: { id: planillaId },
+    select: { usuarioId: true, usuario: { select: { empresaId: true } } },
+  });
+  if (!planilla || planilla.usuario.empresaId !== req.user!.empresaId) return false;
+  if (planilla.usuarioId === req.user!.userId) return true;
+  const nivel = req.user!.rolNivel ?? 0;
+  if (nivel >= 90) return true;
+  if (nivel < 60) return false;
+  const visibleIds = await getFlowVisibleUserIds(
+    prisma, req.user!.userId, req.user!.empresaId, req.user!.rol, nivel, 'PLANILLA',
+  );
+  return visibleIds.includes(planilla.usuarioId);
+}
 
 // ─── Schemas ─────────────────────────────────────
 
@@ -54,43 +72,20 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: any = {};
 
-    // Role-based filtering
+    // Flow-based visibility: who can see which planillas depends on approval flow config
     const nivel = req.user!.rolNivel ?? 0;
     if (nivel < 60) {
       // OPERADOR: solo sus propias planillas
       where.usuarioId = userId;
-    } else if (nivel < 90) {
-      // SUPERVISOR/COORDINADOR/GERENTE: propias + subordinados + mismo sector
-      const subordinados = await prisma.usuario.findMany({
-        where: {
-          empresaId,
-          activo: true,
-          OR: [
-            { supervisorId: userId },
-            { coordinadorId: userId },
-          ],
-        },
-        select: { id: true },
-      });
-      const subIds = subordinados.map((u: { id: string }) => u.id);
-      const me = await prisma.usuario.findUnique({
-        where: { id: userId },
-        select: { sectorId: true },
-      });
-      if (me?.sectorId) {
-        const sectorUsers = await prisma.usuario.findMany({
-          where: { sectorId: me.sectorId, empresaId, activo: true },
-          select: { id: true },
-        });
-        sectorUsers.forEach((u: { id: string }) => {
-          if (!subIds.includes(u.id)) subIds.push(u.id);
-        });
-      }
-      if (!subIds.includes(userId)) subIds.push(userId);
-      where.usuarioId = { in: subIds };
-    } else {
+    } else if (nivel >= 90) {
       // RRHH/ADMIN: toda la empresa
       where.usuario = { empresaId };
+    } else {
+      // SUPERVISOR/COORDINADOR/GERENTE: gated by approval flow
+      const visibleIds = await getFlowVisibleUserIds(
+        prisma, userId, empresaId, req.user!.rol, nivel, 'PLANILLA',
+      );
+      where.usuarioId = { in: visibleIds };
     }
 
     if (estado) where.estado = estado;
@@ -233,6 +228,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
         usuario: {
           select: {
             id: true, nombre: true, apellido: true, legajo: true,
+            empresaId: true,
             sector: { select: { nombre: true } },
             categoria: { select: { codigo: true, nombre: true } },
           },
@@ -245,9 +241,26 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       },
     });
 
-    if (!planilla) {
+    if (!planilla || planilla.usuario.empresaId !== req.user!.empresaId) {
       res.status(404).json({ error: 'Planilla no encontrada' });
       return;
+    }
+
+    // Authorization: verify the caller can see this planilla
+    const nivel = req.user!.rolNivel ?? 0;
+    const isOwn = planilla.usuario.id === req.user!.userId;
+    if (!isOwn && nivel < 90) {
+      if (nivel < 60) {
+        res.status(403).json({ error: 'Sin permisos para ver esta planilla' });
+        return;
+      }
+      const visibleIds = await getFlowVisibleUserIds(
+        prisma, req.user!.userId, req.user!.empresaId, req.user!.rol, nivel, 'PLANILLA',
+      );
+      if (!visibleIds.includes(planilla.usuario.id)) {
+        res.status(403).json({ error: 'Sin permisos para ver esta planilla' });
+        return;
+      }
     }
 
     res.json(planilla);
@@ -587,6 +600,10 @@ router.post('/:id/cerrar', requireLevel(LEVEL_RRHH), async (req: AuthRequest, re
 router.get('/:id/historial', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const planillaId = req.params.id as string;
+    if (!await assertPlanillaAccess(req, planillaId)) {
+      res.status(403).json({ error: 'Sin permisos' });
+      return;
+    }
     const historial = await prisma.planillaHistorial.findMany({
       where: { planillaId },
       include: { usuario: { select: { nombre: true, apellido: true, rol: true } } },
@@ -606,6 +623,10 @@ router.get('/:id/historial', async (req: AuthRequest, res: Response): Promise<vo
 router.get('/:id/registros', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const planillaId = req.params.id as string;
+    if (!await assertPlanillaAccess(req, planillaId)) {
+      res.status(403).json({ error: 'Sin permisos' });
+      return;
+    }
     const registros = await prisma.registroHoras.findMany({
       where: { planillaId },
       include: { proyecto: { select: { codigo: true, nombre: true } } },

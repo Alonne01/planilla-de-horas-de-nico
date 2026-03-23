@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
+import { getFlowVisibleUserIds } from '../utils/visibility.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -34,34 +35,13 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     if (scope === 'mio') {
       approvableUserIds = [userId];
     } else if (userNivel < 90) {
-      // SUPERVISOR/COORDINADOR/GERENTE: can approve subordinates + own sector
-      const subordinados = await prisma.usuario.findMany({
-        where: {
-          empresaId,
-          activo: true,
-          OR: [
-            { supervisorId: userId },
-            { coordinadorId: userId },
-          ],
-        },
-        select: { id: true },
-      });
-      const subIds = subordinados.map((u: { id: string }) => u.id);
-
-      // Also same sector
-      const me = await prisma.usuario.findUnique({
-        where: { id: userId },
-        select: { sectorId: true },
-      });
-      if (me?.sectorId) {
-        const sectorUsers = await prisma.usuario.findMany({
-          where: { sectorId: me.sectorId, empresaId, activo: true },
-          select: { id: true },
-        });
-        sectorUsers.forEach((u: { id: string }) => { if (!subIds.includes(u.id)) subIds.push(u.id); });
-      }
-
-      approvableUserIds = subIds;
+      // Flow-based: union of visible users across all doc types this endpoint handles
+      const [planillaIds, vacacionIds] = await Promise.all([
+        getFlowVisibleUserIds(prisma, userId, empresaId, req.user!.rol, userNivel, 'PLANILLA'),
+        getFlowVisibleUserIds(prisma, userId, empresaId, req.user!.rol, userNivel, 'VACACION'),
+      ]);
+      const combined = new Set([...planillaIds, ...vacacionIds]);
+      approvableUserIds = [...combined];
     }
 
     const userFilter = approvableUserIds
