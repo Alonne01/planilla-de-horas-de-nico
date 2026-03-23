@@ -370,74 +370,75 @@ const EMPLEADOS: { nombre: string; apellido: string; sector: string; rol: string
   { nombre: 'Natalia Andrea', apellido: 'Ramírez', sector: 'CMASS', rol: 'OPERADOR', legajo: 'WL-0328', email: 'natalia.ramirez@wenlen.com' },
   { nombre: 'Osvaldo Gabriel', apellido: 'Ríos', sector: 'CMASS', rol: 'OPERADOR', legajo: 'WL-0329', email: 'osvaldo.rios@wenlen.com' },
   { nombre: 'Julio César', apellido: 'Vásquez', sector: 'CMASS', rol: 'OPERADOR', legajo: 'WL-0330', email: 'julio.vasquez@wenlen.com' },
-  // -- WIRELINE_TESTING --
-  { nombre: 'Sergio Gabriel', apellido: 'Abregú', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0331', email: 'sergio.abregu@wenlen.com' },
-  { nombre: 'Fernando', apellido: 'Arriagada Guerrero', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0332', email: 'fernando.arriagada@wenlen.com' },
-  { nombre: 'Franco Julián', apellido: 'Bercovich', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0333', email: 'franco.bercovich@wenlen.com' },
-  { nombre: 'Dante Daniel', apellido: 'Bracco', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0334', email: 'dante.bracco@wenlen.com' },
-  { nombre: 'Pablo Gabriel', apellido: 'Chiuchiarelli', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0335', email: 'pablo.chiuchiarelli@wenlen.com' },
-  { nombre: 'Esteban Leonardo', apellido: 'Fernández', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0336', email: 'esteban.fernandez@wenlen.com' },
-  { nombre: 'Hernán Osvaldo', apellido: 'Maturana', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0337', email: 'hernan.maturana@wenlen.com' },
-  { nombre: 'Marcelo Alejandro', apellido: 'Mendoza', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0338', email: 'marcelo.mendoza@wenlen.com' },
-  { nombre: 'Luis Ángel', apellido: 'Rodríguez', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0339', email: 'luis.rodriguez@wenlen.com' },
-  { nombre: 'Luis Alfredo', apellido: 'Traiman', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0340', email: 'luis.traiman@wenlen.com' },
-  { nombre: 'Luis Ceferino', apellido: 'Almeira', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0341', email: 'luis.almeira@wenlen.com' },
-  { nombre: 'Fernando Ariel', apellido: 'Arriagada', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0342', email: 'fernando.arriagada2@wenlen.com' },
-  { nombre: 'Cristian Daniel', apellido: 'Ávalos', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0343', email: 'cristian.avalos@wenlen.com' },
-  { nombre: 'Patricio Andrés', apellido: 'Badilla', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0344', email: 'patricio.badilla@wenlen.com' },
-  { nombre: 'Marcelo Ubaldo', apellido: 'Barrera', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0345', email: 'marcelo.barrera@wenlen.com' },
-  { nombre: 'Arnaldo Andrés', apellido: 'Benítez', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0346', email: 'arnaldo.benitez@wenlen.com' },
-  { nombre: 'Claudio Fernando', apellido: 'Berra', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0347', email: 'claudio.berra@wenlen.com' },
-  { nombre: 'Pablo Antonio', apellido: 'Bucolo', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0348', email: 'pablo.bucolo@wenlen.com' },
-  { nombre: 'Brandon Sebastián', apellido: 'Bustos', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0349', email: 'brandon.bustos@wenlen.com' },
-  { nombre: 'Carlos Jesús Andrés', apellido: 'Camargo', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0350', email: 'carlos.camargo@wenlen.com' },
-  { nombre: 'Agustín Rodrigo', apellido: 'Cattaneo', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0351', email: 'agustin.cattaneo@wenlen.com' },
-  { nombre: 'Emanuel Alejandro', apellido: 'Cepeda', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0352', email: 'emanuel.cepeda@wenlen.com' },
-  { nombre: 'Mauro Gabriel', apellido: 'Contreras', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0353', email: 'mauro.contreras@wenlen.com' },
-  { nombre: 'Leonardo Damián', apellido: 'Cuitiño', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0354', email: 'leonardo.cuitino@wenlen.com' },
-  { nombre: 'Miguel Ángel', apellido: 'Curihuinca', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0355', email: 'miguel.curihuinca@wenlen.com' },
-  { nombre: 'Rodrigo Nahuel', apellido: 'Elías', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0356', email: 'rodrigo.elias@wenlen.com' },
-  { nombre: 'Emanuel Sergio David', apellido: 'Fernández', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0357', email: 'emanuel.fernandez@wenlen.com' },
-  { nombre: 'Jorge Luis', apellido: 'Figueroa', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0358', email: 'jorge.figueroa@wenlen.com' },
-  { nombre: 'Diego Lautaro', apellido: 'Fuentealba', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0359', email: 'diego.fuentealba@wenlen.com' },
-  { nombre: 'Maximiliano Andrés', apellido: 'Fuentes', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0360', email: 'maximiliano.fuentes@wenlen.com' },
-  { nombre: 'Nicolás Ricardo', apellido: 'García', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0361', email: 'nicolas.garcia@wenlen.com' },
-  { nombre: 'Rubén Eduardo', apellido: 'Garrido', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0362', email: 'ruben.garrido@wenlen.com' },
-  { nombre: 'Giuliano Marcos', apellido: 'Giusti', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0363', email: 'giuliano.giusti@wenlen.com' },
-  { nombre: 'Carlos Martín', apellido: 'Guinder', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0364', email: 'carlos.guinder@wenlen.com' },
-  { nombre: 'Javier Alejandro', apellido: 'Hazeldine', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0365', email: 'javier.hazeldine@wenlen.com' },
-  { nombre: 'Juan Ignacio', apellido: 'Jofré Krause', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0366', email: 'juan.jofre@wenlen.com' },
-  { nombre: 'Emanuel Matías', apellido: 'Kastli', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0367', email: 'emanuel.kastli@wenlen.com' },
-  { nombre: 'Lucas Fernando', apellido: 'Liempe', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0368', email: 'lucas.liempe@wenlen.com' },
-  { nombre: 'Diego Heraldo', apellido: 'Lizama', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0369', email: 'diego.lizama@wenlen.com' },
-  { nombre: 'Rodrigo Emmanuel', apellido: 'López Villena', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0370', email: 'rodrigo.lopez@wenlen.com' },
-  { nombre: 'Nashif Aaron', apellido: 'Mansur', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0371', email: 'nashif.mansur@wenlen.com' },
-  { nombre: 'Ezequias Emanuel', apellido: 'Morales Fernández', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0372', email: 'ezequias.morales@wenlen.com' },
-  { nombre: 'Diego Ezequiel', apellido: 'Morales Ramos', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0373', email: 'diego.morales@wenlen.com' },
-  { nombre: 'Juan Manuel', apellido: 'Moreno', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0374', email: 'juan.moreno@wenlen.com' },
-  { nombre: 'Vicente Víctor', apellido: 'Moreno', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0375', email: 'vicente.moreno@wenlen.com' },
-  { nombre: 'Alan Yusef', apellido: 'Muñoz', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0376', email: 'alan.munoz@wenlen.com' },
-  { nombre: 'Marvin Paolo', apellido: 'Navarro', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0377', email: 'marvin.navarro@wenlen.com' },
-  { nombre: 'Facundo', apellido: 'Paez', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0378', email: 'facundo.paez@wenlen.com' },
-  { nombre: 'Daniel Enrique', apellido: 'Palma', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0379', email: 'daniel.palma@wenlen.com' },
-  { nombre: 'Valentín', apellido: 'Palomar Serrano', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0380', email: 'valentin.palomar@wenlen.com' },
-  { nombre: 'Braian Alexander', apellido: 'Peña', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0381', email: 'braian.pena@wenlen.com' },
-  { nombre: 'Eduardo Alejandro', apellido: 'Perea', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0382', email: 'eduardo.perea@wenlen.com' },
-  { nombre: 'Matías Facundo', apellido: 'Provoste', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0383', email: 'matias.provoste@wenlen.com' },
-  { nombre: 'Vito Martín', apellido: 'Riquelme', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0384', email: 'vito.riquelme@wenlen.com' },
-  { nombre: 'Lucas Nicolás', apellido: 'Salatino', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0385', email: 'lucas.salatino@wenlen.com' },
-  { nombre: 'Félix Darío', apellido: 'San Martín', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0386', email: 'felix.san@wenlen.com' },
-  { nombre: 'Héctor Mauricio', apellido: 'Tejerina', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0387', email: 'hector.tejerina@wenlen.com' },
-  { nombre: 'Nicolás Alejandro', apellido: 'Vázquez', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0388', email: 'nicolas.vazquez@wenlen.com' },
-  { nombre: 'Germán Agustín', apellido: 'Zwenger', sector: 'WIRELINE_TESTING', rol: 'OPERADOR', legajo: 'WL-0389', email: 'german.zwenger@wenlen.com' },
-  { nombre: 'Alberto Daniel', apellido: 'Arismendi', sector: 'WIRELINE_TESTING', rol: 'COORDINADOR', legajo: 'WL-0390', email: 'alberto.arismendi@wenlen.com' },
-  { nombre: 'Cristian Darío', apellido: 'Baez', sector: 'WIRELINE_TESTING', rol: 'SUPERVISOR', legajo: 'WL-0391', email: 'cristian.baez@wenlen.com' },
-  { nombre: 'Juan Pablo', apellido: 'Corachan', sector: 'WIRELINE_TESTING', rol: 'COORDINADOR', legajo: 'WL-0392', email: 'juan.corachan@wenlen.com' },
-  { nombre: 'Veronica', apellido: 'Ibañez Ybañez', sector: 'WIRELINE_TESTING', rol: 'SUPERVISOR', legajo: 'WL-0393', email: 'veronica.ibanez@wenlen.com' },
-  { nombre: 'Diego Emanuel', apellido: 'Mondaca', sector: 'WIRELINE_TESTING', rol: 'SUPERVISOR', legajo: 'WL-0394', email: 'diego.mondaca@wenlen.com' },
-  { nombre: 'Bernard Jean Gabriel', apellido: 'Piller', sector: 'WIRELINE_TESTING', rol: 'SUPERVISOR', legajo: 'WL-0395', email: 'bernard.piller@wenlen.com' },
-  { nombre: 'Rodrigo Alexis', apellido: 'Reyes', sector: 'WIRELINE_TESTING', rol: 'SUPERVISOR', legajo: 'WL-0396', email: 'rodrigo.reyes@wenlen.com' },
-  { nombre: 'Nicolás Emmanuel', apellido: 'Zaragoza', sector: 'WIRELINE_TESTING', rol: 'SUPERVISOR', legajo: 'WL-0397', email: 'nicolas.zaragoza@wenlen.com' },
+  // -- WIRELINE --
+  { nombre: 'Sergio Gabriel', apellido: 'Abregú', sector: 'WIRELINE', rol: 'OPERADOR', legajo: 'WL-0331', email: 'sergio.abregu@wenlen.com' },
+  { nombre: 'Fernando', apellido: 'Arriagada Guerrero', sector: 'WIRELINE', rol: 'OPERADOR', legajo: 'WL-0332', email: 'fernando.arriagada@wenlen.com' },
+  { nombre: 'Franco Julián', apellido: 'Bercovich', sector: 'WIRELINE', rol: 'OPERADOR', legajo: 'WL-0333', email: 'franco.bercovich@wenlen.com' },
+  { nombre: 'Dante Daniel', apellido: 'Bracco', sector: 'WIRELINE', rol: 'OPERADOR', legajo: 'WL-0334', email: 'dante.bracco@wenlen.com' },
+  { nombre: 'Pablo Gabriel', apellido: 'Chiuchiarelli', sector: 'WIRELINE', rol: 'OPERADOR', legajo: 'WL-0335', email: 'pablo.chiuchiarelli@wenlen.com' },
+  { nombre: 'Esteban Leonardo', apellido: 'Fernández', sector: 'WIRELINE', rol: 'OPERADOR', legajo: 'WL-0336', email: 'esteban.fernandez@wenlen.com' },
+  { nombre: 'Hernán Osvaldo', apellido: 'Maturana', sector: 'WIRELINE', rol: 'OPERADOR', legajo: 'WL-0337', email: 'hernan.maturana@wenlen.com' },
+  { nombre: 'Marcelo Alejandro', apellido: 'Mendoza', sector: 'WIRELINE', rol: 'OPERADOR', legajo: 'WL-0338', email: 'marcelo.mendoza@wenlen.com' },
+  { nombre: 'Luis Ángel', apellido: 'Rodríguez', sector: 'WIRELINE', rol: 'OPERADOR', legajo: 'WL-0339', email: 'luis.rodriguez@wenlen.com' },
+  { nombre: 'Luis Alfredo', apellido: 'Traiman', sector: 'WIRELINE', rol: 'OPERADOR', legajo: 'WL-0340', email: 'luis.traiman@wenlen.com' },
+  // -- TESTING --
+  { nombre: 'Luis Ceferino', apellido: 'Almeira', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0341', email: 'luis.almeira@wenlen.com' },
+  { nombre: 'Fernando Ariel', apellido: 'Arriagada', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0342', email: 'fernando.arriagada2@wenlen.com' },
+  { nombre: 'Cristian Daniel', apellido: 'Ávalos', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0343', email: 'cristian.avalos@wenlen.com' },
+  { nombre: 'Patricio Andrés', apellido: 'Badilla', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0344', email: 'patricio.badilla@wenlen.com' },
+  { nombre: 'Marcelo Ubaldo', apellido: 'Barrera', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0345', email: 'marcelo.barrera@wenlen.com' },
+  { nombre: 'Arnaldo Andrés', apellido: 'Benítez', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0346', email: 'arnaldo.benitez@wenlen.com' },
+  { nombre: 'Claudio Fernando', apellido: 'Berra', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0347', email: 'claudio.berra@wenlen.com' },
+  { nombre: 'Pablo Antonio', apellido: 'Bucolo', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0348', email: 'pablo.bucolo@wenlen.com' },
+  { nombre: 'Brandon Sebastián', apellido: 'Bustos', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0349', email: 'brandon.bustos@wenlen.com' },
+  { nombre: 'Carlos Jesús Andrés', apellido: 'Camargo', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0350', email: 'carlos.camargo@wenlen.com' },
+  { nombre: 'Agustín Rodrigo', apellido: 'Cattaneo', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0351', email: 'agustin.cattaneo@wenlen.com' },
+  { nombre: 'Emanuel Alejandro', apellido: 'Cepeda', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0352', email: 'emanuel.cepeda@wenlen.com' },
+  { nombre: 'Mauro Gabriel', apellido: 'Contreras', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0353', email: 'mauro.contreras@wenlen.com' },
+  { nombre: 'Leonardo Damián', apellido: 'Cuitiño', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0354', email: 'leonardo.cuitino@wenlen.com' },
+  { nombre: 'Miguel Ángel', apellido: 'Curihuinca', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0355', email: 'miguel.curihuinca@wenlen.com' },
+  { nombre: 'Rodrigo Nahuel', apellido: 'Elías', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0356', email: 'rodrigo.elias@wenlen.com' },
+  { nombre: 'Emanuel Sergio David', apellido: 'Fernández', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0357', email: 'emanuel.fernandez@wenlen.com' },
+  { nombre: 'Jorge Luis', apellido: 'Figueroa', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0358', email: 'jorge.figueroa@wenlen.com' },
+  { nombre: 'Diego Lautaro', apellido: 'Fuentealba', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0359', email: 'diego.fuentealba@wenlen.com' },
+  { nombre: 'Maximiliano Andrés', apellido: 'Fuentes', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0360', email: 'maximiliano.fuentes@wenlen.com' },
+  { nombre: 'Nicolás Ricardo', apellido: 'García', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0361', email: 'nicolas.garcia@wenlen.com' },
+  { nombre: 'Rubén Eduardo', apellido: 'Garrido', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0362', email: 'ruben.garrido@wenlen.com' },
+  { nombre: 'Giuliano Marcos', apellido: 'Giusti', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0363', email: 'giuliano.giusti@wenlen.com' },
+  { nombre: 'Carlos Martín', apellido: 'Guinder', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0364', email: 'carlos.guinder@wenlen.com' },
+  { nombre: 'Javier Alejandro', apellido: 'Hazeldine', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0365', email: 'javier.hazeldine@wenlen.com' },
+  { nombre: 'Juan Ignacio', apellido: 'Jofré Krause', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0366', email: 'juan.jofre@wenlen.com' },
+  { nombre: 'Emanuel Matías', apellido: 'Kastli', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0367', email: 'emanuel.kastli@wenlen.com' },
+  { nombre: 'Lucas Fernando', apellido: 'Liempe', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0368', email: 'lucas.liempe@wenlen.com' },
+  { nombre: 'Diego Heraldo', apellido: 'Lizama', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0369', email: 'diego.lizama@wenlen.com' },
+  { nombre: 'Rodrigo Emmanuel', apellido: 'López Villena', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0370', email: 'rodrigo.lopez@wenlen.com' },
+  { nombre: 'Nashif Aaron', apellido: 'Mansur', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0371', email: 'nashif.mansur@wenlen.com' },
+  { nombre: 'Ezequias Emanuel', apellido: 'Morales Fernández', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0372', email: 'ezequias.morales@wenlen.com' },
+  { nombre: 'Diego Ezequiel', apellido: 'Morales Ramos', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0373', email: 'diego.morales@wenlen.com' },
+  { nombre: 'Juan Manuel', apellido: 'Moreno', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0374', email: 'juan.moreno@wenlen.com' },
+  { nombre: 'Vicente Víctor', apellido: 'Moreno', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0375', email: 'vicente.moreno@wenlen.com' },
+  { nombre: 'Alan Yusef', apellido: 'Muñoz', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0376', email: 'alan.munoz@wenlen.com' },
+  { nombre: 'Marvin Paolo', apellido: 'Navarro', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0377', email: 'marvin.navarro@wenlen.com' },
+  { nombre: 'Facundo', apellido: 'Paez', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0378', email: 'facundo.paez@wenlen.com' },
+  { nombre: 'Daniel Enrique', apellido: 'Palma', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0379', email: 'daniel.palma@wenlen.com' },
+  { nombre: 'Valentín', apellido: 'Palomar Serrano', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0380', email: 'valentin.palomar@wenlen.com' },
+  { nombre: 'Braian Alexander', apellido: 'Peña', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0381', email: 'braian.pena@wenlen.com' },
+  { nombre: 'Eduardo Alejandro', apellido: 'Perea', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0382', email: 'eduardo.perea@wenlen.com' },
+  { nombre: 'Matías Facundo', apellido: 'Provoste', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0383', email: 'matias.provoste@wenlen.com' },
+  { nombre: 'Vito Martín', apellido: 'Riquelme', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0384', email: 'vito.riquelme@wenlen.com' },
+  { nombre: 'Lucas Nicolás', apellido: 'Salatino', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0385', email: 'lucas.salatino@wenlen.com' },
+  { nombre: 'Félix Darío', apellido: 'San Martín', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0386', email: 'felix.san@wenlen.com' },
+  { nombre: 'Héctor Mauricio', apellido: 'Tejerina', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0387', email: 'hector.tejerina@wenlen.com' },
+  { nombre: 'Nicolás Alejandro', apellido: 'Vázquez', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0388', email: 'nicolas.vazquez@wenlen.com' },
+  { nombre: 'Germán Agustín', apellido: 'Zwenger', sector: 'TESTING', rol: 'OPERADOR', legajo: 'WL-0389', email: 'german.zwenger@wenlen.com' },
+  { nombre: 'Alberto Daniel', apellido: 'Arismendi', sector: 'TESTING', rol: 'COORDINADOR', legajo: 'WL-0390', email: 'alberto.arismendi@wenlen.com' },
+  { nombre: 'Cristian Darío', apellido: 'Baez', sector: 'TESTING', rol: 'SUPERVISOR', legajo: 'WL-0391', email: 'cristian.baez@wenlen.com' },
+  { nombre: 'Juan Pablo', apellido: 'Corachan', sector: 'TESTING', rol: 'COORDINADOR', legajo: 'WL-0392', email: 'juan.corachan@wenlen.com' },
+  { nombre: 'Veronica', apellido: 'Ibañez Ybañez', sector: 'TESTING', rol: 'SUPERVISOR', legajo: 'WL-0393', email: 'veronica.ibanez@wenlen.com' },
+  { nombre: 'Diego Emanuel', apellido: 'Mondaca', sector: 'TESTING', rol: 'SUPERVISOR', legajo: 'WL-0394', email: 'diego.mondaca@wenlen.com' },
+  { nombre: 'Bernard Jean Gabriel', apellido: 'Piller', sector: 'TESTING', rol: 'SUPERVISOR', legajo: 'WL-0395', email: 'bernard.piller@wenlen.com' },
+  { nombre: 'Rodrigo Alexis', apellido: 'Reyes', sector: 'TESTING', rol: 'SUPERVISOR', legajo: 'WL-0396', email: 'rodrigo.reyes@wenlen.com' },
+  { nombre: 'Nicolás Emmanuel', apellido: 'Zaragoza', sector: 'TESTING', rol: 'SUPERVISOR', legajo: 'WL-0397', email: 'nicolas.zaragoza@wenlen.com' },
 ];
 
 // ═══════════════════════════════════════════════════════════════
@@ -484,7 +485,8 @@ async function main() {
     { nombre: 'Almacén', color: '#06B6D4', descripcion: 'Gestión de almacén y materiales' },
     { nombre: 'Intendencia', color: '#EC4899', descripcion: 'Mantenimiento edilicio y facilities' },
     { nombre: 'CMASS', color: '#3B82F6', descripcion: 'Calidad, Medio Ambiente, Salud y Seguridad' },
-    { nombre: 'Wireline y Testing', color: '#6366F1', descripcion: 'Wireline, Slickline y ensayos de pozo' },
+    { nombre: 'Wireline', color: '#6366F1', descripcion: 'Wireline y Slickline' },
+    { nombre: 'Testing', color: '#A855F7', descripcion: 'Ensayos de pozo y testing' },
   ];
 
   const sectores: Record<string, string> = {};
@@ -494,7 +496,7 @@ async function main() {
     });
     sectores[s.nombre] = sector.id;
   }
-  console.log('✅ 8 sectores creados');
+  console.log('✅ 9 sectores creados');
 
   // ═════════════════════════════════════════════════
   // 3. CCT 644/12 — PETROLEROS PRIVADOS
@@ -701,9 +703,9 @@ async function main() {
   // ─────────────────────────────────
   // 6. FLUJOS DE APROBACIÓN
   // ─────────────────────────────────
-  // Patrón A: 3 pasos (sectores con coordinadores: Fractura, Cabezales, Wireline y Testing)
+  // Patrón A: 3 pasos (sectores con coordinadores: Fractura, Cabezales, Testing)
   // Patrón B: 2 pasos (supervisores sin coordinador: Logística y Transporte, CMASS)
-  // Patrón C: 1 paso  (administrativos: Administración, Almacén, Intendencia)
+  // Patrón C: 1 paso  (sin jerarquía operativa: Administración, Almacén, Intendencia, Wireline)
 
   type FlujoConfig = {
     nombre: string;
@@ -859,7 +861,8 @@ async function main() {
     'ALMACEN': sectores['Almacén'],
     'INTENDENCIA': sectores['Intendencia'],
     'CMASS': sectores['CMASS'],
-    'WIRELINE_TESTING': sectores['Wireline y Testing'],
+    'WIRELINE': sectores['Wireline'],
+    'TESTING': sectores['Testing'],
   };
 
   const JERARQUICOS = ['ADMIN', 'RRHH', 'GERENTE', 'COORDINADOR', 'SUPERVISOR'];
@@ -894,12 +897,12 @@ async function main() {
   // ─────────────────────────────────
   // 10. ASIGNACIÓN DE FLUJOS A SECTORES
   // ─────────────────────────────────
-  // Patrón A (3 pasos): Fractura, Cabezales, Wireline y Testing
-  const sectoresPatronA = ['Fractura', 'Cabezales', 'Wireline y Testing'];
+  // Patrón A (3 pasos): Fractura, Cabezales, Testing
+  const sectoresPatronA = ['Fractura', 'Cabezales', 'Testing'];
   // Patrón B (2 pasos): Logística y Transporte, CMASS
   const sectoresPatronB = ['Logística y Transporte', 'CMASS'];
-  // Patrón C (1 paso): Administración, Almacén, Intendencia
-  const sectoresPatronC = ['Administración', 'Almacén', 'Intendencia'];
+  // Patrón C (1 paso): Administración, Almacén, Intendencia, Wireline
+  const sectoresPatronC = ['Administración', 'Almacén', 'Intendencia', 'Wireline'];
 
   for (const tipo of ['PLANILLA', 'VACACION', 'AUSENCIA'] as const) {
     for (const sectorNombre of sectoresPatronA) {
@@ -918,14 +921,14 @@ async function main() {
       });
     }
   }
-  console.log('✅ 24 asignaciones de flujo creadas (8 sectores × 3 tipos)');
+  console.log('✅ 27 asignaciones de flujo creadas (9 sectores × 3 tipos)');
 
   // ═════════════════════════════════════════════════
   // RESUMEN
   // ═════════════════════════════════════════════════
   console.log('\n🎉 Seed beta 1.0 completado exitosamente!');
   console.log('═══════════════════════════════════════════');
-  console.log('  8 sectores');
+  console.log('  9 sectores');
   console.log('  9 flujos de aprobación (3 patrones × 3 tipos documento)');
   console.log(`  ${userCount + 1} usuarios (1 admin sistema + ${userCount} empleados)`);
   console.log('  Convenios: CCT 644/12 PP (15 cats, 25 conceptos) + CCT 637/11 PJ (4 cats, 22 conceptos)');
