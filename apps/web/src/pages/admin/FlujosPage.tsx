@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import {
   GitBranch, Plus, Trash2, Loader2, X,
   Users, FileText, Pencil, ChevronUp, ChevronDown,
+  Link2,
 } from 'lucide-react';
 
 interface FlujoPaso {
@@ -25,6 +26,24 @@ interface Flujo {
   activo: boolean;
   pasos: FlujoPaso[];
   _count: { asignaciones: number; planillas: number; vacaciones: number };
+}
+
+interface Asignacion {
+  id: string;
+  flujoId: string;
+  tipoDocumento: string;
+  sectorId: string | null;
+  usuarioId: string | null;
+  activo: boolean;
+  flujo: { nombre: string; tipoDocumento: string };
+  sector: { id: string; nombre: string } | null;
+  usuario: { id: string; nombre: string; apellido: string } | null;
+}
+
+interface Sector {
+  id: string;
+  nombre: string;
+  activo: boolean;
 }
 
 const ROL_LABELS: Record<string, string> = {
@@ -461,17 +480,54 @@ export default function FlujosPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingFlujo, setEditingFlujo] = useState<Flujo | null>(null);
+  const [showAsignForm, setShowAsignForm] = useState(false);
+  const [asignSectorId, setAsignSectorId] = useState('');
+
+  const selectFlujo = useCallback((id: string | null) => {
+    setSelectedId(id);
+    setShowAsignForm(false);
+    setAsignSectorId('');
+  }, []);
 
   const { data: flujos = [], isLoading } = useQuery<Flujo[]>({
     queryKey: ['admin-flujos'],
     queryFn: async () => (await api.get('/admin/flujos')).data,
   });
 
+  const { data: sectores = [], isError: sectoresError } = useQuery<Sector[]>({
+    queryKey: ['admin-sectores'],
+    queryFn: async () => (await api.get('/admin/sectores')).data,
+  });
+
+  const { data: asignaciones = [], isError: asignError, isLoading: asignLoading } = useQuery<Asignacion[]>({
+    queryKey: ['admin-flujos-asignaciones'],
+    queryFn: async () => (await api.get('/admin/flujos/asignaciones/list')).data,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/admin/flujos/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-flujos'] });
-      setSelectedId(null);
+      selectFlujo(null);
+    },
+  });
+
+  const createAsignMut = useMutation({
+    mutationFn: (body: { flujoId: string; tipoDocumento: string; sectorId?: string | null }) =>
+      api.post('/admin/flujos/asignaciones', body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-flujos-asignaciones'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-flujos'] });
+      setShowAsignForm(false);
+      setAsignSectorId('');
+    },
+  });
+
+  const deleteAsignMut = useMutation({
+    mutationFn: (id: string) => api.delete(`/admin/flujos/asignaciones/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-flujos-asignaciones'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-flujos'] });
     },
   });
 
@@ -509,7 +565,7 @@ export default function FlujosPage() {
               flujos.map((f) => (
                 <button
                   key={f.id}
-                  onClick={() => setSelectedId(f.id)}
+                  onClick={() => selectFlujo(f.id)}
                   className={cn(
                     'w-full text-left rounded-xl border p-4 transition-all',
                     selectedId === f.id
@@ -623,6 +679,117 @@ export default function FlujosPage() {
                     <p className="text-lg font-bold text-foreground">{selected._count.vacaciones}</p>
                     <p className="text-xs text-muted-foreground">Vacaciones</p>
                   </div>
+                </div>
+
+                {/* Asignaciones (sector assignments) */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                      <Link2 className="h-3.5 w-3.5" />
+                      Asignaciones por sector
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => { setShowAsignForm(true); setAsignSectorId(''); }}
+                      className="text-xs text-primary hover:underline flex items-center gap-1"
+                    >
+                      <Plus className="h-3 w-3" /> Asignar sector
+                    </button>
+                  </div>
+
+                  {/* Inline create form */}
+                  {showAsignForm && (
+                    <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 mb-3 space-y-3">
+                      {sectoresError ? (
+                        <p className="text-xs text-destructive">Error al cargar sectores. Intente recargar.</p>
+                      ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground mb-1 block">Sector</label>
+                          <select
+                            value={asignSectorId}
+                            onChange={(e) => setAsignSectorId(e.target.value)}
+                            className="w-full h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                          >
+                            <option value="">Global (todos los sectores)</option>
+                            {sectores.filter(s => s.activo).map(s => (
+                              <option key={s.id} value={s.id}>{s.nombre}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-end gap-2">
+                          <button
+                            type="button"
+                            disabled={createAsignMut.isPending}
+                            onClick={() => createAsignMut.mutate({
+                              flujoId: selected.id,
+                              tipoDocumento: selected.tipoDocumento,
+                              sectorId: asignSectorId || null,
+                            })}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+                          >
+                            {createAsignMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                            Asignar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowAsignForm(false)}
+                            className="px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Existing assignments list */}
+                  {asignError ? (
+                    <p className="text-xs text-destructive italic py-2">
+                      Error al cargar asignaciones — intente recargar la página.
+                    </p>
+                  ) : asignLoading ? (
+                    <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando asignaciones...
+                    </div>
+                  ) : (() => {
+                    const flujoAsign = asignaciones.filter(a => a.flujoId === selected.id);
+                    if (flujoAsign.length === 0) {
+                      return (
+                        <p className="text-xs text-muted-foreground italic py-2">
+                          Sin asignaciones — este flujo no se aplica a ningún sector.
+                        </p>
+                      );
+                    }
+                    return (
+                      <div className="space-y-1.5">
+                        {flujoAsign.map(a => (
+                          <div key={a.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className={cn(
+                                'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
+                                a.sector ? 'bg-blue-500/20 text-blue-400' : 'bg-emerald-500/20 text-emerald-400'
+                              )}>
+                                {a.sector ? a.sector.nombre : 'Global'}
+                              </span>
+                              {a.usuario && (
+                                <span className="text-xs text-muted-foreground">
+                                  → {a.usuario.nombre} {a.usuario.apellido}
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => { if (confirm('¿Eliminar esta asignación?')) deleteAsignMut.mutate(a.id); }}
+                              className="p-1 rounded text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             ) : (

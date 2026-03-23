@@ -321,6 +321,20 @@ router.post('/asignaciones', async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
+    // Prevent duplicate assignments for same scope
+    const existing = await prisma.flujoAsignacion.findFirst({
+      where: {
+        flujoId: parsed.data.flujoId,
+        tipoDocumento: parsed.data.tipoDocumento,
+        sectorId: parsed.data.sectorId ?? null,
+        usuarioId: parsed.data.usuarioId ?? null,
+      },
+    });
+    if (existing) {
+      res.status(409).json({ error: 'Ya existe una asignación con el mismo alcance para este flujo' });
+      return;
+    }
+
     const asignacion = await prisma.flujoAsignacion.create({
       data: {
         flujoId: parsed.data.flujoId,
@@ -332,6 +346,25 @@ router.post('/asignaciones', async (req: AuthRequest, res: Response): Promise<vo
     res.status(201).json(asignacion);
   } catch (error) {
     console.error('Error creating asignacion:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── DELETE /admin/flujos/asignaciones/:id ───────
+
+router.delete('/asignaciones/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const asignacion = await prisma.flujoAsignacion.findFirst({
+      where: { id: req.params.id, flujo: { empresaId: req.user!.empresaId } },
+    });
+    if (!asignacion) {
+      res.status(404).json({ error: 'Asignación no encontrada' });
+      return;
+    }
+    await prisma.flujoAsignacion.delete({ where: { id: req.params.id } });
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error deleting asignacion:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
