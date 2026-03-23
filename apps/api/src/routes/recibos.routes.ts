@@ -64,14 +64,22 @@ router.post('/:id/firmar', async (req: AuthRequest, res: Response): Promise<void
     if (recibo.firmadoEmpleadoAt) {
       res.status(400).json({ error: 'El recibo ya fue firmado' }); return;
     }
-    const { firmaImg } = req.body || {};
+    const { firmaImg, conforme, observacion } = req.body || {};
+    if (typeof conforme !== 'boolean') {
+      res.status(400).json({ error: 'Debe indicar si está conforme o no' }); return;
+    }
+    if (!conforme && (typeof observacion !== 'string' || !observacion.trim())) {
+      res.status(400).json({ error: 'Debe indicar el motivo de la disconformidad' }); return;
+    }
     const updated = await prisma.reciboSueldo.update({
       where: { id: recibo.id },
       data: {
         firmadoEmpleadoAt: new Date(),
+        conforme,
+        observacionFirma: !conforme ? (observacion as string).trim() : null,
         ipFirma: req.ip || req.headers['x-forwarded-for'] as string || null,
         userAgentFirma: req.headers['user-agent'] || null,
-        hashContenido: firmaImg || null, // stores signature image data URL
+        hashContenido: firmaImg || null,
       },
     });
     res.json(updated);

@@ -63,6 +63,7 @@ interface PlanillaDetalle {
     legajo: string | null;
     sector: { nombre: string } | null;
     categoria: { codigo: string; nombre: string } | null;
+    diagramas: { diagrama: { nombre: string } }[];
   };
 }
 
@@ -327,72 +328,106 @@ export default function PlanillaDetailPage() {
 
   function handleExportPDF() {
     if (!planilla) return;
-    const days = buildCalendarDays(planilla.periodoInicio, planilla.periodoFin);
-    const rows = days.map((d) => {
-      const key = dateKey(d);
-      const r = registroMap[key];
-      const fmtT = (iso: string | null) => iso ? new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
-      return `<tr>
-        <td>${d.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</td>
-        <td>${r ? fmtT(r.entradaTurno1) : '—'}</td>
-        <td>${r ? fmtT(r.salidaTurno1) : '—'}</td>
-        <td>${r ? Number(r.horasTrabajadas).toFixed(1) : '—'}</td>
-        <td>${r ? Number(r.horasNormales).toFixed(1) : '—'}</td>
-        <td>${r ? Number(r.horasExtra50).toFixed(1) : '—'}</td>
-        <td>${r ? Number(r.horasExtra100).toFixed(1) : '—'}</td>
-        <td>${r?.lugarTrabajo || '—'}</td>
-        <td>${r?.observaciones || (r?.bloqueado ? r.motivoBloqueo || 'Bloqueado' : '')}</td>
-      </tr>`;
-    }).join('');
+    import('jspdf').then(({ jsPDF }) => {
+      import('jspdf-autotable').then(({ default: autoTable }) => {
+        const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+        const pageWidth = doc.internal.pageSize.getWidth();
 
-    const periodoStr = `${new Date(planilla.periodoInicio).toLocaleDateString('es-AR')} — ${new Date(planilla.periodoFin).toLocaleDateString('es-AR')}`;
-    const html = `<!DOCTYPE html><html><head><title>Planilla ${planilla.usuario.apellido}</title>
-    <style>
-      body { font-family: Arial, sans-serif; font-size: 11px; margin: 20px; color: #222; }
-      h1 { font-size: 16px; margin-bottom: 4px; }
-      .info { margin-bottom: 12px; color: #555; font-size: 10px; }
-      table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-      th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: center; }
-      th { background: #f0f0f0; font-size: 10px; }
-      .totals { margin-top: 12px; font-size: 12px; }
-      .totals span { margin-right: 20px; }
-      .signature { margin-top: 40px; display: flex; justify-content: space-between; }
-      .signature div { width: 200px; text-align: center; border-top: 1px solid #333; padding-top: 4px; font-size: 10px; }
-      @media print { body { margin: 10mm; } }
-    </style></head><body>
-    <h1>Planilla de Horas — ${planilla.usuario.apellido}, ${planilla.usuario.nombre}</h1>
-    <div class="info">
-      Legajo: ${planilla.usuario.legajo || '—'} · 
-      Sector: ${planilla.usuario.sector?.nombre || '—'} · 
-      Categoría: ${planilla.usuario.categoria?.codigo || '—'} · 
-      Período: ${periodoStr} · 
-      Estado: ${planilla.estado}
-    </div>
-    <table>
-      <thead><tr>
-        <th>Fecha</th><th>Entrada</th><th>Salida</th><th>Total</th><th>Normal</th><th>E50%</th><th>E100%</th><th>Lugar</th><th>Obs.</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div class="totals">
-      <strong>Totales:</strong>
-      <span>Normales: ${Number(planilla.totalHorasNormales).toFixed(1)}h</span>
-      <span>Extra 50%: ${Number(planilla.totalHorasExtra50).toFixed(1)}h</span>
-      <span>Extra 100%: ${Number(planilla.totalHorasExtra100).toFixed(1)}h</span>
-      <span>Viaje: ${Number(planilla.totalHorasViaje).toFixed(1)}h</span>
-      <span>Campo: ${planilla.totalDiasCampo}d</span>
-      <span>Base: ${planilla.totalDiasBase}d</span>
-    </div>
-    <div class="signature">
-      <div>Firma Empleado</div>
-      <div>Firma Supervisor</div>
-      <div>Firma RRHH</div>
-    </div>
-    <script>window.onload=()=>window.print()</script>
-    </body></html>`;
+        // Header
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Planilla de Horas', 14, 15);
 
-    const w = window.open('', '_blank');
-    if (w) { w.document.write(html); w.document.close(); }
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        const periodoStr = `${new Date(planilla.periodoInicio).toLocaleDateString('es-AR')} — ${new Date(planilla.periodoFin).toLocaleDateString('es-AR')}`;
+        doc.text(`Empleado: ${planilla.usuario.apellido.toUpperCase()} ${planilla.usuario.nombre.toUpperCase()}`, 14, 22);
+        doc.text(`Legajo: ${planilla.usuario.legajo || '—'}`, 14, 27);
+        doc.text(`Sector: ${planilla.usuario.sector?.nombre || '—'}`, 80, 22);
+        doc.text(`Categoría: ${planilla.usuario.categoria?.codigo || '—'}`, 80, 27);
+        doc.text(`Período: ${periodoStr}`, 160, 22);
+        doc.text(`Diagrama: ${planilla.usuario.diagramas[0]?.diagrama?.nombre || '—'}`, 160, 27);
+
+        // Table data
+        const days = buildCalendarDays(planilla.periodoInicio, planilla.periodoFin);
+        const fmtT = (iso: string | null) => {
+          if (!iso) return '';
+          const d = new Date(iso);
+          return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+        };
+
+        const bodyRows = days.map((d) => {
+          const key = dateKey(d);
+          const r = registroMap[key];
+          if (!r) return [d.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' }), '', '', '', '', '', '', '', '', '', '', ''];
+
+          const hsTrabajadas = Number(r.horasNormales) + Number(r.horasExtra50) + Number(r.horasExtra100);
+          const lugar = r.bloqueado ? (r.motivoBloqueo ?? 'AUS') : (r.lugarTrabajo === 'CAMPO' ? 'Campo' : r.lugarTrabajo === 'BASE' ? 'Base' : r.lugarTrabajo ?? '');
+
+          return [
+            d.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' }),
+            fmtT(r.entradaTurno1),
+            fmtT(r.salidaTurno1),
+            hsTrabajadas > 0 ? hsTrabajadas.toFixed(1) : '',
+            Number(r.horasNormales) > 0 ? Number(r.horasNormales).toFixed(1) : '',
+            Number(r.horasExtra50) > 0 ? Number(r.horasExtra50).toFixed(1) : '',
+            Number(r.horasExtra100) > 0 ? Number(r.horasExtra100).toFixed(1) : '',
+            Number(r.horasViajeCalc) > 0 ? Number(r.horasViajeCalc).toFixed(1) : '',
+            lugar,
+            r.pernocte !== 'NO' ? r.pernocte : '',
+            r.maneja ? 'Sí' : '',
+            r.bloqueado ? (r.motivoBloqueo ?? '') : (r.observaciones ?? ''),
+          ];
+        });
+
+        // Totals row
+        bodyRows.push([
+          'TOTALES', '', '',
+          (Number(planilla.totalHorasNormales) + Number(planilla.totalHorasExtra50) + Number(planilla.totalHorasExtra100)).toFixed(1),
+          Number(planilla.totalHorasNormales).toFixed(1),
+          Number(planilla.totalHorasExtra50).toFixed(1),
+          Number(planilla.totalHorasExtra100).toFixed(1),
+          Number(planilla.totalHorasViaje).toFixed(1),
+          `C:${planilla.totalDiasCampo} B:${planilla.totalDiasBase}`,
+          '', '', '',
+        ]);
+
+        autoTable(doc, {
+          startY: 32,
+          head: [['Día', 'Entró', 'Salió', 'Hs Trab.', 'Normal', 'E50%', 'E100%', 'Viaje', 'Lugar', 'Pernoc.', 'Maneja', 'Observaciones']],
+          body: bodyRows,
+          theme: 'grid',
+          styles: { fontSize: 7, cellPadding: 1.5, halign: 'center', valign: 'middle' },
+          headStyles: { fillColor: [45, 95, 138], textColor: 255, fontSize: 7, fontStyle: 'bold' },
+          columnStyles: {
+            0: { cellWidth: 22 },
+            11: { cellWidth: 40, halign: 'left' },
+          },
+          didParseCell: (data: any) => {
+            if (data.row.index === bodyRows.length - 1) {
+              data.cell.styles.fontStyle = 'bold';
+              data.cell.styles.fillColor = [230, 230, 230];
+            }
+          },
+          margin: { left: 14, right: 14 },
+        });
+
+        // Signature area
+        const finalY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY ?? 180;
+        const sigY = Math.min(finalY + 15, doc.internal.pageSize.getHeight() - 20);
+        doc.setDrawColor(80);
+        doc.line(14, sigY, 80, sigY);
+        doc.line(120, sigY, 186, sigY);
+        doc.line(pageWidth - 80, sigY, pageWidth - 14, sigY);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'italic');
+        doc.text('Firma del Trabajador', 47, sigY + 4, { align: 'center' });
+        doc.text('Firma del Supervisor', 153, sigY + 4, { align: 'center' });
+        doc.text('Firma RRHH', pageWidth - 47, sigY + 4, { align: 'center' });
+
+        doc.save(`Planilla de horas ${planilla.usuario.apellido} ${planilla.usuario.nombre}.pdf`);
+      });
+    });
   }
 
   function openDay(key: string) {
@@ -597,10 +632,10 @@ export default function PlanillaDetailPage() {
           </button>
         )}
         <button onClick={async () => {
-            try { const res = await api.get(`/export/planilla/${id}`, { responseType: 'blob' }); const url = window.URL.createObjectURL(new Blob([res.data])); const a = document.createElement('a'); a.href = url; a.download = `planilla_${planilla.usuario.apellido}.csv`; a.click(); window.URL.revokeObjectURL(url); } catch { /* noop */ }
+            try { const res = await api.get(`/export/planilla/${id}`, { responseType: 'blob' }); const url = window.URL.createObjectURL(new Blob([res.data])); const a = document.createElement('a'); a.href = url; a.download = `planilla_${planilla.usuario.apellido}.xlsx`; a.click(); window.URL.revokeObjectURL(url); } catch { /* noop */ }
           }}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted/30 transition-colors">
-          <Download className="h-4 w-4" /> CSV
+          <Download className="h-4 w-4" /> Excel
         </button>
         <button onClick={handleExportPDF}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted/30 transition-colors">

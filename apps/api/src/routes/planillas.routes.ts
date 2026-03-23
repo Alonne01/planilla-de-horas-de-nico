@@ -231,6 +231,11 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
             empresaId: true,
             sector: { select: { nombre: true } },
             categoria: { select: { codigo: true, nombre: true } },
+            diagramas: {
+              where: { activo: true },
+              take: 1,
+              select: { diagrama: { select: { nombre: true } } },
+            },
           },
         },
         registros: {

@@ -799,6 +799,8 @@ model ReciboSueldo {
   usuarioId         String    @map("usuario_id")
   pdfUrl            String?   @map("pdf_url")
   firmadoEmpleadoAt DateTime? @map("firmado_empleado_at")
+  conforme          Boolean?
+  observacionFirma  String?   @map("observacion_firma")
   ipFirma           String?   @map("ip_firma")
   userAgentFirma    String?   @map("user_agent_firma")
   hashContenido     String?   @map("hash_contenido")

@@ -4,7 +4,7 @@ import api from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import {
   FileText, CheckCircle2, Clock, Loader2, Eye, PenLine,
-  AlertCircle, Search,
+  AlertCircle, Search, ThumbsUp, ThumbsDown, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import SignaturePad from '@/components/SignaturePad';
@@ -15,6 +15,8 @@ interface Recibo {
   usuarioId: string;
   pdfUrl: string | null;
   firmadoEmpleadoAt: string | null;
+  conforme: boolean | null;
+  observacionFirma: string | null;
   createdAt: string;
   usuario?: { nombre: string; apellido: string; legajo: string | null };
   planilla: {
@@ -52,6 +54,9 @@ export default function RecibosPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterFirmados, setFilterFirmados] = useState<'all' | 'firmados' | 'pendientes'>('all');
   const [confirmFirma, setConfirmFirma] = useState<string | null>(null);
+  const [firmaStep, setFirmaStep] = useState<'choice' | 'observacion' | 'firma'>('choice');
+  const [firmaConforme, setFirmaConforme] = useState<boolean | null>(null);
+  const [firmaObservacion, setFirmaObservacion] = useState('');
 
   // Fetch recibos
   const { data: recibos = [], isLoading } = useQuery<Recibo[]>({
@@ -92,16 +97,30 @@ export default function RecibosPage() {
     },
   });
 
-  // Sign recibo (with optional signature image)
+  // Sign recibo with conforme/desconforme
   const firmarMutation = useMutation({
-    mutationFn: ({ reciboId, firmaImg }: { reciboId: string; firmaImg?: string }) =>
-      api.post(`/recibos/${reciboId}/firmar`, { firmaImg }),
+    mutationFn: ({ reciboId, firmaImg, conforme, observacion }: { reciboId: string; firmaImg?: string; conforme: boolean; observacion?: string }) =>
+      api.post(`/recibos/${reciboId}/firmar`, { firmaImg, conforme, observacion }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recibos'] });
       queryClient.invalidateQueries({ queryKey: ['recibo-detail'] });
-      setConfirmFirma(null);
+      closeFirmaModal();
     },
   });
+
+  function openFirmaModal(reciboId: string) {
+    setConfirmFirma(reciboId);
+    setFirmaStep('choice');
+    setFirmaConforme(null);
+    setFirmaObservacion('');
+  }
+
+  function closeFirmaModal() {
+    setConfirmFirma(null);
+    setFirmaStep('choice');
+    setFirmaConforme(null);
+    setFirmaObservacion('');
+  }
 
   // RRHH: Fetch planillas for generating recibos
   const { data: planillasAprobadas = [] } = useQuery({
@@ -209,9 +228,19 @@ export default function RecibosPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   {r.firmadoEmpleadoAt ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-400 text-[10px] font-medium">
-                      <CheckCircle2 className="h-3 w-3" /> Firmado
-                    </span>
+                    r.conforme === false ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-500/15 text-red-400 text-[10px] font-medium">
+                        <ThumbsDown className="h-3 w-3" /> Disconforme
+                      </span>
+                    ) : r.conforme === true ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-400 text-[10px] font-medium">
+                        <CheckCircle2 className="h-3 w-3" /> Conforme
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-500/15 text-blue-400 text-[10px] font-medium">
+                        <CheckCircle2 className="h-3 w-3" /> Firmado
+                      </span>
+                    )
                   ) : (
                     <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-500/15 text-amber-400 text-[10px] font-medium">
                       <AlertCircle className="h-3 w-3" /> Pendiente
@@ -443,15 +472,39 @@ export default function RecibosPage() {
               {/* Signature status */}
               <div className={cn(
                 'rounded-lg p-3 text-center',
-                reciboDetail.firmadoEmpleadoAt ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-amber-500/10 border border-amber-500/30'
+                reciboDetail.firmadoEmpleadoAt
+                  ? reciboDetail.conforme === false
+                    ? 'bg-red-500/10 border border-red-500/30'
+                    : reciboDetail.conforme === true
+                      ? 'bg-emerald-500/10 border border-emerald-500/30'
+                      : 'bg-blue-500/10 border border-blue-500/30'
+                  : 'bg-amber-500/10 border border-amber-500/30'
               )}>
                 {reciboDetail.firmadoEmpleadoAt ? (
                   <>
-                    <CheckCircle2 className="h-6 w-6 mx-auto text-emerald-400 mb-1" />
-                    <p className="text-sm font-medium text-emerald-400">Firmado por el empleado</p>
+                    {reciboDetail.conforme === false ? (
+                      <ThumbsDown className="h-6 w-6 mx-auto text-red-400 mb-1" />
+                    ) : (
+                      <CheckCircle2 className={cn('h-6 w-6 mx-auto mb-1', reciboDetail.conforme === true ? 'text-emerald-400' : 'text-blue-400')} />
+                    )}
+                    <p className={cn('text-sm font-medium',
+                      reciboDetail.conforme === false ? 'text-red-400'
+                        : reciboDetail.conforme === true ? 'text-emerald-400'
+                        : 'text-blue-400'
+                    )}>
+                      {reciboDetail.conforme === false ? 'Firmado — Disconforme'
+                        : reciboDetail.conforme === true ? 'Firmado — Conforme'
+                        : 'Firmado'}
+                    </p>
                     <p className="text-[10px] text-muted-foreground">
                       {new Date(reciboDetail.firmadoEmpleadoAt).toLocaleString('es-AR')}
                     </p>
+                    {reciboDetail.conforme === false && reciboDetail.observacionFirma && (
+                      <div className="mt-2 p-2 rounded-md bg-red-500/10 text-left">
+                        <p className="text-[10px] font-medium text-red-400 mb-0.5">Motivo de disconformidad:</p>
+                        <p className="text-xs text-red-300">{reciboDetail.observacionFirma}</p>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -459,7 +512,7 @@ export default function RecibosPage() {
                     <p className="text-sm font-medium text-amber-400">Pendiente de firma</p>
                     {reciboDetail.usuarioId === user?.id && (
                       <button
-                        onClick={() => setConfirmFirma(reciboDetail.id)}
+                        onClick={() => openFirmaModal(reciboDetail.id)}
                         className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors"
                       >
                         <PenLine className="h-4 w-4" /> Firmar Recibo
@@ -473,24 +526,106 @@ export default function RecibosPage() {
         </div>
       )}
 
-      {/* Confirm firma modal with signature pad */}
+      {/* Confirm firma modal — multi-step: choice → observacion (if desconforme) → signature */}
       {confirmFirma && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-2xl p-5 space-y-4">
-            <h3 className="font-semibold text-emerald-400">Firma digital</h3>
-            <p className="text-sm text-muted-foreground">
-              Dibujá tu firma abajo para confirmar que revisaste el recibo y estás de acuerdo con su contenido.
-              Esta acción no se puede deshacer.
-            </p>
-            <SignaturePad
-              width={Math.min(440, window.innerWidth - 80)}
-              height={180}
-              onCancel={() => setConfirmFirma(null)}
-              onSave={(dataUrl) => firmarMutation.mutate({ reciboId: confirmFirma, firmaImg: dataUrl })}
-            />
-            {firmarMutation.isPending && (
-              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Firmando...
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-foreground">Firma de recibo</h3>
+              <button onClick={closeFirmaModal} className="p-1 rounded-lg hover:bg-accent text-muted-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Step 1: Conforme / Desconforme choice */}
+            {firmaStep === 'choice' && (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  ¿Estás conforme con el contenido de este recibo de sueldo?
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => { setFirmaConforme(true); setFirmaStep('firma'); }}
+                    className="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/15 transition-colors"
+                  >
+                    <ThumbsUp className="h-8 w-8 text-emerald-400" />
+                    <span className="text-sm font-medium text-emerald-400">Conforme</span>
+                  </button>
+                  <button
+                    onClick={() => { setFirmaConforme(false); setFirmaStep('observacion'); }}
+                    className="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-red-500/30 bg-red-500/5 hover:bg-red-500/15 transition-colors"
+                  >
+                    <ThumbsDown className="h-8 w-8 text-red-400" />
+                    <span className="text-sm font-medium text-red-400">Disconforme</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Observación (only for desconforme) */}
+            {firmaStep === 'observacion' && (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Indicá el motivo de tu disconformidad:
+                </p>
+                <textarea
+                  value={firmaObservacion}
+                  onChange={(e) => setFirmaObservacion(e.target.value)}
+                  placeholder="Describí el motivo..."
+                  rows={3}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 resize-none"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setFirmaStep('choice')}
+                    className="flex-1 px-4 py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
+                  >
+                    Volver
+                  </button>
+                  <button
+                    onClick={() => setFirmaStep('firma')}
+                    disabled={!firmaObservacion.trim()}
+                    className="flex-1 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-40 transition-colors"
+                  >
+                    Continuar a firma
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Signature pad */}
+            {firmaStep === 'firma' && (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  {firmaConforme
+                    ? 'Dibujá tu firma para confirmar que estás conforme con el recibo.'
+                    : 'Dibujá tu firma para dejar constancia de tu disconformidad.'
+                  }
+                  {' '}Esta acción no se puede deshacer.
+                </p>
+                {!firmaConforme && firmaObservacion && (
+                  <div className="p-2 rounded-md bg-red-500/10 border border-red-500/20">
+                    <p className="text-[10px] font-medium text-red-400 mb-0.5">Motivo:</p>
+                    <p className="text-xs text-red-300">{firmaObservacion}</p>
+                  </div>
+                )}
+                <SignaturePad
+                  width={Math.min(440, window.innerWidth - 80)}
+                  height={180}
+                  onCancel={() => setFirmaStep(firmaConforme ? 'choice' : 'observacion')}
+                  onSave={(dataUrl) => firmarMutation.mutate({
+                    reciboId: confirmFirma,
+                    firmaImg: dataUrl,
+                    conforme: firmaConforme!,
+                    observacion: firmaConforme ? undefined : firmaObservacion,
+                  })}
+                />
+                {firmarMutation.isPending && (
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Firmando...
+                  </div>
+                )}
               </div>
             )}
           </div>

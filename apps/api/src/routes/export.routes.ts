@@ -10,14 +10,26 @@ const router = Router();
 router.use(authMiddleware);
 
 // ─── GET /export/planilla/:id ────────────────────
-// Generates a CSV export of a single planilla (Excel-compatible)
+// Generates an XLSX export of a single planilla matching the company template format
 
 router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const planilla = await prisma.planilla.findUnique({
       where: { id: req.params.id as string },
       include: {
-        usuario: { select: { nombre: true, apellido: true, legajo: true } },
+        usuario: {
+          select: {
+            id: true, empresaId: true,
+            nombre: true, apellido: true, legajo: true,
+            sector: { select: { nombre: true } },
+            categoria: { select: { nombre: true, codigo: true } },
+            diagramas: {
+              where: { activo: true },
+              take: 1,
+              select: { diagrama: { select: { nombre: true } } },
+            },
+          },
+        },
         registros: { orderBy: { fecha: 'asc' } },
       },
     });
@@ -27,54 +39,251 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
-    // Build CSV
-    const BOM = '\uFEFF';
-    const header = 'Fecha,Entrada T1,Salida T1,Entrada T2,Salida T2,Lugar,Horas Normales,Extra 50%,Extra 100%,Viaje,Total,Feriado,Franco Trab.,Motivo Ausencia,Observaciones';
-    const rows = planilla.registros.map((r) => {
-      const total = Number(r.horasNormales) + Number(r.horasExtra50) + Number(r.horasExtra100);
-      const fmt = (d: Date | null) => d ? d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
-      return [
-        new Date(r.fecha).toLocaleDateString('es-AR'),
-        fmt(r.entradaTurno1),
-        fmt(r.salidaTurno1),
-        fmt(r.entradaTurno2),
-        fmt(r.salidaTurno2),
-        r.lugarTrabajo ?? (r.bloqueado ? 'AUSENCIA' : 'BASE'),
-        Number(r.horasNormales).toFixed(1),
-        Number(r.horasExtra50).toFixed(1),
-        Number(r.horasExtra100).toFixed(1),
-        Number(r.horasViajeCalc).toFixed(1),
-        total.toFixed(1),
-        r.esFeriado ? 'Sí' : '',
-        r.esFrancoTrabajado ? 'Sí' : '',
-        (r.motivoBloqueo ?? '').replace(/,/g, ';'),
-        (r.observaciones ?? '').replace(/,/g, ';'),
-      ].join(',');
-    });
+    // Authorization: own planilla or RRHH+
+    if (planilla.usuario.empresaId !== req.user!.empresaId) {
+      res.status(403).json({ error: 'Sin permisos' }); return;
+    }
+    const nivel = req.user!.rolNivel ?? 0;
+    const isOwn = planilla.usuario.id === req.user!.userId;
+    if (!isOwn && nivel < 90) {
+      res.status(403).json({ error: 'Sin permisos para exportar esta planilla' }); return;
+    }
 
-    // Totals row
-    rows.push([
-      'TOTALES', '', '', '', '', '',
-      Number(planilla.totalHorasNormales).toFixed(1),
-      Number(planilla.totalHorasExtra50).toFixed(1),
-      Number(planilla.totalHorasExtra100).toFixed(1),
-      Number(planilla.totalHorasViaje).toFixed(1),
-      (Number(planilla.totalHorasNormales) + Number(planilla.totalHorasExtra50) + Number(planilla.totalHorasExtra100)).toFixed(1),
-      '', '', '', '',
-    ].join(','));
+    const u = planilla.usuario;
+    const diagramaNombre = u.diagramas[0]?.diagrama?.nombre ?? null;
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Planilla de Horas';
+    workbook.created = new Date();
 
-    const csv = BOM + [header, ...rows].join('\n');
+    const sheet = workbook.addWorksheet('Planilla de Horas');
 
+    // Column widths matching template
+    sheet.columns = [
+      { width: 4 },   // A: row num
+      { width: 14 },  // B: Dia (fecha)
+      { width: 10 },  // C: Entró
+      { width: 10 },  // D: Salió
+      { width: 13 },  // E: Hs Trabajadas
+      { width: 11 },  // F: Hs de Viaje
+      { width: 16 },  // G: Lugar de Trabajo
+      { width: 6 },   // H: Pernocte (Hotel)
+      { width: 6 },   // I: Pernocte (Trailer)
+      { width: 4 },   // J: (spacer for pernocte group)
+      { width: 9 },   // K: Maneja
+      { width: 30 },  // L: Observaciones
+    ];
+
+    const thinBorder: Partial<ExcelJS.Borders> = {
+      top: { style: 'thin' }, bottom: { style: 'thin' },
+      left: { style: 'thin' }, right: { style: 'thin' },
+    };
+
+    // ─── Row 2-3: Type indicators ───
+    sheet.getCell('Q2').value = 'Base';
+    sheet.getCell('Q3').value = 'Campo';
+
+    // ─── Row 5: Employee info ───
+    sheet.getCell('B5').value = 'Empleado:';
+    sheet.getCell('B5').font = { bold: true, size: 11 };
+    sheet.mergeCells('C5:D5');
+    sheet.getCell('C5').value = `${u.apellido.toUpperCase()} ${u.nombre.toUpperCase()}`;
+    sheet.getCell('C5').font = { bold: true, size: 12 };
+
+    sheet.getCell('F5').value = 'Legajo:';
+    sheet.getCell('F5').font = { bold: true, size: 10 };
+    sheet.getCell('G5').value = u.legajo ?? '—';
+    sheet.getCell('G5').font = { size: 10 };
+
+    sheet.getCell('I5').value = 'Sector:';
+    sheet.getCell('I5').font = { bold: true, size: 10 };
+    sheet.mergeCells('J5:L5');
+    sheet.getCell('J5').value = u.sector?.nombre ?? '—';
+    sheet.getCell('J5').font = { size: 10 };
+
+    // ─── Row 7: Period + Diagram ───
     const inicio = new Date(planilla.periodoInicio);
     const fin = new Date(planilla.periodoFin);
-    const mesInicio = inicio.toLocaleDateString('es-AR', { month: 'short' });
-    const mesFin = fin.toLocaleDateString('es-AR', { month: 'short' });
-    const anio = fin.getFullYear();
-    const filename = `Planilla de horas ${planilla.usuario.apellido} ${planilla.usuario.nombre} (${mesInicio} - ${mesFin} - ${anio}).csv`;
+    const meses = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+    const mesInicio = meses[inicio.getMonth()];
+    const mesFin = meses[fin.getMonth()];
 
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(csv);
+    sheet.getCell('B7').value = 'Mes:';
+    sheet.getCell('B7').font = { bold: true, size: 10 };
+    sheet.getCell('C7').value = mesInicio === mesFin ? mesInicio : `${mesInicio} - ${mesFin}`;
+    sheet.getCell('C7').font = { size: 10 };
+
+    sheet.getCell('G7').value = `Diagrama: ${diagramaNombre ?? '—'}`;
+    sheet.getCell('G7').font = { bold: true, size: 10 };
+
+    sheet.getCell('J7').value = 'Categoría:';
+    sheet.getCell('J7').font = { bold: true, size: 10 };
+    sheet.getCell('K7').value = u.categoria?.codigo ?? '—';
+    sheet.getCell('K7').font = { size: 10 };
+
+    // ─── Rows 9-11: Column headers (merged vertically) ───
+    const headerFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2D5F8A' } };
+    const headerFont: Partial<ExcelJS.Font> = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 };
+    const headerAlign: Partial<ExcelJS.Alignment> = { horizontal: 'center', vertical: 'middle', wrapText: true };
+
+    const headers: { col: string; endCol?: string; label: string; mergeRows?: boolean }[] = [
+      { col: 'B', label: 'Día', mergeRows: true },
+      { col: 'C', label: 'Entró', mergeRows: true },
+      { col: 'D', label: 'Salió', mergeRows: true },
+      { col: 'E', label: 'Hs Trabajadas', mergeRows: true },
+      { col: 'F', label: 'Hs de Viaje', mergeRows: true },
+      { col: 'G', label: 'Lugar de Trabajo', mergeRows: true },
+      { col: 'H', label: 'Pernocte', endCol: 'J' },
+      { col: 'K', label: 'Maneja', mergeRows: true },
+      { col: 'L', label: 'Observaciones', mergeRows: true },
+    ];
+
+    for (const h of headers) {
+      if (h.mergeRows) {
+        sheet.mergeCells(`${h.col}9:${h.col}11`);
+      } else if (h.endCol) {
+        sheet.mergeCells(`${h.col}9:${h.endCol}9`);
+      }
+      const cell = sheet.getCell(`${h.col}9`);
+      cell.value = h.label;
+      cell.fill = headerFill;
+      cell.font = headerFont;
+      cell.alignment = headerAlign;
+      cell.border = thinBorder;
+    }
+
+    // Pernocte sub-headers (row 10-11)
+    sheet.getCell('H10').value = 'Hotel';
+    sheet.mergeCells('H10:H11');
+    sheet.getCell('H10').fill = headerFill;
+    sheet.getCell('H10').font = headerFont;
+    sheet.getCell('H10').alignment = headerAlign;
+    sheet.getCell('H10').border = thinBorder;
+
+    sheet.getCell('I10').value = 'Trailer';
+    sheet.mergeCells('I10:I11');
+    sheet.getCell('I10').fill = headerFill;
+    sheet.getCell('I10').font = headerFont;
+    sheet.getCell('I10').alignment = headerAlign;
+    sheet.getCell('I10').border = thinBorder;
+
+    // J10-J11 empty spacer within pernocte group
+    sheet.mergeCells('J10:J11');
+    sheet.getCell('J10').fill = headerFill;
+    sheet.getCell('J10').border = thinBorder;
+
+    // Set row heights for header
+    sheet.getRow(9).height = 16;
+    sheet.getRow(10).height = 14;
+    sheet.getRow(11).height = 14;
+
+    // ─── Data rows (12+) ───
+    const dataStartRow = 12;
+    const fmtTime = (d: Date | null) => {
+      if (!d) return '';
+      const dt = new Date(d);
+      return `${dt.getHours().toString().padStart(2, '0')}:${dt.getMinutes().toString().padStart(2, '0')}`;
+    };
+
+    let totalHsTrabajadas = 0;
+    let totalHsViaje = 0;
+
+    planilla.registros.forEach((r, idx) => {
+      const rowNum = dataStartRow + idx;
+      const row = sheet.getRow(rowNum);
+
+      const fecha = new Date(r.fecha);
+      const hsTrabajadas = Number(r.horasNormales) + Number(r.horasExtra50) + Number(r.horasExtra100);
+      const hsViaje = Number(r.horasViajeCalc);
+
+      totalHsTrabajadas += hsTrabajadas;
+      totalHsViaje += hsViaje;
+
+      const lugar = r.bloqueado
+        ? (r.motivoBloqueo ?? 'AUSENCIA')
+        : (r.lugarTrabajo === 'CAMPO' ? 'Campo' : r.lugarTrabajo === 'BASE' ? 'Base' : r.lugarTrabajo ?? '');
+
+      row.getCell('B').value = fecha;
+      row.getCell('B').numFmt = 'DD/MM/YYYY';
+      row.getCell('C').value = fmtTime(r.entradaTurno1);
+      row.getCell('D').value = fmtTime(r.salidaTurno1);
+      row.getCell('E').value = hsTrabajadas > 0 ? hsTrabajadas : '';
+      row.getCell('E').numFmt = '0.0';
+      row.getCell('F').value = hsViaje > 0 ? hsViaje : '';
+      row.getCell('F').numFmt = '0.0';
+      row.getCell('G').value = lugar;
+      row.getCell('H').value = r.pernocte === 'HOTEL' ? 'SI' : '';
+      row.getCell('I').value = r.pernocte === 'TRAILER' ? 'SI' : '';
+      row.getCell('K').value = r.maneja ? 'SI' : '';
+      row.getCell('L').value = r.bloqueado ? (r.motivoBloqueo ?? '') : (r.observaciones ?? '');
+
+      // Apply borders and conditional formatting
+      ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'].forEach((col) => {
+        const cell = row.getCell(col);
+        cell.border = thinBorder;
+        cell.alignment = { horizontal: col === 'L' ? 'left' : 'center', vertical: 'middle' };
+        cell.font = { size: 9 };
+      });
+
+      // Color code: yellow for ausencia, green for feriado, purple for franco trabajado
+      if (r.bloqueado) {
+        ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'].forEach((col) => {
+          row.getCell(col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF0E0' } };
+        });
+      } else if (r.esFeriado) {
+        ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'].forEach((col) => {
+          row.getCell(col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
+        });
+      } else if (r.esFrancoTrabajado) {
+        ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'].forEach((col) => {
+          row.getCell(col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEDE7F6' } };
+        });
+      }
+    });
+
+    // ─── Totals row ───
+    const totalsRow = dataStartRow + planilla.registros.length;
+    sheet.getCell(`B${totalsRow}`).value = 'TOTALES';
+    sheet.getCell(`B${totalsRow}`).font = { bold: true, size: 10 };
+    sheet.getCell(`E${totalsRow}`).value = totalHsTrabajadas;
+    sheet.getCell(`E${totalsRow}`).numFmt = '0.0';
+    sheet.getCell(`E${totalsRow}`).font = { bold: true, size: 10 };
+    sheet.getCell(`F${totalsRow}`).value = totalHsViaje;
+    sheet.getCell(`F${totalsRow}`).numFmt = '0.0';
+    sheet.getCell(`F${totalsRow}`).font = { bold: true, size: 10 };
+    sheet.getCell(`G${totalsRow}`).value = `Campo: ${planilla.totalDiasCampo}d | Base: ${planilla.totalDiasBase}d`;
+    sheet.getCell(`G${totalsRow}`).font = { bold: true, size: 8 };
+    ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'].forEach((col) => {
+      sheet.getCell(`${col}${totalsRow}`).border = {
+        top: { style: 'medium' }, bottom: { style: 'medium' },
+        left: { style: 'thin' }, right: { style: 'thin' },
+      };
+    });
+
+    // ─── Signature area (2 rows below totals) ───
+    const sigRow = totalsRow + 2;
+    sheet.mergeCells(`B${sigRow}:D${sigRow}`);
+    sheet.getCell(`B${sigRow}`).value = 'Firma del Trabajador';
+    sheet.getCell(`B${sigRow}`).alignment = { horizontal: 'center' };
+    sheet.getCell(`B${sigRow}`).font = { size: 9, italic: true };
+    sheet.getCell(`B${sigRow}`).border = { top: { style: 'thin' } };
+
+    sheet.mergeCells(`G${sigRow}:I${sigRow}`);
+    sheet.getCell(`G${sigRow}`).value = 'Firma del Supervisor';
+    sheet.getCell(`G${sigRow}`).alignment = { horizontal: 'center' };
+    sheet.getCell(`G${sigRow}`).font = { size: 9, italic: true };
+    sheet.getCell(`G${sigRow}`).border = { top: { style: 'thin' } };
+
+    // Generate buffer and send
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const mesInicioStr = inicio.toLocaleDateString('es-AR', { month: 'short' });
+    const mesFinStr = fin.toLocaleDateString('es-AR', { month: 'short' });
+    const anio = fin.getFullYear();
+    const filename = `Planilla de horas ${u.apellido} ${u.nombre} (${mesInicioStr} - ${mesFinStr} - ${anio}).xlsx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    res.send(Buffer.from(buffer as ArrayBuffer));
   } catch (error) {
     console.error('Error exporting planilla:', error);
     res.status(500).json({ error: 'Error interno' });
