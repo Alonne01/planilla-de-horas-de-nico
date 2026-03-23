@@ -1,9 +1,11 @@
 import { Router, Response } from 'express';
 import { PrismaClient, ContratoTipo, Prisma } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_ADMIN, LEVEL_RRHH, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
+import { revokeAllRefreshTokensForUser } from '../utils/jwt.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -473,6 +475,65 @@ router.get('/:id/ficha', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res:
     res.json(usuario);
   } catch (error) {
     console.error('Error getting ficha:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ─── POST /usuarios/:id/reset-password ───────────
+// Admin resets a user's password to a temporary one, forcing change on next login
+
+router.post('/:id/reset-password', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const usuario = await prisma.usuario.findFirst({
+      where: { id: req.params.id as string, empresaId: req.user!.empresaId },
+      select: { id: true, activo: true, nombre: true, apellido: true },
+    });
+
+    if (!usuario) {
+      res.status(404).json({ error: 'Usuario no encontrado' });
+      return;
+    }
+
+    if (!usuario.activo) {
+      res.status(400).json({ error: 'No se puede restablecer la contraseña de un usuario inactivo' });
+      return;
+    }
+
+    if (req.params.id === req.user!.userId) {
+      res.status(400).json({ error: 'No podés restablecer tu propia contraseña desde acá. Usá "Cambiar contraseña".' });
+      return;
+    }
+
+    // Generate secure temporary password: 3 random words + 2 digits + '!'
+    const words = [
+      'Sol', 'Mar', 'Rio', 'Luz', 'Nube', 'Flor', 'Roca', 'Pino', 'Luna', 'Lago',
+      'Cielo', 'Viento', 'Fuego', 'Trueno', 'Arena', 'Plata', 'Cobre', 'Hierro', 'Jade', 'Opalo',
+      'Tigre', 'Halcon', 'Zorro', 'Lobo', 'Aguila', 'Coral', 'Roble', 'Cedro', 'Sauce', 'Olmo',
+      'Norte', 'Cumbre', 'Valle', 'Monte', 'Costa', 'Delta', 'Pampa', 'Selva', 'Bosque', 'Pradera',
+      'Brisa', 'Onda', 'Llama', 'Chispa', 'Rayo', 'Nieve', 'Lava', 'Perla', 'Ambar', 'Cuarzo',
+    ];
+    const pick = () => words[crypto.randomInt(words.length)];
+    const tempPassword = `${pick()}${pick()}${pick()}${crypto.randomInt(10, 99)}!`;
+
+    const passwordHash = await bcrypt.hash(tempPassword, 12);
+
+    await prisma.usuario.update({
+      where: { id: usuario.id },
+      data: { passwordHash, primerLogin: true },
+    });
+
+    // Revoke all refresh tokens so user is forced to re-login
+    revokeAllRefreshTokensForUser(usuario.id);
+
+    console.log(`[Admin Reset] ${req.user!.email} restableció contraseña de ${usuario.nombre} ${usuario.apellido}`);
+
+    res.json({
+      message: 'Contraseña restablecida correctamente',
+      tempPassword,
+      usuario: { nombre: usuario.nombre, apellido: usuario.apellido },
+    });
+  } catch (error) {
+    console.error('Error resetting password:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

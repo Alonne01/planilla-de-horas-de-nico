@@ -4,7 +4,7 @@ import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import {
   Pencil, Trash2, Search, UserPlus,
-  Loader2, X, ChevronDown, ChevronUp
+  Loader2, X, ChevronDown, ChevronUp, KeyRound, Copy, Check
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -65,6 +65,7 @@ export default function UsuariosPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
+  const [resetResult, setResetResult] = useState<{ nombre: string; tempPassword: string } | null>(null);
 
   const canEdit = currentUser?.rol === 'ADMIN' || currentUser?.rol === 'RRHH';
   const isWellTesting = currentUser?.sectorNombre?.toLowerCase().includes('well testing');
@@ -119,6 +120,23 @@ export default function UsuariosPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/usuarios/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['usuarios'] }),
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await api.post(`/usuarios/${id}/reset-password`);
+      return data as { tempPassword: string; usuario: { nombre: string; apellido: string } };
+    },
+    onSuccess: (data) => {
+      setResetResult({
+        nombre: `${data.usuario.nombre} ${data.usuario.apellido}`,
+        tempPassword: data.tempPassword,
+      });
+    },
+    onError: (err: unknown) => {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      alert(axiosErr.response?.data?.error ?? 'Error al restablecer la contraseña');
+    },
   });
 
   return (
@@ -297,6 +315,21 @@ export default function UsuariosPage() {
                           Desactivar
                         </button>
                       )}
+                      {u.id !== currentUser?.id && u.activo && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`¿Restablecer la contraseña de ${u.nombre} ${u.apellido}? Se generará una contraseña temporal.`)) {
+                              resetPasswordMutation.mutate(u.id);
+                            }
+                          }}
+                          disabled={resetPasswordMutation.isPending}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                        >
+                          <KeyRound className="h-3 w-3" />
+                          {resetPasswordMutation.isPending ? 'Restableciendo...' : 'Restablecer contraseña'}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -321,6 +354,15 @@ export default function UsuariosPage() {
             setEditingUser(null);
             queryClient.invalidateQueries({ queryKey: ['usuarios'] });
           }}
+        />
+      )}
+
+      {/* Password Reset Result Modal */}
+      {resetResult && (
+        <TempPasswordModal
+          nombre={resetResult.nombre}
+          tempPassword={resetResult.tempPassword}
+          onClose={() => setResetResult(null)}
         />
       )}
     </div>
@@ -617,6 +659,70 @@ function UserFormModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Temp Password Modal ──────────────────────────
+
+function TempPasswordModal({
+  nombre,
+  tempPassword,
+  onClose,
+}: {
+  nombre: string;
+  tempPassword: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(tempPassword);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h2 className="text-lg font-semibold">Contraseña restablecida</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-accent transition-colors">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Se generó una contraseña temporal para <strong className="text-foreground">{nombre}</strong>.
+            El usuario deberá cambiarla en su próximo inicio de sesión.
+          </p>
+
+          <div className="flex items-center gap-2">
+            <code className="flex-1 px-3 py-2 rounded-lg bg-muted text-foreground font-mono text-sm select-all">
+              {tempPassword}
+            </code>
+            <button
+              onClick={handleCopy}
+              className="p-2 rounded-lg hover:bg-accent transition-colors shrink-0"
+              title="Copiar contraseña"
+            >
+              {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+            </button>
+          </div>
+
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-500">
+            ⚠️ Esta contraseña solo se muestra una vez. Copiala y compartila de forma segura con el usuario.
+          </div>
+
+          <button
+            onClick={onClose}
+            className="w-full px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
+            Entendido
+          </button>
+        </div>
       </div>
     </div>
   );
