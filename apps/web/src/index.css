@@ -111,6 +111,40 @@
 }
 
 /* ══════════════════════════════════════════════
+   Theme: Wenlen (light, corporate red)
+   Brand: #DC2626 red on clean neutral background
+   ══════════════════════════════════════════════ */
+[data-theme="wenlen"] {
+  --background: #F7F7F7;
+  --foreground: #1A1A1A;
+  --card: #FFFFFF;
+  --card-foreground: #1A1A1A;
+  --popover: #FFFFFF;
+  --popover-foreground: #1A1A1A;
+  --primary: #DC2626;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F0F0F0;
+  --secondary-foreground: #1A1A1A;
+  --muted: #E5E5E5;
+  --muted-foreground: #737373;
+  --accent: #991B1B;
+  --accent-foreground: #FFFFFF;
+  --destructive: #B91C1C;
+  --destructive-foreground: #FFFFFF;
+  --border: #E5E5E5;
+  --input: #E5E5E5;
+  --ring: #DC2626;
+  --sidebar-background: #FFFFFF;
+  --sidebar-foreground: #1A1A1A;
+  --sidebar-primary: #DC2626;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #FEF2F2;
+  --sidebar-accent-foreground: #1A1A1A;
+  --sidebar-border: #E5E5E5;
+  --sidebar-ring: #DC2626;
+}
+
+/* ══════════════════════════════════════════════
    Theme: Concrete (light, minimalist)
    ══════════════════════════════════════════════ */
 [data-theme="concrete"] {
@@ -287,6 +321,7 @@
   --cal-violet: #a78bfa;
   --cal-orange: #fb923c;
 }
+[data-theme="wenlen"],
 [data-theme="concrete"],
 [data-theme="yoco"] {
   color-scheme: light;

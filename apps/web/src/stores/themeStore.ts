@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ThemeName = 'concrete' | 'dark' | 'soul' | 'elden' | 'yoco';
+export type ThemeName = 'wenlen' | 'concrete' | 'dark' | 'soul' | 'elden' | 'yoco';
 
 export interface ThemeOption {
   id: ThemeName;
@@ -11,6 +11,7 @@ export interface ThemeOption {
 }
 
 export const THEMES: ThemeOption[] = [
+  { id: 'wenlen', label: 'Wenlen', preview: '#DC2626', bg: '#F7F7F7', description: 'Claro, corporativo' },
   { id: 'concrete', label: 'Concrete', preview: '#73706C', bg: '#EBF1F2', description: 'Claro, minimalista' },
   { id: 'yoco', label: 'Yoco', preview: '#F29F05', bg: '#FDF8EE', description: 'Claro, girasol/cálido' },
   { id: 'dark', label: 'Dark', preview: '#734D49', bg: '#0D0D0D', description: 'Oscuro, cálido' },
@@ -31,7 +32,7 @@ function getInitialTheme(): ThemeName {
   }
   // Respect OS color scheme preference on first visit
   if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches) {
-    return 'concrete';
+    return 'wenlen';
   }
   return 'dark';
 }
