@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -23,26 +23,31 @@ export default function DrumTimePicker({
 
   const hourRef = useRef<HTMLDivElement>(null);
   const minRef = useRef<HTMLDivElement>(null);
+  // Guard against scroll events fired during programmatic scrollTo animations
+  const isProgrammatic = useRef(false);
 
   const ITEM_H = 40;
 
-  const scrollTo = (ref: React.RefObject<HTMLDivElement | null>, index: number) => {
+  const scrollTo = useCallback((ref: React.RefObject<HTMLDivElement | null>, index: number) => {
     if (!ref.current) return;
+    isProgrammatic.current = true;
     ref.current.scrollTo({ top: index * ITEM_H, behavior: 'smooth' });
-  };
+    // Clear after animation settles (smooth scroll ~300ms)
+    setTimeout(() => { isProgrammatic.current = false; }, 350);
+  }, []);
 
-  useEffect(() => { scrollTo(hourRef, currentHour); }, [currentHour]);
-  useEffect(() => { scrollTo(minRef, MINUTE_STEPS.indexOf(currentMin)); }, [currentMin]);
+  useEffect(() => { scrollTo(hourRef, currentHour); }, [currentHour, scrollTo]);
+  useEffect(() => { scrollTo(minRef, MINUTE_STEPS.indexOf(currentMin)); }, [currentMin, scrollTo]);
 
   const handleHourScroll = () => {
-    if (!hourRef.current) return;
+    if (isProgrammatic.current || !hourRef.current) return;
     const idx = Math.round(hourRef.current.scrollTop / ITEM_H);
     const newH = HOURS[Math.min(idx, HOURS.length - 1)];
     if (newH !== currentHour) onChange(`${String(newH).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`);
   };
 
   const handleMinScroll = () => {
-    if (!minRef.current) return;
+    if (isProgrammatic.current || !minRef.current) return;
     const idx = Math.round(minRef.current.scrollTop / ITEM_H);
     const newM = MINUTE_STEPS[Math.min(idx, MINUTE_STEPS.length - 1)];
     if (newM !== currentMin) onChange(`${String(currentHour).padStart(2, '0')}:${String(newM).padStart(2, '0')}`);

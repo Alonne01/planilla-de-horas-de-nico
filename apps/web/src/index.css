@@ -100,6 +100,14 @@
 
   --color-white: #ffffff;
   --color-black: #000000;
+
+  /* Calendar accent colors — theme-adaptive via CSS vars */
+  --color-cal-amber: var(--cal-amber);
+  --color-cal-red: var(--cal-red);
+  --color-cal-blue: var(--cal-blue);
+  --color-cal-emerald: var(--cal-emerald);
+  --color-cal-violet: var(--cal-violet);
+  --color-cal-orange: var(--cal-orange);
 }
 
 /* ══════════════════════════════════════════════
@@ -272,10 +280,22 @@
 [data-theme="soul"],
 [data-theme="elden"] {
   color-scheme: dark;
+  --cal-amber: #fbbf24;
+  --cal-red: #f87171;
+  --cal-blue: #60a5fa;
+  --cal-emerald: #34d399;
+  --cal-violet: #a78bfa;
+  --cal-orange: #fb923c;
 }
 [data-theme="concrete"],
 [data-theme="yoco"] {
   color-scheme: light;
+  --cal-amber: #b45309;
+  --cal-red: #dc2626;
+  --cal-blue: #2563eb;
+  --cal-emerald: #059669;
+  --cal-violet: #7c3aed;
+  --cal-orange: #ea580c;
 }
 
 @layer base {

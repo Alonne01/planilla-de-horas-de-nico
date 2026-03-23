@@ -514,10 +514,10 @@ export default function PlanillaDetailPage() {
 
       {/* Rejection notice */}
       {planilla.obsRechazo && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+        <div className="rounded-xl border border-cal-red/30 bg-red-500/5 p-4 flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-cal-red shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-red-400">Rechazada</p>
+            <p className="text-sm font-medium text-cal-red">Rechazada</p>
             <p className="text-sm text-muted-foreground">{planilla.obsRechazo}</p>
           </div>
         </div>
@@ -525,10 +525,10 @@ export default function PlanillaDetailPage() {
 
       {/* Missing days warning banner */}
       {diasFaltantes.length > 0 && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 flex items-start gap-2">
-          <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+        <div className="rounded-xl border border-cal-red/30 bg-red-500/10 p-3 flex items-start gap-2">
+          <AlertTriangle className="h-5 w-5 text-cal-red shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-red-400">
+            <p className="text-sm font-medium text-cal-red">
               Faltan completar {diasFaltantes.length} día(s) para enviar la planilla
             </p>
             <p className="text-xs text-muted-foreground mt-1">
@@ -542,10 +542,10 @@ export default function PlanillaDetailPage() {
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
         <MiniCard label="Total" value={totalHoras.toFixed(1)} color="text-primary" />
         <MiniCard label="Normales" value={Number(planilla.totalHorasNormales).toFixed(1)} />
-        <MiniCard label="E50%" value={Number(planilla.totalHorasExtra50).toFixed(1)} color="text-amber-400" />
-        <MiniCard label="E100%" value={Number(planilla.totalHorasExtra100).toFixed(1)} color="text-red-400" />
-        <MiniCard label="Viaje" value={Number(planilla.totalHorasViaje).toFixed(1)} color="text-blue-400" />
-        <MiniCard label="Campo/Base" value={`${planilla.totalDiasCampo}/${planilla.totalDiasBase}`} color="text-emerald-400" />
+        <MiniCard label="E50%" value={Number(planilla.totalHorasExtra50).toFixed(1)} color="text-cal-amber" />
+        <MiniCard label="E100%" value={Number(planilla.totalHorasExtra100).toFixed(1)} color="text-cal-red" />
+        <MiniCard label="Viaje" value={Number(planilla.totalHorasViaje).toFixed(1)} color="text-cal-blue" />
+        <MiniCard label="Campo/Base" value={`${planilla.totalDiasCampo}/${planilla.totalDiasBase}`} color="text-cal-emerald" />
       </div>
 
       {/* ── Actions ── */}
@@ -586,7 +586,7 @@ export default function PlanillaDetailPage() {
           <button
             onClick={handleQuickFill}
             disabled={quickFilling}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-500/40 text-amber-400 bg-amber-500/5 text-sm font-medium hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-cal-amber/40 text-cal-amber bg-amber-500/5 text-sm font-medium hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
             title="Llena todos los días laborables vacíos con el último horario usado"
           >
             {quickFilling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
@@ -659,8 +659,8 @@ export default function PlanillaDetailPage() {
                     <span className={cn(
                       'text-[13px] font-semibold w-7 h-7 flex items-center justify-center rounded-full transition-colors',
                       isToday && 'bg-primary text-primary-foreground shadow-sm',
-                      !isToday && reg?.esFeriado && 'text-red-400',
-                      !isToday && reg?.esFrancoTrabajado && 'text-amber-400',
+                      !isToday && reg?.esFeriado && 'text-cal-red',
+                      !isToday && reg?.esFrancoTrabajado && 'text-cal-amber',
                       !isToday && !reg?.esFeriado && !reg?.esFrancoTrabajado && 'text-foreground/80',
                     )}>
                       {day.getDate()}
@@ -670,8 +670,8 @@ export default function PlanillaDetailPage() {
                         <span className={cn(
                           'text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full',
                           reg?.esFrancoTrabajado
-                            ? 'bg-amber-500/20 text-amber-300'
-                            : 'bg-orange-500/15 text-orange-400',
+                            ? 'bg-amber-500/20 text-cal-amber'
+                            : 'bg-orange-500/15 text-cal-orange',
                         )}>
                           {reg?.esFrancoTrabajado ? 'FT' : 'F'}
                         </span>
@@ -679,23 +679,23 @@ export default function PlanillaDetailPage() {
                       {reg?.lugarTrabajo && !reg?.esFrancoCompensatorio && (
                         <span className={cn(
                           'text-[8px] font-semibold leading-none px-1.5 py-0.5 rounded-full',
-                          reg.lugarTrabajo === 'CAMPO' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-blue-500/15 text-blue-400',
+                          reg.lugarTrabajo === 'CAMPO' ? 'bg-emerald-500/15 text-cal-emerald' : 'bg-blue-500/15 text-cal-blue',
                         )}>
                           {reg.lugarTrabajo === 'CAMPO' ? 'C' : 'B'}
                         </span>
                       )}
                       {reg?.esFrancoCompensatorio && (
-                        <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400">
+                        <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-blue-500/15 text-cal-blue">
                           CC
                         </span>
                       )}
                       {isFeriado && (
-                        <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400">
+                        <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-red-500/15 text-cal-red">
                           FE
                         </span>
                       )}
                       {isNoLaborable && !isFeriado && (
-                        <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">
+                        <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-amber-500/15 text-cal-amber">
                           NL
                         </span>
                       )}
@@ -711,10 +711,10 @@ export default function PlanillaDetailPage() {
                           <span className="text-[9px] font-medium px-1 py-px rounded bg-muted/40 text-muted-foreground">{Number(reg.horasNormales).toFixed(0)}N</span>
                         )}
                         {Number(reg.horasExtra50) > 0 && (
-                          <span className="text-[9px] font-medium px-1 py-px rounded bg-amber-500/10 text-amber-400">{Number(reg.horasExtra50).toFixed(0)}E50</span>
+                          <span className="text-[9px] font-medium px-1 py-px rounded bg-amber-500/10 text-cal-amber">{Number(reg.horasExtra50).toFixed(0)}E50</span>
                         )}
                         {Number(reg.horasExtra100) > 0 && (
-                          <span className="text-[9px] font-medium px-1 py-px rounded bg-red-500/10 text-red-400">{Number(reg.horasExtra100).toFixed(0)}E100</span>
+                          <span className="text-[9px] font-medium px-1 py-px rounded bg-red-500/10 text-cal-red">{Number(reg.horasExtra100).toFixed(0)}E100</span>
                         )}
                       </div>
                       {reg.maneja && <Car className="h-3 w-3 text-muted-foreground/40 mt-0.5" />}
@@ -725,8 +725,8 @@ export default function PlanillaDetailPage() {
                   {isLocked && (
                     <div className="mt-1.5 space-y-0.5">
                       <div className="flex items-center gap-1">
-                        <Lock className="h-3 w-3 text-violet-400/80" />
-                        <span className="text-[10px] font-semibold text-violet-400 leading-tight">
+                        <Lock className="h-3 w-3 text-cal-violet/80" />
+                        <span className="text-[10px] font-semibold text-cal-violet leading-tight">
                           {reg.motivoBloqueo === 'VACACION' ? 'Vacaciones'
                             : reg.motivoBloqueo === 'CERTIFICADO_MEDICO' ? 'Cert. Médico'
                             : reg.motivoBloqueo === 'FALTA_JUSTIFICADA' ? 'Falta Just.'
@@ -753,7 +753,7 @@ export default function PlanillaDetailPage() {
                   {/* Missing day badge */}
                   {isFaltante && (
                     <div className="absolute bottom-1.5 left-2">
-                      <span className="text-[8px] font-bold text-red-400/90">⚠ Incompleto</span>
+                      <span className="text-[8px] font-bold text-cal-red/90">⚠ Incompleto</span>
                     </div>
                   )}
                 </button>
@@ -783,9 +783,9 @@ export default function PlanillaDetailPage() {
             <div className="p-4 space-y-4">
               {/* Locked day notice */}
               {registroMap[selectedDate]?.bloqueado && (
-                <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-4 text-center space-y-1">
-                  <Lock className="h-6 w-6 mx-auto text-violet-400" />
-                  <p className="text-sm font-semibold text-violet-400">Día bloqueado</p>
+                <div className="rounded-lg border border-cal-violet/30 bg-violet-500/10 p-4 text-center space-y-1">
+                  <Lock className="h-6 w-6 mx-auto text-cal-violet" />
+                  <p className="text-sm font-semibold text-cal-violet">Día bloqueado</p>
                   <p className="text-xs text-muted-foreground">
                     {registroMap[selectedDate].observaciones ?? registroMap[selectedDate].motivoBloqueo ?? 'Ausencia / Vacación'}
                   </p>
@@ -836,7 +836,7 @@ export default function PlanillaDetailPage() {
                         distanciaViaje: prevReg.distanciaViaje || '',
                       });
                     }}
-                    className="w-full inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border border-blue-500/30 text-blue-400 bg-blue-500/5 text-xs font-medium hover:bg-blue-500/10 transition-colors"
+                    className="w-full inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border border-cal-blue/30 text-cal-blue bg-blue-500/5 text-xs font-medium hover:bg-blue-500/10 transition-colors"
                   >
                     📋 Copiar día anterior ({prev.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })})
                   </button>
@@ -975,21 +975,21 @@ export default function PlanillaDetailPage() {
               <div className="flex flex-wrap gap-3">
                 {/* Feriado: auto-detected, read-only */}
                 {formData.esFeriado && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/20 text-cal-red border border-cal-red/30">
                     🗓 Feriado
                   </span>
                 )}
 
                 {/* Día no laborable: auto-detected */}
                 {formData.esNoLaborable && !formData.esFeriado && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-cal-amber border border-cal-amber/30">
                     📋 Día no laborable
                   </span>
                 )}
 
                 {/* Franco trabajado: read-only indicator (auto-set when opening a franco day) */}
                 {formData.esFrancoTrabajado && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-cal-amber border border-cal-amber/30">
                     ⚡ Franco trabajado
                   </span>
                 )}
@@ -1023,11 +1023,11 @@ export default function PlanillaDetailPage() {
                         }
                       }}
                       className="rounded border-input" />
-                    <span className="text-sm text-blue-400">Franco comp.</span>
+                    <span className="text-sm text-cal-blue">Franco comp.</span>
                   </label>
                 )}
                 {!canEdit && formData.esFrancoCompensatorio && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-cal-blue border border-cal-blue/30">
                     Franco compensatorio
                   </span>
                 )}
@@ -1049,9 +1049,9 @@ export default function PlanillaDetailPage() {
                   <p className="text-xs font-medium text-muted-foreground">CÁLCULO</p>
                   <div className="grid grid-cols-4 gap-2 text-sm">
                     <div><span className="text-muted-foreground">Norm:</span> <span className="font-mono font-bold">{Number(registroMap[selectedDate].horasNormales).toFixed(1)}</span></div>
-                    <div><span className="text-amber-400">E50:</span> <span className="font-mono font-bold">{Number(registroMap[selectedDate].horasExtra50).toFixed(1)}</span></div>
-                    <div><span className="text-red-400">E100:</span> <span className="font-mono font-bold">{Number(registroMap[selectedDate].horasExtra100).toFixed(1)}</span></div>
-                    <div><span className="text-blue-400">Viaje:</span> <span className="font-mono font-bold">{Number(registroMap[selectedDate].horasViajeCalc).toFixed(1)}</span></div>
+                    <div><span className="text-cal-amber">E50:</span> <span className="font-mono font-bold">{Number(registroMap[selectedDate].horasExtra50).toFixed(1)}</span></div>
+                    <div><span className="text-cal-red">E100:</span> <span className="font-mono font-bold">{Number(registroMap[selectedDate].horasExtra100).toFixed(1)}</span></div>
+                    <div><span className="text-cal-blue">Viaje:</span> <span className="font-mono font-bold">{Number(registroMap[selectedDate].horasViajeCalc).toFixed(1)}</span></div>
                   </div>
                 </div>
               )}
@@ -1070,7 +1070,7 @@ export default function PlanillaDetailPage() {
                   {registroMap[selectedDate] && (
                     <button
                       onClick={() => { if (confirm('¿Eliminar este registro?')) deleteRegistroMutation.mutate(registroMap[selectedDate].id); }}
-                      className="px-4 py-2 rounded-lg border border-red-500/30 text-red-400 text-sm font-medium hover:bg-red-500/10 transition-colors">
+                      className="px-4 py-2 rounded-lg border border-cal-red/30 text-cal-red text-sm font-medium hover:bg-red-500/10 transition-colors">
                       Eliminar
                     </button>
                   )}
@@ -1085,7 +1085,7 @@ export default function PlanillaDetailPage() {
       {showConfirmApproval && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-sm rounded-xl border border-border bg-card shadow-2xl p-4 space-y-4">
-            <h3 className="font-semibold text-emerald-400">¿Confirmar aprobación?</h3>
+            <h3 className="font-semibold text-cal-emerald">¿Confirmar aprobación?</h3>
             <p className="text-sm text-muted-foreground">
               Estás por aprobar esta planilla de <strong>{planilla.usuario.nombre} {planilla.usuario.apellido}</strong>.
               Esta acción no se puede deshacer.
