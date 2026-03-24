@@ -57,7 +57,7 @@ export default function EquipoPage() {
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
 
-  const isWellTesting = user?.sectorNombre?.toLowerCase().includes('well testing');
+  const isWellTesting = user?.sectorNombre?.toLowerCase().includes('testing');
   const canEditDiagrama = isWellTesting && user?.rol === 'COORDINADOR';
 
   const { data: empleados = [], isLoading } = useQuery<Empleado[]>({
