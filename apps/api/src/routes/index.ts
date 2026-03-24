@@ -26,6 +26,7 @@ import sesionesCapacitacionRoutes from './sesiones-capacitacion.routes.js';
 import auditoriaRoutes from './auditoria.routes.js';
 import liquidacionRoutes from './liquidacion.routes.js';
 import cambiosDiagramaRoutes from './cambios-diagrama.routes.js';
+import misSolicitudesRoutes from './mis-solicitudes.routes.js';
 
 const router = Router();
 
@@ -49,6 +50,7 @@ router.use('/vacacion-saldos', vacacionSaldosRoutes);
 router.use('/aprobaciones', aprobacionesRoutes);
 router.use('/ausencias', ausenciasRoutes);
 router.use('/cambios-diagrama', cambiosDiagramaRoutes);
+router.use('/mis-solicitudes', misSolicitudesRoutes);
 
 // Mensajes
 router.use('/mensajes', mensajesRoutes);
