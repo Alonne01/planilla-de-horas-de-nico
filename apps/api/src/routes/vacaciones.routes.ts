@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
 import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
-import { notificarVacacion } from '../utils/notificacion.utils.js';
+import { notificarVacacion, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -510,6 +510,16 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       },
     });
 
+    // Notify step 1 approvers
+    const solicitante = await prisma.usuario.findUnique({
+      where: { id: req.user!.userId },
+      select: { nombre: true, apellido: true },
+    });
+    const solicitanteNombre = solicitante ? `${solicitante.nombre} ${solicitante.apellido}` : 'Un empleado';
+    await notificarAprobadoresPaso(
+      vacacion.usuarioId, req.user!.empresaId, vacacion.flujoId, 1, 'VACACION', solicitanteNombre,
+    );
+
     res.json(updated);
   } catch (error) {
     console.error('Error al enviar vacacion:', error);
@@ -657,6 +667,18 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
     const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
     const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}` : 'Un aprobador';
     await notificarVacacion(vacacion.usuarioId, nuevoEstado as 'APROBADA' | 'EN_REVISION', aprobadorNombre);
+
+    // Notify next approver if advancing to another step
+    if (nuevoEstado === 'EN_REVISION') {
+      const ownerInfo = await prisma.usuario.findUnique({
+        where: { id: vacacion.usuarioId },
+        select: { nombre: true, apellido: true },
+      });
+      const ownerNombre = ownerInfo ? `${ownerInfo.nombre} ${ownerInfo.apellido}` : 'Un empleado';
+      await notificarAprobadoresPaso(
+        vacacion.usuarioId, req.user!.empresaId, vacacion.flujoId, nuevoPaso, 'VACACION', ownerNombre,
+      );
+    }
 
     res.json(updated);
   } catch (error) {

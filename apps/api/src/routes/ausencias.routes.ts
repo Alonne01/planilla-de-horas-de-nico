@@ -5,7 +5,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { upload } from '../middleware/upload.middleware.js';
 import { inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
-import { notificarAusencia, crearNotificacion } from '../utils/notificacion.utils.js';
+import { notificarAusencia, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -271,29 +271,11 @@ router.post('/solicitar', async (req: AuthRequest, res: Response): Promise<void>
       },
     });
 
-    // Notify supervisor/coordinator
+    // Notify step 1 approvers via flow
     const solicitanteNombre = usuario ? `${usuario.nombre} ${usuario.apellido}` : 'Un empleado';
-    const supervisores = await prisma.usuario.findMany({
-      where: {
-        empresaId,
-        activo: true,
-        OR: [
-          { subordinadosCoord: { some: { id: userId } } },
-          { subordinadosSup: { some: { id: userId } } },
-        ],
-      },
-      select: { id: true },
-    });
-
-    for (const sup of supervisores) {
-      await crearNotificacion({
-        usuarioId: sup.id,
-        tipo: 'AUSENCIA',
-        titulo: '📨 Nueva ausencia para revisar',
-        cuerpo: `${solicitanteNombre} solicitó una ausencia que requiere tu aprobación.`,
-        link: '/aprobaciones',
-      });
-    }
+    await notificarAprobadoresPaso(
+      userId, empresaId, ausencia.flujoId, 1, 'AUSENCIA', solicitanteNombre,
+    );
 
     res.status(201).json(ausencia);
   } catch (error) {
@@ -732,6 +714,18 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
     const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
     const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}` : 'Un aprobador';
     await notificarAusencia(ausencia.usuarioId, nuevoEstado as 'APROBADA' | 'EN_REVISION', aprobadorNombre);
+
+    // Notify next approver if advancing to another step
+    if (nuevoEstado === 'EN_REVISION') {
+      const ownerInfo = await prisma.usuario.findUnique({
+        where: { id: ausencia.usuarioId },
+        select: { nombre: true, apellido: true },
+      });
+      const ownerNombre = ownerInfo ? `${ownerInfo.nombre} ${ownerInfo.apellido}` : 'Un empleado';
+      await notificarAprobadoresPaso(
+        ausencia.usuarioId, req.user!.empresaId, ausencia.flujoId, nuevoPaso, 'AUSENCIA', ownerNombre,
+      );
+    }
 
     res.json(updated);
   } catch (error) {

@@ -4,7 +4,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH, LEVEL_ADMIN } from '../middleware/roles.middleware.js';
-import { notificarPlanilla } from '../utils/notificacion.utils.js';
+import { notificarPlanilla, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { getFlowVisibleUserIds } from '../utils/visibility.utils.js';
 import {
   calcularHorasRegistro,
@@ -407,6 +407,16 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       },
     });
 
+    // Notify step 1 approvers
+    const solicitante = await prisma.usuario.findUnique({
+      where: { id: req.user!.userId },
+      select: { nombre: true, apellido: true },
+    });
+    const solicitanteNombre = solicitante ? `${solicitante.nombre} ${solicitante.apellido}` : 'Un empleado';
+    await notificarAprobadoresPaso(
+      planilla.usuarioId, req.user!.empresaId, planilla.flujoId, 1, 'PLANILLA', solicitanteNombre,
+    );
+
     res.json(updated);
   } catch (error) {
     console.error('Error al enviar planilla:', error);
@@ -551,7 +561,19 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
     // Notify planilla owner
     const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
     const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}` : 'Un aprobador';
-    await notificarPlanilla(planilla.usuarioId, nuevoEstado as 'APROBADA' | 'EN_REVISION', aprobadorNombre);
+    await notificarPlanilla(planilla.usuarioId, nuevoEstado as 'APROBADA' | 'EN_REVISION', aprobadorNombre, undefined, planillaId);
+
+    // Notify next approver if advancing to another step
+    if (nuevoEstado === 'EN_REVISION') {
+      const ownerInfo = await prisma.usuario.findUnique({
+        where: { id: planilla.usuarioId },
+        select: { nombre: true, apellido: true },
+      });
+      const ownerNombre = ownerInfo ? `${ownerInfo.nombre} ${ownerInfo.apellido}` : 'Un empleado';
+      await notificarAprobadoresPaso(
+        planilla.usuarioId, req.user!.empresaId, planilla.flujoId, nuevoPaso, 'PLANILLA', ownerNombre,
+      );
+    }
 
     res.json(updated);
   } catch (error) {
@@ -599,7 +621,7 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
     // Notify planilla owner
     const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
     const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}` : 'Un aprobador';
-    await notificarPlanilla(planilla.usuarioId, 'RECHAZADA', aprobadorNombre, motivo);
+    await notificarPlanilla(planilla.usuarioId, 'RECHAZADA', aprobadorNombre, motivo, planillaId);
 
     res.json(updated);
   } catch (error) {

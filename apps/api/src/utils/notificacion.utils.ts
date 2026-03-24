@@ -26,6 +26,7 @@ export async function notificarPlanilla(
   estado: 'APROBADA' | 'RECHAZADA' | 'EN_REVISION',
   aprobadorNombre: string,
   motivo?: string,
+  planillaId?: string,
 ) {
   const titulos: Record<string, string> = {
     APROBADA: '✅ Planilla aprobada',
@@ -42,7 +43,7 @@ export async function notificarPlanilla(
     tipo: 'PLANILLA',
     titulo: titulos[estado],
     cuerpo: cuerpos[estado],
-    link: '/planillas',
+    link: planillaId ? `/planillas/${planillaId}` : '/planillas',
   });
 }
 
@@ -116,4 +117,72 @@ export async function notificarEnvio(
     cuerpo: `${solicitanteNombre} envió una ${labels[tipo]} que requiere tu aprobación.`,
     link: '/aprobaciones',
   });
+}
+
+/**
+ * Notify the approvers for a specific flow step.
+ * Finds users with the matching role who are responsible for the document owner.
+ */
+export async function notificarAprobadoresPaso(
+  ownerUserId: string,
+  empresaId: string,
+  flujoId: string | null | undefined,
+  pasoOrden: number,
+  tipo: 'PLANILLA' | 'VACACION' | 'AUSENCIA',
+  solicitanteNombre: string,
+): Promise<void> {
+  if (!flujoId) return;
+  try {
+    const paso = await prisma.flujoPaso.findFirst({
+      where: { flujoId, orden: pasoOrden },
+    });
+    if (!paso) return;
+
+    const owner = await prisma.usuario.findUnique({
+      where: { id: ownerUserId },
+      select: { supervisorId: true, coordinadorId: true, sectorId: true },
+    });
+    if (!owner) return;
+
+    const rolAprobador = paso.rolAprobador;
+    let approverIds: string[] = [];
+
+    if (rolAprobador === 'SUPERVISOR' && owner.supervisorId) {
+      approverIds = [owner.supervisorId];
+    } else if (rolAprobador === 'COORDINADOR' && owner.coordinadorId) {
+      approverIds = [owner.coordinadorId];
+    } else if (['RRHH', 'ADMIN', 'GERENTE'].includes(rolAprobador)) {
+      const users = await prisma.usuario.findMany({
+        where: { empresaId, activo: true, rol: { codigo: rolAprobador } },
+        select: { id: true },
+      });
+      approverIds = users.map(u => u.id);
+    } else if (owner.sectorId) {
+      // Fallback: same sector with that role
+      const users = await prisma.usuario.findMany({
+        where: { empresaId, sectorId: owner.sectorId, activo: true, rol: { codigo: rolAprobador } },
+        select: { id: true },
+      });
+      approverIds = users.map(u => u.id);
+    }
+
+    const labels: Record<string, string> = {
+      PLANILLA: 'planilla',
+      VACACION: 'solicitud de vacaciones',
+      AUSENCIA: 'ausencia',
+    };
+
+    for (const approverId of approverIds) {
+      if (approverId === ownerUserId) continue;
+      await crearNotificacion({
+        usuarioId: approverId,
+        tipo,
+        titulo: `📨 Nueva ${labels[tipo]} para revisar`,
+        cuerpo: `${solicitanteNombre} tiene una ${labels[tipo]} pendiente de tu aprobación.`,
+        link: '/aprobaciones',
+      });
+    }
+  } catch (error) {
+    console.error('Error notificando aprobadores:', error);
+  }
 }
