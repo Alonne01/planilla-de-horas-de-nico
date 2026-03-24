@@ -430,75 +430,104 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
     let nuevoEstado: PlanillaEstado;
     let nuevoPaso: number;
 
-    if (pasoActual >= totalPasos || totalPasos === 0) {
+    // pasoActual is 1-based (matches FlujoPaso.orden). 0 = not started, 1..N = current step.
+    if (pasoActual > totalPasos || totalPasos === 0) {
       nuevoEstado = 'APROBADA';
       nuevoPaso = pasoActual;
     } else {
-      // Validate user's role matches the current step's rolAprobador
-      const pasoConfig = pasos[pasoActual - 1];
-      if (pasoConfig && pasoConfig.rolAprobador !== req.user!.rol) {
-        // Also allow users with higher level (ADMIN/RRHH can always approve)
+      const pasoConfig = pasos.find(p => p.orden === pasoActual);
+      if (!pasoConfig) {
+        res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada en el flujo` });
+        return;
+      }
+      if (pasoConfig.rolAprobador !== req.user!.rol) {
+        // ADMIN/RRHH (level >= 90) can approve any step
         if ((req.user!.rolNivel ?? 0) < 90) {
           res.status(403).json({ error: `Este paso requiere el rol ${pasoConfig.rolAprobador}` });
           return;
         }
       }
+
       nuevoPaso = pasoActual + 1;
       nuevoEstado = nuevoPaso > totalPasos ? 'APROBADA' : 'EN_REVISION';
     }
 
-    const updated = await prisma.planilla.update({
-      where: { id: planillaId },
-      data: {
-        estado: nuevoEstado,
-        pasoActual: nuevoPaso,
-        ...(nuevoEstado === 'APROBADA' ? { aprobadaPorId: req.user!.userId, aprobadaAt: new Date() } : {}),
-      },
-    });
-
-    // When planilla is approved, update compensatorio saldos
-    if (nuevoEstado === 'APROBADA') {
-      // Count franco trabajado days → increment compensatoriosAcumulados
-      const registros = await prisma.registroHoras.findMany({
-        where: { planillaId: planilla.id },
-      });
-
-      const francosTrabajados = registros.filter(r => r.esFrancoTrabajado).length;
-      const compensatoriosUsados = registros.filter(r => r.esFrancoCompensatorio).length;
-
-      if (francosTrabajados > 0 || compensatoriosUsados > 0) {
-        const anio = new Date(planilla.periodoInicio).getFullYear();
-        await prisma.vacacionSaldo.upsert({
-          where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
-          create: {
-            usuarioId: planilla.usuarioId,
-            anio,
-            diasCorrespondientes: 0,
-            compensatoriosAcumulados: francosTrabajados,
-            compensatoriosUsados: compensatoriosUsados,
-          },
-          update: {
-            compensatoriosAcumulados: { increment: francosTrabajados },
-            // Move from pendientes to usados for compensatorio days
-            ...(compensatoriosUsados > 0 ? {
-              compensatoriosPendientes: { decrement: compensatoriosUsados },
-              compensatoriosUsados: { increment: compensatoriosUsados },
-            } : {}),
+    // Atomic: update acquires row lock → duplicate check is serialized → no TOCTOU race
+    let updated;
+    try {
+      updated = await prisma.$transaction(async (tx) => {
+        const result = await tx.planilla.update({
+          where: { id: planillaId },
+          data: {
+            estado: nuevoEstado,
+            pasoActual: nuevoPaso,
+            ...(nuevoEstado === 'APROBADA' ? { aprobadaPorId: req.user!.userId, aprobadaAt: new Date() } : {}),
           },
         });
-      }
-    }
 
-    await prisma.planillaHistorial.create({
-      data: {
-        planillaId: planilla.id,
-        usuarioId: req.user!.userId,
-        estadoAnterior: planilla.estado,
-        estadoNuevo: nuevoEstado,
-        pasoFlujo: nuevoPaso,
-        comentario: req.body?.comentario ?? null,
-      },
-    });
+        // Duplicate check INSIDE transaction (after row lock acquired by UPDATE)
+        const yaAprobo = await tx.planillaHistorial.findFirst({
+          where: {
+            planillaId,
+            usuarioId: req.user!.userId,
+            pasoFlujo: nuevoPaso,
+            createdAt: { gt: planilla.enviadaAt ?? new Date(0) },
+          },
+        });
+        if (yaAprobo) {
+          throw new Error('DUPLICATE_APPROVAL');
+        }
+
+        if (nuevoEstado === 'APROBADA') {
+          const registros = await tx.registroHoras.findMany({
+            where: { planillaId: planilla.id },
+          });
+
+          const francosTrabajados = registros.filter(r => r.esFrancoTrabajado).length;
+          const compensatoriosUsados = registros.filter(r => r.esFrancoCompensatorio).length;
+
+          if (francosTrabajados > 0 || compensatoriosUsados > 0) {
+            const anio = new Date(planilla.periodoInicio).getFullYear();
+            await tx.vacacionSaldo.upsert({
+              where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
+              create: {
+                usuarioId: planilla.usuarioId,
+                anio,
+                diasCorrespondientes: 0,
+                compensatoriosAcumulados: francosTrabajados,
+                compensatoriosUsados: compensatoriosUsados,
+              },
+              update: {
+                compensatoriosAcumulados: { increment: francosTrabajados },
+                ...(compensatoriosUsados > 0 ? {
+                  compensatoriosPendientes: { decrement: compensatoriosUsados },
+                  compensatoriosUsados: { increment: compensatoriosUsados },
+                } : {}),
+              },
+            });
+          }
+        }
+
+        await tx.planillaHistorial.create({
+          data: {
+            planillaId: planilla.id,
+            usuarioId: req.user!.userId,
+            estadoAnterior: planilla.estado,
+            estadoNuevo: nuevoEstado,
+            pasoFlujo: nuevoPaso,
+            comentario: req.body?.comentario ?? null,
+          },
+        });
+
+        return result;
+      });
+    } catch (error: any) {
+      if (error?.message === 'DUPLICATE_APPROVAL') {
+        res.status(409).json({ error: 'Ya aprobaste este paso. No se puede aprobar dos veces.' });
+        return;
+      }
+      throw error;
+    }
 
     // Notify planilla owner
     const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
