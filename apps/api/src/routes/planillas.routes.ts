@@ -241,7 +241,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
         usuario: {
           select: {
             id: true, nombre: true, apellido: true, legajo: true,
-            empresaId: true,
+            empresaId: true, supervisorId: true, coordinadorId: true,
             sector: { select: { nombre: true } },
             categoria: { select: { codigo: true, nombre: true } },
             diagramas: {
@@ -276,8 +276,25 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
         prisma, req.user!.userId, req.user!.empresaId, req.user!.rol, nivel, 'PLANILLA',
       );
       if (!visibleIds.includes(planilla.usuario.id)) {
-        res.status(403).json({ error: 'Sin permisos para ver esta planilla' });
-        return;
+        // Allow access if user is the responsible approver for the current step
+        const pasos = planilla.flujo?.pasos ?? [];
+        const currentStep = pasos.find(p => p.orden === planilla.pasoActual);
+        const isPendingReview = planilla.estado === 'ENVIADA' || planilla.estado === 'EN_REVISION';
+        let isResponsibleApprover = false;
+        if (currentStep && isPendingReview) {
+          const role = currentStep.rolAprobador;
+          if (role === 'SUPERVISOR') {
+            isResponsibleApprover = planilla.usuario.supervisorId === req.user!.userId;
+          } else if (role === 'COORDINADOR') {
+            isResponsibleApprover = planilla.usuario.coordinadorId === req.user!.userId;
+          } else if (['RRHH', 'ADMIN', 'GERENTE'].includes(role)) {
+            isResponsibleApprover = role === req.user!.rol;
+          }
+        }
+        if (!isResponsibleApprover) {
+          res.status(403).json({ error: 'Sin permisos para ver esta planilla' });
+          return;
+        }
       }
     }
 
