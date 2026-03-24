@@ -1,0 +1,3178 @@
+[
+  {
+    "legajo": "1002",
+    "nombre": "ABREGÚ, SERGIO GABRIEL",
+    "dni": "29.461.981",
+    "telefono": "299‐5338198",
+    "alta": "01/07/2022",
+    "categoria": "TIII TS Cat VIII"
+  },
+  {
+    "legajo": "1012",
+    "nombre": "ACEVEDO, VÍCTOR ALEXIS",
+    "dni": "33.291.720",
+    "telefono": "299‐5277250",
+    "alta": "24/10/2022",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "863",
+    "nombre": "ACHARES, CLAUDIO JOSÉ GABRIEL",
+    "dni": "29.313.268",
+    "telefono": "299‐4207657",
+    "alta": "01/06/2022",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1150",
+    "nombre": "AGÜERO, MARIELA LUCIANA",
+    "dni": "31.316.608",
+    "telefono": "299‐6257163",
+    "alta": "16/08/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1137",
+    "nombre": "AGUILAR, SANTIAGO MARIO",
+    "dni": "29.957.354",
+    "telefono": "299‐4134544",
+    "alta": "01/07/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "475",
+    "nombre": "AGUIRRE, OMAR LUIS",
+    "dni": "21.847.540",
+    "telefono": "299‐5755337",
+    "alta": "01/02/2018",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "601",
+    "nombre": "ALBORNOZ, MARIANO ANDRÉS",
+    "dni": "36.152.031",
+    "telefono": "2942‐414991",
+    "alta": "12/09/2018",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1144",
+    "nombre": "ALEGRÍA, AXEL ALEXIS",
+    "dni": "37.947.292",
+    "telefono": "299‐6284290",
+    "alta": "22/07/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1062",
+    "nombre": "ALEGRÍA, CRISTIAN RUBÉN",
+    "dni": "26.810.798",
+    "telefono": "299‐5572929",
+    "alta": "01/08/2023",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1159",
+    "nombre": "ALEGRÍA, JORGE RICARDO",
+    "dni": "31.965.212",
+    "telefono": "299‐5045446",
+    "alta": "02/10/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1188",
+    "nombre": "ALEGRÍA, NÉSTOR",
+    "dni": "21.385.759",
+    "telefono": "299‐5055534",
+    "alta": "24/02/2025",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "1060",
+    "nombre": "ALMEIRA, LUIS CEFERINO",
+    "dni": "28.848.381",
+    "telefono": "299‐4112187",
+    "alta": "01/08/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "260",
+    "nombre": "ALMONACID, DIEGO ALFONSO",
+    "dni": "26.362.990",
+    "telefono": "299‐4663051",
+    "alta": "01/09/2014",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1110",
+    "nombre": "ALTAMIRANO, GERMÁN ALEJANDRO",
+    "dni": "39.129.728",
+    "telefono": "299‐4511270",
+    "alta": "08/04/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1010",
+    "nombre": "ÁLVAREZ, SERGIO ANDRÉS",
+    "dni": "40.439.421",
+    "telefono": "299‐6302089",
+    "alta": "24/10/2022",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1069",
+    "nombre": "ANABALÓN, LUIS MARCELO",
+    "dni": "32.428.200",
+    "telefono": "294‐2959407",
+    "alta": "22/08/2023",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1160",
+    "nombre": "ANGELINO, LUCIANO",
+    "dni": "37.173.475",
+    "telefono": "299‐6127446",
+    "alta": "02/10/2024",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "1027",
+    "nombre": "ANOBILE, NICOLÁS VÍCTOR",
+    "dni": "39.881.253",
+    "telefono": "299‐517606",
+    "alta": "01/03/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1238",
+    "nombre": "ARAMENDI, DIEGO SEBASTIÁN",
+    "dni": "46.405.341",
+    "telefono": "299‐6593064",
+    "alta": "02/03/2026",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "210",
+    "nombre": "ARANEDA RIVAS, ANGELO ALEXIS",
+    "dni": "94.904.285",
+    "telefono": "299‐5128257",
+    "alta": "04/04/2014",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "471",
+    "nombre": "ARAOZ GONZÁLEZ, EMILIANO GASTÓN",
+    "dni": "30.840.831",
+    "telefono": "299‐5249577",
+    "alta": "20/02/2018",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "208",
+    "nombre": "ARAVENA, ROBERTO HORACIO",
+    "dni": "26.331.118",
+    "telefono": "299‐5343805",
+    "alta": "14/03/2014",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "285",
+    "nombre": "ARCIERI, RUBÉN ANTONIO",
+    "dni": "26.882.779",
+    "telefono": "299‐4103613",
+    "alta": "05/01/2015",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1045",
+    "nombre": "ARISMENDI, ALBERTO DANIEL",
+    "dni": "31.679.158",
+    "telefono": "299‐5704955",
+    "alta": "01/06/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "459",
+    "nombre": "ARIZA, SERGIO ALEJANDRO",
+    "dni": "29.347.296",
+    "telefono": "299‐6212387",
+    "alta": "04/12/2017",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1161",
+    "nombre": "AROCA FERNÁNDEZ, TOMÁS ALEJANDRO",
+    "dni": "45.509.858",
+    "telefono": "299‐4562092",
+    "alta": "02/10/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "1221",
+    "nombre": "ARRANZ, HERNÁN MARTÍN",
+    "dni": "31.751.401",
+    "telefono": "261‐6634513",
+    "alta": "15/09/2025",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "1180",
+    "nombre": "ARRIAGADA, FERNANDO ARIEL",
+    "dni": "35.659.088",
+    "telefono": "299‐5345703",
+    "alta": "02/01/2025",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "383",
+    "nombre": "ARRIAGADA GUERRERO, FERNANDO",
+    "dni": "92.599.078",
+    "telefono": "299‐6258567",
+    "alta": "01/03/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1212",
+    "nombre": "ATENCIO, EDUARDO FABIÁN",
+    "dni": "29.548.325",
+    "telefono": "297‐4272427",
+    "alta": "02/06/2025",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "628",
+    "nombre": "ATIENZA, ALBERTO DANIEL",
+    "dni": "14.916.338",
+    "telefono": "299‐5769525",
+    "alta": "04/01/2019",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1041",
+    "nombre": "AVA BONNOT, MATÍAS EZEQUIEL",
+    "dni": "33.124.577",
+    "telefono": "343‐4517895",
+    "alta": "22/05/2023",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1106",
+    "nombre": "ÁVALOS, CRISTIAN DANIEL",
+    "dni": "36.150.531",
+    "telefono": "299‐5887090",
+    "alta": "27/03/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "129",
+    "nombre": "ÁVILA, DANIEL NICOLÁS",
+    "dni": "36.151.093",
+    "telefono": "299‐5955476",
+    "alta": "02/08/2013",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1217",
+    "nombre": "AVILÉS, LUCAS JAVIER",
+    "dni": "40.706.808",
+    "telefono": "299‐5125036",
+    "alta": "01/09/2025",
+    "categoria": "TII TB Cat VII"
+  },
+  {
+    "legajo": "231",
+    "nombre": "AZÚA, RUBÉN DARÍO",
+    "dni": "27.327.335",
+    "telefono": "299‐5470041",
+    "alta": "07/06/2014",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1104",
+    "nombre": "BADILLA, PATRICIO ANDRÉS",
+    "dni": "33.532.642",
+    "telefono": "299‐5705304",
+    "alta": "27/03/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "1239",
+    "nombre": "BADILLA RUBILAR, ANDRÉS FIDEL",
+    "dni": "92.633.382",
+    "telefono": "299‐5858541",
+    "alta": "02/03/2026",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "1035",
+    "nombre": "BAEZ, CRISTIAN DARÍO",
+    "dni": "31.794.829",
+    "telefono": "299‐4620000",
+    "alta": "02/05/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "785",
+    "nombre": "BALMACEDA, ROBERTO FABIÁN",
+    "dni": "28.485.880",
+    "telefono": "299‐5230802",
+    "alta": "12/04/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "675",
+    "nombre": "BANEK, GERMÁN NICOLÁS",
+    "dni": "33.292.166",
+    "telefono": "299‐6322212",
+    "alta": "22/01/2020",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1240",
+    "nombre": "BAÑAK, GONZALO TOMÁS JESÚS",
+    "dni": "46.232.360",
+    "telefono": "299‐5813105",
+    "alta": "02/03/2026",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "1138",
+    "nombre": "BARRERA, MARCELO UBALDO",
+    "dni": "25.196.079",
+    "telefono": "299‐4537066",
+    "alta": "01/07/2024",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1189",
+    "nombre": "BARRIONUEVO, JOAQUÍN ANTONIO",
+    "dni": "36.306.999",
+    "telefono": "299‐5287357",
+    "alta": "24/02/2025",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "1034",
+    "nombre": "BARROS, ELÍAS ISRAEL",
+    "dni": "32.247.130",
+    "telefono": "299‐4188595",
+    "alta": "02/05/2023",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "365",
+    "nombre": "BARROS, JONATAN GABRIEL",
+    "dni": "28.361.722",
+    "telefono": "299‐5891974",
+    "alta": "16/02/2016",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1117",
+    "nombre": "BARROS, PABLO ANDRÉS",
+    "dni": "33.316.070",
+    "telefono": "299‐4181434",
+    "alta": "17/04/2024",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1083",
+    "nombre": "BASCUR, FABIANA AYLÉN",
+    "dni": "41.050.796",
+    "telefono": "299‐6285562",
+    "alta": "05/02/2024",
+    "categoria": "TII TB Cat VII"
+  },
+  {
+    "legajo": "1151",
+    "nombre": "BASTIDA, JUAN PABLO",
+    "dni": "29.262.403",
+    "telefono": "299‐4566794",
+    "alta": "16/08/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1004",
+    "nombre": "BELTRAME, MARTÍN JAVIER",
+    "dni": "32.292.943",
+    "telefono": "299‐5708869",
+    "alta": "13/09/2022",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1224",
+    "nombre": "BELTRAME, MAURICIO ANÍBAL",
+    "dni": "29.386.798",
+    "telefono": "299‐4386378",
+    "alta": "01/10/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1130",
+    "nombre": "BENÍTEZ, ARNALDO ANDRÉS",
+    "dni": "31.792.603",
+    "telefono": "299‐4577168",
+    "alta": "20/05/2024",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "1165",
+    "nombre": "BERCOVICH, FRANCO JULIÁN",
+    "dni": "44.779.026",
+    "telefono": "299‐4110824",
+    "alta": "23/10/2024",
+    "categoria": "TIII TS Cat III"
+  },
+  {
+    "legajo": "173",
+    "nombre": "BERRA, CLAUDIO FERNANDO",
+    "dni": "32.588.194",
+    "telefono": "299‐4090467",
+    "alta": "08/04/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "498",
+    "nombre": "BERRA, MILTON EDGARDO",
+    "dni": "23.214.842",
+    "telefono": "299‐5337657",
+    "alta": "14/06/2018",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "133",
+    "nombre": "BESADA, GABRIEL RAÚL",
+    "dni": "31.789.109",
+    "telefono": "2923‐427164",
+    "alta": "26/08/2013",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "1162",
+    "nombre": "BIAGINI, MAXIMILIANO JOAQUÍN",
+    "dni": "42.653.749",
+    "telefono": "299‐5866303",
+    "alta": "02/10/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "633",
+    "nombre": "BIANCHI, BRUNO",
+    "dni": "26.095.802",
+    "telefono": "299‐6265336",
+    "alta": "16/01/2019",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "497",
+    "nombre": "BLANCO, FACUNDO NICOLÁS",
+    "dni": "35.355.008",
+    "telefono": "299‐6739839",
+    "alta": "16/06/2018",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1235",
+    "nombre": "BORJA, MILENA",
+    "dni": "40.154.862",
+    "telefono": "387‐3210080",
+    "alta": "09/12/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1169",
+    "nombre": "BRACCO, DANTE DANIEL",
+    "dni": "27.411.751",
+    "telefono": "297‐4611033",
+    "alta": "19/11/2024",
+    "categoria": "TIII TS Cat VIII"
+  },
+  {
+    "legajo": "771",
+    "nombre": "BRAVO, JAVIER ALFREDO",
+    "dni": "30.412.873",
+    "telefono": "299‐5466630",
+    "alta": "02/12/2019",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "252",
+    "nombre": "BRAVO, JUAN DARÍO",
+    "dni": "29.159.468",
+    "telefono": "299‐6243195",
+    "alta": "22/08/2014",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "1134",
+    "nombre": "BUCOLO, PABLO ANTONIO",
+    "dni": "28.688.895",
+    "telefono": "299‐4555350",
+    "alta": "05/06/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1241",
+    "nombre": "BUSTOS, BRANDON SEBASTIÁN",
+    "dni": "46.257.339",
+    "telefono": "299‐6252509",
+    "alta": "02/03/2026",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "1242",
+    "nombre": "BUSTOS, PABLO ENRIQUE",
+    "dni": "27.595.588",
+    "telefono": "299‐5244913",
+    "alta": "02/03/2026",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "487",
+    "nombre": "CABALLERO, FERNANDO RAÚL",
+    "dni": "23.789.015",
+    "telefono": "299‐5166801",
+    "alta": "16/05/2018",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "364",
+    "nombre": "CABERLOTTI BRAVO, ROBERTO CARLOS",
+    "dni": "92.792.655",
+    "telefono": "299‐4286837",
+    "alta": "16/02/2016",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "499",
+    "nombre": "CÁCERES, JAVIER ALEJANDRO",
+    "dni": "34.592.316",
+    "telefono": "299‐4292472",
+    "alta": "19/06/2018",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1243",
+    "nombre": "CAMARGO, CARLOS JESÚS ANDRÉS",
+    "dni": "33.319.174",
+    "telefono": "299‐3281917",
+    "alta": "02/03/2026",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "1030",
+    "nombre": "CAMPOS GIUSTI, ANTONIO",
+    "dni": "38.810.191",
+    "telefono": "299‐4294458",
+    "alta": "02/05/2023",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1084",
+    "nombre": "CAMPOS, NÉSTOR FABIÁN",
+    "dni": "29.027.343",
+    "telefono": "299‐5126054",
+    "alta": "05/02/2024",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1196",
+    "nombre": "CÁRCAMO, HÉCTOR FABIÁN",
+    "dni": "29.224.903",
+    "telefono": "299‐5306318",
+    "alta": "01/04/2025",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "213",
+    "nombre": "CARRIZO, ALEXIS EVANS",
+    "dni": "33.939.507",
+    "telefono": "299‐4125830",
+    "alta": "07/05/2014",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "1154",
+    "nombre": "CARRIZO, LEONARDO GASTÓN",
+    "dni": "33.234.299",
+    "telefono": "299‐4737462",
+    "alta": "23/08/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "854",
+    "nombre": "CARROZA, BRAIAN EMMANUEL",
+    "dni": "39.128.610",
+    "telefono": "299‐5278327",
+    "alta": "11/02/2022",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1163",
+    "nombre": "CARVAJAL, LUCAS NAMI",
+    "dni": "37.758.579",
+    "telefono": "299‐3282700",
+    "alta": "02/10/2024",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "1225",
+    "nombre": "CASTAÑEIRA, CARLOS MARCELO GABRIEL",
+    "dni": "36.669.465",
+    "telefono": "299‐4297282",
+    "alta": "01/10/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1229",
+    "nombre": "CASTILLO, GERALDINE ALEJANDRA",
+    "dni": "36.514.054",
+    "telefono": "299‐5936634",
+    "alta": "10/11/2025",
+    "categoria": "TII TB Cat VI"
+  },
+  {
+    "legajo": "1184",
+    "nombre": "CASTRO, DIEGO PABLO",
+    "dni": "33.166.761",
+    "telefono": "299‐4557760",
+    "alta": "20/01/2025",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "1085",
+    "nombre": "CASTRO, LUCIANO NICOLÁS",
+    "dni": "44.780.497",
+    "telefono": "2942‐407484",
+    "alta": "05/02/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1124",
+    "nombre": "CATTANEO, AGUSTÍN RODRIGO",
+    "dni": "44.825.200",
+    "telefono": "299‐5934560",
+    "alta": "07/05/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "429",
+    "nombre": "CAU, GERARDO DARIÁN",
+    "dni": "36.771.097",
+    "telefono": "299‐5850055",
+    "alta": "19/07/2017",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "1156",
+    "nombre": "CEBALLO, SAÚL HERNÁN",
+    "dni": "32.544.901",
+    "telefono": "299‐4548231",
+    "alta": "01/09/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1234",
+    "nombre": "CEJAS, ELIANA SOLEDAD",
+    "dni": "27.892.981",
+    "telefono": "299‐4692175",
+    "alta": "17/11/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "357",
+    "nombre": "CENTENO, ANDRÉS",
+    "dni": "24.180.745",
+    "telefono": "299‐4675284",
+    "alta": "17/12/2015",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1173",
+    "nombre": "CEPEDA, EMANUEL ALEJANDRO",
+    "dni": "38.476.545",
+    "telefono": "299‐5248526",
+    "alta": "02/12/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "147",
+    "nombre": "CERDA, DAVID EZEQUIEL",
+    "dni": "37.102.033",
+    "telefono": "299‐4163295",
+    "alta": "09/09/2013",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "46",
+    "nombre": "CERDA, RODRIGO ANDRÉS",
+    "dni": "31.465.587",
+    "telefono": "2942‐568348",
+    "alta": "02/07/2012",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "182",
+    "nombre": "CERDÁN, RAFAEL HORACIO",
+    "dni": "30.387.923",
+    "telefono": "299‐6309008",
+    "alta": "19/11/2013",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "614",
+    "nombre": "CHÁVEZ, ALEJANDRO NICOLÁS",
+    "dni": "33.610.954",
+    "telefono": "299‐6034432",
+    "alta": "17/10/2018",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "384",
+    "nombre": "CHIUCHIARELLI, PABLO GABRIEL",
+    "dni": "21.927.073",
+    "telefono": "299‐6373496",
+    "alta": "01/08/2016",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "371",
+    "nombre": "CICCARELLI ARRIETA, RUBÉN OMAR",
+    "dni": "37.101.489",
+    "telefono": "299‐6357109",
+    "alta": "30/05/2016",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "1198",
+    "nombre": "CID SANDOVAL, RICHARD OMAR",
+    "dni": "92.894.878",
+    "telefono": "299‐5883592",
+    "alta": "05/05/2025",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "425",
+    "nombre": "CILLERUELO, MARIO RICARDO",
+    "dni": "21.012.527",
+    "telefono": "299‐5480827",
+    "alta": "17/07/2017",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "217",
+    "nombre": "CIRICA, JOSÉ NORBERTO",
+    "dni": "24.746.028",
+    "telefono": "299‐5871701",
+    "alta": "22/05/2014",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1145",
+    "nombre": "COFRÉ, MIGUEL ÁNGEL",
+    "dni": "26.945.961",
+    "telefono": "299‐5223338",
+    "alta": "22/07/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1064",
+    "nombre": "COLOMBRES, NOELIA ELIZABETH",
+    "dni": "30.807.676",
+    "telefono": "299‐4107273",
+    "alta": "07/08/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1070",
+    "nombre": "CONTRERAS CARES, GERARDO ANDRÉS",
+    "dni": "39.130.163",
+    "telefono": "299‐5832887",
+    "alta": "01/09/2023",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1086",
+    "nombre": "CONTRERAS, MAURO GABRIEL",
+    "dni": "32.614.002",
+    "telefono": "299‐5795810",
+    "alta": "05/02/2024",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1080",
+    "nombre": "CORACHAN, JUAN PABLO",
+    "dni": "30.072.689",
+    "telefono": "299‐4205637",
+    "alta": "01/12/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1038",
+    "nombre": "CORTEZ, ESTEBAN MAXIMILIANO",
+    "dni": "38.398.622",
+    "telefono": "299‐5186391",
+    "alta": "22/05/2023",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "102",
+    "nombre": "CORTEZ, MANUEL GUSTAVO",
+    "dni": "24.413.230",
+    "telefono": "299‐4069014",
+    "alta": "09/05/2013",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "415",
+    "nombre": "CUEVAS, EMANUEL GONZALO",
+    "dni": "27.723.103",
+    "telefono": "299‐4133638",
+    "alta": "22/05/2017",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1199",
+    "nombre": "CUITIÑO, LEONARDO DAMIÁN",
+    "dni": "33.302.276",
+    "telefono": "299‐5755531",
+    "alta": "05/05/2025",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1190",
+    "nombre": "CURIHUINCA, MIGUEL ÁNGEL",
+    "dni": "34.662.791",
+    "telefono": "299‐5166688",
+    "alta": "24/02/2025",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "823",
+    "nombre": "DEMARCO, JUAN IGNACIO",
+    "dni": "34.088.188",
+    "telefono": "299‐4112089",
+    "alta": "22/06/2021",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "218",
+    "nombre": "DÍAZ SOTO, RAMIRO MATÍAS",
+    "dni": "34.122.184",
+    "telefono": "155‐505246",
+    "alta": "13/05/2014",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "136",
+    "nombre": "DÍAZ, CARLOS JORGE",
+    "dni": "12.065.085",
+    "telefono": "299‐4127993",
+    "alta": "02/08/2013",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1071",
+    "nombre": "DÍAZ, SEBASTIÁN DANIEL",
+    "dni": "33.823.688",
+    "telefono": "299‐5900582",
+    "alta": "01/09/2023",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "1194",
+    "nombre": "DOMÍNGUEZ, JOSÉ LUIS",
+    "dni": "37.149.643",
+    "telefono": "262‐5528512",
+    "alta": "17/03/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1094",
+    "nombre": "DUBOSCQ, CÉSAR SEBASTIÁN",
+    "dni": "27.719.839",
+    "telefono": "299‐5495961",
+    "alta": "26/02/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1174",
+    "nombre": "ELÍAS, RODRIGO NAHUEL",
+    "dni": "41.790.474",
+    "telefono": "299‐5310365",
+    "alta": "02/12/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "489",
+    "nombre": "ENRIQUE, BRAIAN NICOLÁS",
+    "dni": "39.881.513",
+    "telefono": "299‐5176436",
+    "alta": "16/05/2018",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "783",
+    "nombre": "ESCOBAR DE LA VEGA, GONZALO JULIÁN",
+    "dni": "41.591.912",
+    "telefono": "299‐5523651",
+    "alta": "14/12/2020",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "844",
+    "nombre": "ESPRIU ÁVILA, FERNANDO EZEQUIEL",
+    "dni": "37.771.467",
+    "telefono": "299‐5522587",
+    "alta": "22/12/2021",
+    "categoria": "TII TB Cat VIII"
+  },
+  {
+    "legajo": "259",
+    "nombre": "FALCÓN, MIGUEL ÁNGEL",
+    "dni": "22.116.002",
+    "telefono": "299‐6353070",
+    "alta": "01/09/2014",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "1206",
+    "nombre": "FÉLIX, MATÍAS NICOLÁS",
+    "dni": "31.731.676",
+    "telefono": "11‐70596803",
+    "alta": "19/05/2025",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "1087",
+    "nombre": "FERNÁNDEZ, DAVID EZEQUIEL",
+    "dni": "32.699.172",
+    "telefono": "299‐4630680",
+    "alta": "05/02/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1118",
+    "nombre": "FERNÁNDEZ, EMANUEL SERGIO DAVID",
+    "dni": "33.197.051",
+    "telefono": "299‐5727057",
+    "alta": "17/04/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "434",
+    "nombre": "FERNÁNDEZ, ESTEBAN LEONARDO",
+    "dni": "24.777.546",
+    "telefono": "299‐6228205",
+    "alta": "01/08/2017",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1244",
+    "nombre": "FERNÁNDEZ SASTRE, PABLO MIGUEL",
+    "dni": "36.510.289",
+    "telefono": "299‐5036555",
+    "alta": "02/03/2026",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "86",
+    "nombre": "FERRARIS, HÉCTOR ARIEL",
+    "dni": "25.911.572",
+    "telefono": "299‐6351961",
+    "alta": "29/01/2013",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1233",
+    "nombre": "FERRETTI, SILVIA ANDREA",
+    "dni": "23.918.318",
+    "telefono": "299‐4620581",
+    "alta": "17/11/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1015",
+    "nombre": "FERRUCCI, JUAN CRUZ",
+    "dni": "36.435.493",
+    "telefono": "299‐4641370",
+    "alta": "03/06/2023",
+    "categoria": "TII TB Cat VII"
+  },
+  {
+    "legajo": "612",
+    "nombre": "FIGUEROA, CÉSAR WALTER ARIEL",
+    "dni": "34.663.058",
+    "telefono": "299‐5798504",
+    "alta": "01/10/2018",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1200",
+    "nombre": "FIGUEROA, JORGE LUIS",
+    "dni": "26.840.382",
+    "telefono": "299‐5697676",
+    "alta": "05/05/2025",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1044",
+    "nombre": "FIGUEROA, LUCAS MARIO",
+    "dni": "31.965.496",
+    "telefono": "299‐5742397",
+    "alta": "01/06/2023",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "183",
+    "nombre": "FIGUEROA, NICOLÁS RAFAEL",
+    "dni": "29.386.886",
+    "telefono": "299‐6239169",
+    "alta": "09/12/2013",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "50",
+    "nombre": "FLORES, LUIS ALBERTO",
+    "dni": "28.485.633",
+    "telefono": "299‐4110932",
+    "alta": "15/10/2012",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "412",
+    "nombre": "FORCHINO, MIGUEL ÁNGEL",
+    "dni": "27.674.822",
+    "telefono": "299‐5330948",
+    "alta": "15/05/2017",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1218",
+    "nombre": "FORQUERA, SEBASTIÁN OMAR",
+    "dni": "32.148.003",
+    "telefono": "298‐4199135",
+    "alta": "01/09/2025",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "1119",
+    "nombre": "FUENTEALBA, DIEGO LAUTARO",
+    "dni": "44.605.440",
+    "telefono": "299‐6036683",
+    "alta": "17/04/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "1140",
+    "nombre": "FUENTES, MAXIMILIANO ANDRÉS",
+    "dni": "35.968.985",
+    "telefono": "294‐2474803",
+    "alta": "01/07/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1033",
+    "nombre": "FUENTES, PABLO CÉSAR",
+    "dni": "25.655.064",
+    "telefono": "299‐4632326",
+    "alta": "02/05/2023",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "286",
+    "nombre": "FUSTER, SERGIO OSCAR",
+    "dni": "29.548.556",
+    "telefono": "2921‐408681",
+    "alta": "05/01/2015",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1102",
+    "nombre": "GALLO, SILVIO LEONARDO",
+    "dni": "27.657.185",
+    "telefono": "3512‐228180",
+    "alta": "18/03/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "618",
+    "nombre": "GARCÍA, EDGARDO GUILLERMO",
+    "dni": "28.718.946",
+    "telefono": "2942‐573172",
+    "alta": "01/11/2018",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "321",
+    "nombre": "GARCÍA, JOSÉ NICOLÁS",
+    "dni": "35.864.922",
+    "telefono": "299‐5880009",
+    "alta": "01/06/2015",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1014",
+    "nombre": "GARCÍA, JUANA",
+    "dni": "36.784.415",
+    "telefono": "299‐6001915",
+    "alta": "01/11/2022",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1066",
+    "nombre": "GARCÍA, CATHERINE LUCIANA",
+    "dni": "39.128.748",
+    "telefono": "299‐6598103",
+    "alta": "09/08/2023",
+    "categoria": "TII TB Cat II"
+  },
+  {
+    "legajo": "1097",
+    "nombre": "GARCÍA, MATÍAS NICOLÁS",
+    "dni": "42.848.264",
+    "telefono": "299‐4047821",
+    "alta": "08/03/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "1237",
+    "nombre": "GARCÍA, NICOLÁS RICARDO",
+    "dni": "33.823.495",
+    "telefono": "299‐5954084",
+    "alta": "09/12/2025",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "1051",
+    "nombre": "GARRIDO, RUBÉN EDUARDO",
+    "dni": "33.673.132",
+    "telefono": "299‐5857544",
+    "alta": "14/06/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1158",
+    "nombre": "GARRIDO, WALTER EDUARDO",
+    "dni": "35.655.760",
+    "telefono": "299‐4720067",
+    "alta": "23/09/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1186",
+    "nombre": "GAZZOLA, JORGE LUIS",
+    "dni": "38.415.205",
+    "telefono": "299‐5686934",
+    "alta": "03/02/2025",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1122",
+    "nombre": "GEREZ, NERY OSMAR",
+    "dni": "35.310.455",
+    "telefono": "299‐4023285",
+    "alta": "24/04/2024",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "1207",
+    "nombre": "GIMENEZ, RODRIGO ARIEL",
+    "dni": "28.614.858",
+    "telefono": "299‐4600386",
+    "alta": "19/05/2025",
+    "categoria": "TII TB Cat I"
+  },
+  {
+    "legajo": "770",
+    "nombre": "GIRARDI, DENISE GABRIEL",
+    "dni": "25.619.280",
+    "telefono": "299‐4107792",
+    "alta": "09/12/2019",
+    "categoria": "TII TB Cat X"
+  },
+  {
+    "legajo": "1192",
+    "nombre": "GIUSTI, GIULIANO MARCOS",
+    "dni": "36.256.985",
+    "telefono": "299‐4692067",
+    "alta": "24/02/2025",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "436",
+    "nombre": "GONZÁLEZ, AMALIA ROSARIO",
+    "dni": "33.637.328",
+    "telefono": "299‐4281567",
+    "alta": "14/08/2017",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "107",
+    "nombre": "GONZÁLEZ, CRISTHIAN DANIEL",
+    "dni": "35.077.733",
+    "telefono": "299‐5229614",
+    "alta": "24/05/2013",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "1230",
+    "nombre": "GONZÁLEZ, DAMIÁN ESTEBAN",
+    "dni": "36.945.470",
+    "telefono": "299‐6269012",
+    "alta": "10/11/2025",
+    "categoria": "TII TB Cat VII"
+  },
+  {
+    "legajo": "1181",
+    "nombre": "GONZÁLEZ, JORGE LEONARDO",
+    "dni": "30.874.776",
+    "telefono": "299‐6259231",
+    "alta": "02/01/2025",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "749",
+    "nombre": "GONZÁLEZ, PEDRO FABIÁN",
+    "dni": "30.055.241",
+    "telefono": "299‐4137578",
+    "alta": "10/07/2019",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "653",
+    "nombre": "GUARDIA, SERGIO OSCAR",
+    "dni": "23.786.987",
+    "telefono": "299‐6232584",
+    "alta": "12/04/2019",
+    "categoria": "TII TB Cat IX"
+  },
+  {
+    "legajo": "179",
+    "nombre": "GUAYRÁN, DAMIÁN ALEJANDRO",
+    "dni": "30.226.870",
+    "telefono": "299‐5293041",
+    "alta": "11/11/2013",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "1195",
+    "nombre": "GUINDER, CARLOS MARTÍN",
+    "dni": "29.386.848",
+    "telefono": "299‐4226148",
+    "alta": "17/03/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1065",
+    "nombre": "GUTIÉRREZ, NÉSTOR FABIÁN",
+    "dni": "28.718.631",
+    "telefono": "299‐5096657",
+    "alta": "09/08/2023",
+    "categoria": "TII TB Cat II"
+  },
+  {
+    "legajo": "443",
+    "nombre": "GUZMÁN, MIGUEL ÁNGEL",
+    "dni": "33.180.120",
+    "telefono": "299‐4523552",
+    "alta": "11/09/2017",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "131",
+    "nombre": "HAEDO, URIEL OSVALDO",
+    "dni": "33.566.993",
+    "telefono": "299‐4248542",
+    "alta": "02/08/2013",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "214",
+    "nombre": "HALICKI, GASTÓN ALEJANDRO",
+    "dni": "31.393.108",
+    "telefono": "299‐6230731",
+    "alta": "05/05/2014",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "1105",
+    "nombre": "HALICKI, JULIO CÉSAR",
+    "dni": "30.112.539",
+    "telefono": "299‐4110268",
+    "alta": "27/03/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1115",
+    "nombre": "HAZELDINE, JAVIER ALEJANDRO",
+    "dni": "31.796.581",
+    "telefono": "294‐4296400",
+    "alta": "12/04/2024",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "1049",
+    "nombre": "HERMOSILLA, CRISTIAN AGUSTÍN",
+    "dni": "43.156.386",
+    "telefono": "299‐5941287",
+    "alta": "14/06/2023",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1146",
+    "nombre": "HERNÁNDEZ, MARTÍN FACUNDO",
+    "dni": "34.960.931",
+    "telefono": "299‐5177097",
+    "alta": "22/07/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1058",
+    "nombre": "HERNANDORENA, FRANCO EMANUEL",
+    "dni": "38.174.329",
+    "telefono": "299‐4694814",
+    "alta": "01/08/2023",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "1231",
+    "nombre": "HERRERA, DAMIANA SABRINA",
+    "dni": "35.313.536",
+    "telefono": "299‐4021758",
+    "alta": "10/11/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1098",
+    "nombre": "HIRSCHFELDT, GASTÓN MICAEL",
+    "dni": "42.518.393",
+    "telefono": "299‐4595372",
+    "alta": "08/03/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "293",
+    "nombre": "HOLZMANN, ANDREA CAROLINA",
+    "dni": "36.801.232",
+    "telefono": "299‐5119428",
+    "alta": "19/02/2015",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "1170",
+    "nombre": "HUENUHUEQUE, JUAN FRANCISCO",
+    "dni": "45.259.152",
+    "telefono": "299‐5865929",
+    "alta": "19/11/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1018",
+    "nombre": "HUILIPAN VERGARA, ANDRÉS FABIÁN",
+    "dni": "92.749.374",
+    "telefono": "299‐4290691",
+    "alta": "11/01/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "819",
+    "nombre": "HURSTEL, MAXIMILIANO ALEJANDRO",
+    "dni": "30.284.603",
+    "telefono": "299‐5173462",
+    "alta": "26/05/2021",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1185",
+    "nombre": "IBAÑEZ YBAÑEZ, EGLHAYDEE VERONICA",
+    "dni": "95.850.989",
+    "telefono": "2.996.830.878",
+    "alta": "20/01/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1187",
+    "nombre": "ILARDO, MARÍA BELÉN",
+    "dni": "35.310.796",
+    "telefono": "299‐5724482",
+    "alta": "03/02/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "617",
+    "nombre": "INFANTE INOSTROZA, JUAN MARCELO",
+    "dni": "30.174.811",
+    "telefono": "299‐4199105",
+    "alta": "18/10/2018",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1113",
+    "nombre": "INOSTROZA, TOMÁS EZEQUIEL",
+    "dni": "42.848.452",
+    "telefono": "299‐5945750",
+    "alta": "12/04/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "472",
+    "nombre": "JARA, PABLO DAMIÁN",
+    "dni": "27.368.797",
+    "telefono": "299‐4190511",
+    "alta": "20/02/2018",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "203",
+    "nombre": "JARA, PABLO DAVID",
+    "dni": "28.588.018",
+    "telefono": "299‐5294641",
+    "alta": "16/01/2014",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "1141",
+    "nombre": "JOFRÉ KRAUSE, JUAN IGNACIO",
+    "dni": "41.911.701",
+    "telefono": "299‐5110255",
+    "alta": "01/07/2024",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "219",
+    "nombre": "JORDÁN, ALFREDO RENZO",
+    "dni": "31.188.521",
+    "telefono": "299‐6222472",
+    "alta": "07/05/2014",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1157",
+    "nombre": "JURICICH, ROSANA ELIZABETH",
+    "dni": "22.473.296",
+    "telefono": "299‐6324127",
+    "alta": "02/09/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1201",
+    "nombre": "KASTLI, EMANUEL MATÍAS",
+    "dni": "37.348.636",
+    "telefono": "299‐5817120",
+    "alta": "05/05/2025",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "329",
+    "nombre": "KLOBERDANZ, ABELARDO AURELIO",
+    "dni": "14.088.786",
+    "telefono": "4.477.482",
+    "alta": "01/07/1991",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "74",
+    "nombre": "KLOBERDANZ, MARIANO SEBASTIÁN",
+    "dni": "35.592.597",
+    "telefono": "299‐5300370",
+    "alta": "22/10/2012",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "786",
+    "nombre": "LAMBRECHT, LAUTARO ÁNGEL",
+    "dni": "41.591.705",
+    "telefono": "299‐5867914",
+    "alta": "26/02/2020",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1081",
+    "nombre": "LARA, SERGIO FABIÁN",
+    "dni": "33.464.261",
+    "telefono": "299‐5752084",
+    "alta": "18/12/2023",
+    "categoria": "TII TB Cat VII"
+  },
+  {
+    "legajo": "457",
+    "nombre": "LARENA, FACUNDO EMMANUEL",
+    "dni": "37.943.594",
+    "telefono": "299‐5473691",
+    "alta": "01/12/2017",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1055",
+    "nombre": "LIEMPE, LUCAS FERNANDO",
+    "dni": "37.995.673",
+    "telefono": "299‐6355301",
+    "alta": "03/07/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1107",
+    "nombre": "LILLO, CLAUDIO NICOLÁS",
+    "dni": "45.260.848",
+    "telefono": "299‐5364660",
+    "alta": "27/03/2024",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "841",
+    "nombre": "LILLO, MARTÍN IVÁN",
+    "dni": "28.160.461",
+    "telefono": "299‐4835882",
+    "alta": "01/11/2021",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1108",
+    "nombre": "LIZAMA, DIEGO HERALDO",
+    "dni": "32.570.361",
+    "telefono": "299‐5880039",
+    "alta": "03/04/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "426",
+    "nombre": "LÓPEZ, ARIEL ORLANDO",
+    "dni": "23.348.774",
+    "telefono": "299‐5351295",
+    "alta": "04/07/2017",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "460",
+    "nombre": "LÓPEZ, GUILLERMO MAURICIO",
+    "dni": "24.825.694",
+    "telefono": "299‐4042148",
+    "alta": "01/12/2017",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "824",
+    "nombre": "LÓPEZ, JUAN CARLOS",
+    "dni": "35.601.785",
+    "telefono": "299‐5484990",
+    "alta": "25/06/2021",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "1227",
+    "nombre": "LÓPEZ, MATÍAS ALEJANDRO",
+    "dni": "44.779.561",
+    "telefono": "299‐5078553",
+    "alta": "01/10/2025",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "1125",
+    "nombre": "LÓPEZ VILLENA, RODRIGO EMMANUEL",
+    "dni": "40.613.740",
+    "telefono": "299‐5041842",
+    "alta": "07/05/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "1205",
+    "nombre": "LUJÁN, OSAMA AMÍN",
+    "dni": "46.068.614",
+    "telefono": "299‐6273717",
+    "alta": "19/05/2025",
+    "categoria": "TII TB Cat I"
+  },
+  {
+    "legajo": "177",
+    "nombre": "LUNA, MARTÍN CARLOS ALBERTO",
+    "dni": "34.708.364",
+    "telefono": "299‐6275669",
+    "alta": "22/10/2013",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "853",
+    "nombre": "LUQUI, ROBERTO PABLO",
+    "dni": "30.226.456",
+    "telefono": "299‐6898173",
+    "alta": "11/02/2022",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "588",
+    "nombre": "MAIDANA, NÉSTOR FABIÁN",
+    "dni": "33.144.714",
+    "telefono": "299‐4103773",
+    "alta": "07/07/2018",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1222",
+    "nombre": "MAISSANI, KEVIN MATÍAS",
+    "dni": "35.492.789",
+    "telefono": "298‐4649261",
+    "alta": "15/09/2025",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "1219",
+    "nombre": "MALDONADO, CLAUDIO ALEJANDRO",
+    "dni": "38.681.914",
+    "telefono": "299‐4168938",
+    "alta": "01/09/2025",
+    "categoria": "TII TB Cat VII"
+  },
+  {
+    "legajo": "1042",
+    "nombre": "MANCA, MARCOS DAVID",
+    "dni": "28.387.967",
+    "telefono": "299‐4223809",
+    "alta": "01/06/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1120",
+    "nombre": "MANSUR, NASHIF AARON",
+    "dni": "36.784.075",
+    "telefono": "299‐5212335",
+    "alta": "17/04/2024",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "413",
+    "nombre": "MARANGHELLO, FEDERICO ALBERTO",
+    "dni": "28.989.257",
+    "telefono": "299‐5354041",
+    "alta": "15/05/2017",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1050",
+    "nombre": "MARDONEZ, JONATAN EMANUEL",
+    "dni": "32.518.412",
+    "telefono": "299‐4206678",
+    "alta": "14/06/2023",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1005",
+    "nombre": "MARIFIL, PABLO ARIEL",
+    "dni": "30.009.514",
+    "telefono": "299‐5728311",
+    "alta": "17/10/2022",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "396",
+    "nombre": "MARTÍNEZ PEÑA, FERNANDO EDISON",
+    "dni": "93.088.045",
+    "telefono": "299‐5834593",
+    "alta": "01/02/1996",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1067",
+    "nombre": "MARTÍNEZ, XIMENA BELÉN",
+    "dni": "42.105.233",
+    "telefono": "299‐5899484",
+    "alta": "14/08/2023",
+    "categoria": "TII TB Cat VII"
+  },
+  {
+    "legajo": "1182",
+    "nombre": "MATURANA, HERNÁN OSVALDO",
+    "dni": "31.985.670",
+    "telefono": "299‐4109837",
+    "alta": "02/01/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "648",
+    "nombre": "MAULÉN, JUAN OSVALDO",
+    "dni": "14.175.882",
+    "telefono": "260‐4387314",
+    "alta": "10/04/2019",
+    "categoria": "TII TB Cat VII"
+  },
+  {
+    "legajo": "445",
+    "nombre": "MAULÉN, LEONARDO JONATAN",
+    "dni": "32.168.843",
+    "telefono": "299‐6048564",
+    "alta": "09/10/2017",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "651",
+    "nombre": "MEDEL CHÁVEZ, LUIS ALEJANDRO",
+    "dni": "36.801.155",
+    "telefono": "299‐5834223",
+    "alta": "15/04/2019",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "439",
+    "nombre": "MELCHIOR, JUAN MARTÍN",
+    "dni": "30.587.055",
+    "telefono": "292‐3522865",
+    "alta": "17/08/2017",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "855",
+    "nombre": "MELIAN, SEGUNDO ROLANDO",
+    "dni": "23.189.803",
+    "telefono": "299‐5243868",
+    "alta": "09/02/2022",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1142",
+    "nombre": "MÉNDEZ, FACUNDO NAYIT",
+    "dni": "38.811.895",
+    "telefono": "299‐5824328",
+    "alta": "01/07/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "473",
+    "nombre": "MÉNDEZ, LUIS MARCELO",
+    "dni": "26.541.356",
+    "telefono": "299‐4721894",
+    "alta": "01/02/2018",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "424",
+    "nombre": "MENDOZA, MARCELO ALEJANDRO",
+    "dni": "25.087.060",
+    "telefono": "299‐5109495",
+    "alta": "17/07/2017",
+    "categoria": "TIII TS Cat X"
+  },
+  {
+    "legajo": "1202",
+    "nombre": "MERCADO, GABRIEL IVÁN",
+    "dni": "29.156.962",
+    "telefono": "298‐4531746",
+    "alta": "05/05/2025",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "481",
+    "nombre": "MERINO, CRISTIAN RUBÉN",
+    "dni": "36.626.945",
+    "telefono": "299‐4054601",
+    "alta": "07/05/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "597",
+    "nombre": "MERIÑO, JULIO ALBERTO",
+    "dni": "31.166.325",
+    "telefono": "299‐4511961",
+    "alta": "01/09/2018",
+    "categoria": "TII TB Cat VIII"
+  },
+  {
+    "legajo": "784",
+    "nombre": "MEZA, JOAQUÍN FERNANDO",
+    "dni": "38.044.851",
+    "telefono": "299‐5833275",
+    "alta": "14/12/2020",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "1019",
+    "nombre": "MILLAQUEO, NÉSTOR FACUNDO",
+    "dni": "37.176.071",
+    "telefono": "299‐6265402",
+    "alta": "23/01/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "455",
+    "nombre": "MIRANDA, CARLOS ALBERTO",
+    "dni": "30.144.719",
+    "telefono": "299‐4132544",
+    "alta": "12/12/2017",
+    "categoria": "TII TB Cat VIII"
+  },
+  {
+    "legajo": "629",
+    "nombre": "MIRANDA, DIEGO EDUARDO",
+    "dni": "21.586.745",
+    "telefono": "299‐4576837",
+    "alta": "02/01/2019",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1059",
+    "nombre": "MONDACA, DIEGO EMANUEL",
+    "dni": "35.311.640",
+    "telefono": "294‐2460834",
+    "alta": "01/08/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1074",
+    "nombre": "MONTERO, MAURO RAÚL CEFERINO",
+    "dni": "25.138.935",
+    "telefono": "299‐4098521",
+    "alta": "02/10/2023",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "1166",
+    "nombre": "MORA, CARLOS DARÍO",
+    "dni": "27.367.642",
+    "telefono": "299‐5355671",
+    "alta": "23/10/2024",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "165",
+    "nombre": "MORALES AROCA, CARLOS FABIÁN",
+    "dni": "27.323.284",
+    "telefono": "299‐5050382",
+    "alta": "07/10/2013",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "1053",
+    "nombre": "MORALES FERNÁNDEZ, EZEQUIAS EMANUEL",
+    "dni": "44.481.550",
+    "telefono": "299‐5236111",
+    "alta": "03/07/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1226",
+    "nombre": "MORALES, JUAN JULIÁN",
+    "dni": "42.264.972",
+    "telefono": "299‐6100023",
+    "alta": "01/10/2025",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "1099",
+    "nombre": "MORALES, LUCA JULIÁN",
+    "dni": "45.734.673",
+    "telefono": "294‐4700963",
+    "alta": "08/03/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1054",
+    "nombre": "MORALES RAMOS, DIEGO EZEQUIEL",
+    "dni": "31.962.116",
+    "telefono": "294‐2641139",
+    "alta": "03/07/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "287",
+    "nombre": "MORENO, HÉCTOR DAVID",
+    "dni": "32.247.442",
+    "telefono": "299‐4544682",
+    "alta": "05/01/2015",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "1103",
+    "nombre": "MORENO, JUAN MANUEL",
+    "dni": "42.910.945",
+    "telefono": "299‐6251196",
+    "alta": "27/03/2024",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "1132",
+    "nombre": "MORENO, VICENTE VÍCTOR",
+    "dni": "27.323.738",
+    "telefono": "299‐4106534",
+    "alta": "20/05/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1032",
+    "nombre": "MORENO WANTNUD, RAMIRO ULISES",
+    "dni": "29.734.073",
+    "telefono": "299‐3270502",
+    "alta": "02/05/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1203",
+    "nombre": "MUÑOZ, ALAN YUSEF",
+    "dni": "36.434.994",
+    "telefono": "299‐6115838",
+    "alta": "05/05/2025",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "229",
+    "nombre": "MUÑOZ, EMILIANO MARCOS MIGUEL",
+    "dni": "29.515.504",
+    "telefono": "299‐4081853",
+    "alta": "02/06/2014",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "831",
+    "nombre": "MUÑOZ, GUSTAVO ANDRÉS",
+    "dni": "37.946.259",
+    "telefono": "299‐6567106",
+    "alta": "13/09/2021",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1056",
+    "nombre": "MUÑOZ, JUAN PABLO",
+    "dni": "29.154.188",
+    "telefono": "299‐6203195",
+    "alta": "03/07/2023",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "1075",
+    "nombre": "MUÑOZ, NERI IVÁN",
+    "dni": "35.188.003",
+    "telefono": "299‐5499085",
+    "alta": "02/10/2023",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "212",
+    "nombre": "MUÑOZ, ROBERTO DANIEL",
+    "dni": "27.367.819",
+    "telefono": "299‐3296299",
+    "alta": "05/05/2014",
+    "categoria": "TII TB Cat IX"
+  },
+  {
+    "legajo": "1109",
+    "nombre": "NAVARRO, MARVIN PAOLO",
+    "dni": "36.201.433",
+    "telefono": "299‐5325392",
+    "alta": "08/04/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "493",
+    "nombre": "NEYROUD, JORGE IVÁN",
+    "dni": "35.311.113",
+    "telefono": "299‐5736824",
+    "alta": "05/05/2018",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "1193",
+    "nombre": "OBREQUE, DAVID EMILIANO",
+    "dni": "39.682.784",
+    "telefono": "299‐6918738",
+    "alta": "24/02/2025",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "1016",
+    "nombre": "OBREQUE, IVÁN FACUNDO",
+    "dni": "38.493.985",
+    "telefono": "299‐4619673",
+    "alta": "01/12/2022",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "810",
+    "nombre": "OJEDA, EMMANUEL SEBASTIÁN",
+    "dni": "32.032.886",
+    "telefono": "263‐4689332",
+    "alta": "05/04/2021",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1023",
+    "nombre": "OJEDA TORRES, LEANDRO ANDRÉS",
+    "dni": "33.291.762",
+    "telefono": "299‐4181563",
+    "alta": "01/03/2023",
+    "categoria": "TII TB Cat VI"
+  },
+  {
+    "legajo": "125",
+    "nombre": "ORMEA, MATÍAS EZEQUIEL",
+    "dni": "31.415.333",
+    "telefono": "299‐5279264",
+    "alta": "01/07/2013",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "850",
+    "nombre": "OROETA, GASTÓN ELÍAS",
+    "dni": "33.657.890",
+    "telefono": "299‐5246115",
+    "alta": "24/01/2022",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1167",
+    "nombre": "ORTÍZ, DARÍO ARMANDO NAHUEL",
+    "dni": "34.310.797",
+    "telefono": "299‐5775393",
+    "alta": "01/11/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1026",
+    "nombre": "ORTÍZ, HÉCTOR ALEJANDRO",
+    "dni": "29.554.399",
+    "telefono": "299‐4054751",
+    "alta": "06/03/2023",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1092",
+    "nombre": "PAEZ, FACUNDO",
+    "dni": "37.172.701",
+    "telefono": "299‐4279796",
+    "alta": "07/02/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1143",
+    "nombre": "PACHECO, WALTER ARIEL",
+    "dni": "32.139.313",
+    "telefono": "299‐4580516",
+    "alta": "01/07/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "253",
+    "nombre": "PAILALEO, MARTÍN",
+    "dni": "28.945.901",
+    "telefono": "299‐5053259",
+    "alta": "22/08/2014",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "167",
+    "nombre": "PAILALEO, RODRIGO IVÁN",
+    "dni": "30.725.688",
+    "telefono": "299‐4202149",
+    "alta": "01/10/2013",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1183",
+    "nombre": "PAILLALEF, ALDO ARIEL",
+    "dni": "28.559.917",
+    "telefono": "299‐5571537",
+    "alta": "13/01/2025",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "168",
+    "nombre": "PALAVECINO, MARCELO MATÍAS",
+    "dni": "32.518.553",
+    "telefono": "299‐5706473",
+    "alta": "01/10/2013",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1112",
+    "nombre": "PALMA, DANIEL ENRIQUE",
+    "dni": "38.232.949",
+    "telefono": "299‐5509426",
+    "alta": "08/04/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "474",
+    "nombre": "PALMA MC KIDD, NICOLÁS",
+    "dni": "35.592.569",
+    "telefono": "299‐5953454",
+    "alta": "01/02/2018",
+    "categoria": "TII TB Cat X"
+  },
+  {
+    "legajo": "1116",
+    "nombre": "PALOMAR SERRANO, VALENTÍN",
+    "dni": "45.978.678",
+    "telefono": "299‐6328292",
+    "alta": "12/04/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1147",
+    "nombre": "PARADA, CÉSAR ANDRÉS",
+    "dni": "31.173.068",
+    "telefono": "299‐5278535",
+    "alta": "22/07/2024",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "132",
+    "nombre": "PARDO, EMILIO ARIEL",
+    "dni": "27.174.579",
+    "telefono": "299‐6042418",
+    "alta": "26/08/2013",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1031",
+    "nombre": "PARRA MONSALVE, RUBÉN ISAÍ",
+    "dni": "32.779.045",
+    "telefono": "299‐4150115",
+    "alta": "02/05/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "857",
+    "nombre": "PAREDES, DENIS RAMIRO",
+    "dni": "35.059.653",
+    "telefono": "2984‐526572",
+    "alta": "01/02/2022",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1176",
+    "nombre": "PAREJA BAEZA, LUCAS NAHUEL",
+    "dni": "41.911.237",
+    "telefono": "299‐5758215",
+    "alta": "16/12/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "340",
+    "nombre": "PASCUCCI, DARÍO RUBÉN",
+    "dni": "33.447.598",
+    "telefono": "299‐5951170",
+    "alta": "03/08/2015",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1076",
+    "nombre": "PAUTASSO, TOMÁS AGUSTÍN",
+    "dni": "44.430.342",
+    "telefono": "299‐6251656",
+    "alta": "02/10/2023",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1245",
+    "nombre": "PEÑA, BRAIAN ALEXANDER",
+    "dni": "37.461.620",
+    "telefono": "299‐5461621",
+    "alta": "02/03/2026",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "1236",
+    "nombre": "PEREA, EDUARDO ALEJANDRO",
+    "dni": "22.820.035",
+    "telefono": "298‐4739803",
+    "alta": "09/12/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "170",
+    "nombre": "PERELLO, NICOLÁS MANUEL",
+    "dni": "29.386.723",
+    "telefono": "299‐6374544",
+    "alta": "01/10/2013",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "842",
+    "nombre": "PEREYRA, OMAR MAXIMILIANO",
+    "dni": "41.911.595",
+    "telefono": "299‐4238034",
+    "alta": "23/11/2021",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1047",
+    "nombre": "PÉREZ IBARGOYEN, JULIÁN MARTÍN",
+    "dni": "38.495.947",
+    "telefono": "299‐5743553",
+    "alta": "14/06/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "130",
+    "nombre": "PERLOZ, MARIO ARNOLDO",
+    "dni": "25.354.366",
+    "telefono": "299‐5861419",
+    "alta": "02/08/2013",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "1152",
+    "nombre": "PILATO GONZÁLEZ, GABRIEL ALBERTO",
+    "dni": "29.400.714",
+    "telefono": "299‐5057133",
+    "alta": "16/08/2024",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "1001",
+    "nombre": "PILLER, BERNARD JEAN GABRIEL",
+    "dni": "96.008.596",
+    "telefono": "11‐57390701",
+    "alta": "15/07/2022",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "773",
+    "nombre": "PINO, JOSÉ DOMINGO",
+    "dni": "35.493.420",
+    "telefono": "299‐4133559",
+    "alta": "14/12/2020",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "466",
+    "nombre": "PINO, MARIANO SERAFÍN",
+    "dni": "31.524.364",
+    "telefono": "299‐5491794",
+    "alta": "19/01/2018",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "581",
+    "nombre": "PITUCH, CARLOS ANDRÉS",
+    "dni": "23.304.952",
+    "telefono": "299‐4195684",
+    "alta": "07/07/2018",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "620",
+    "nombre": "PONCE, GUSTAVO JAVIER",
+    "dni": "21.883.443",
+    "telefono": "299‐4130395",
+    "alta": "01/11/2018",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1017",
+    "nombre": "PRESSELLO, NICOLÁS ALEJANDRO",
+    "dni": "34.866.262",
+    "telefono": "299‐5886870",
+    "alta": "02/12/2022",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1175",
+    "nombre": "PROVOSTE, MATÍAS FACUNDO",
+    "dni": "34.001.729",
+    "telefono": "299‐5271869",
+    "alta": "02/12/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1007",
+    "nombre": "QUERCI GIMÉNEZ, YOEL",
+    "dni": "44.825.145",
+    "telefono": "299‐5318792",
+    "alta": "17/10/2022",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "826",
+    "nombre": "QUINCHAO, LUCIANO MIGUEL",
+    "dni": "40.322.561",
+    "telefono": "299‐5468708",
+    "alta": "27/07/2021",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "846",
+    "nombre": "QUINTULAF, DANIEL EZEQUIEL",
+    "dni": "37.603.600",
+    "telefono": "299‐6230429",
+    "alta": "07/01/2022",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "178",
+    "nombre": "QUIROGA, JUAN PABLO DAVID",
+    "dni": "26.221.836",
+    "telefono": "299‐6072124",
+    "alta": "11/11/2013",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "593",
+    "nombre": "RAMÍREZ, FERNANDO MARTÍN",
+    "dni": "26.097.362",
+    "telefono": "299‐6001950",
+    "alta": "10/08/2018",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "419",
+    "nombre": "RAMÍREZ, NATALIA ANDREA",
+    "dni": "33.621.588",
+    "telefono": "299‐6728051",
+    "alta": "01/07/2017",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "822",
+    "nombre": "RAMÍREZ, ANTONIO TOMÁS",
+    "dni": "41.348.439",
+    "telefono": "299‐5526126",
+    "alta": "01/06/2021",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "360",
+    "nombre": "RAMOS, EMILIANO MARTÍN",
+    "dni": "30.874.398",
+    "telefono": "299‐5723849",
+    "alta": "25/01/2016",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "421",
+    "nombre": "RASCOVICH, EMANUELLE RODRIGO",
+    "dni": "33.197.225",
+    "telefono": "299‐4514813",
+    "alta": "17/07/2017",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "148",
+    "nombre": "RAVAGNANI, HÉCTOR FABIO",
+    "dni": "21.999.983",
+    "telefono": "299‐4131112",
+    "alta": "09/09/2013",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "840",
+    "nombre": "REBOLLEDO, VÍCTOR HUGO",
+    "dni": "35.835.247",
+    "telefono": "299‐6252898",
+    "alta": "03/11/2021",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1148",
+    "nombre": "RETAMAL, NICOLÁS NAHUEL",
+    "dni": "33.823.555",
+    "telefono": "299‐5158084",
+    "alta": "22/07/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "839",
+    "nombre": "REUQUE, JUAN DOMINGO",
+    "dni": "22.863.142",
+    "telefono": "2920‐568850",
+    "alta": "25/10/2021",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "1079",
+    "nombre": "REYES, MARTÍN NICOLÁS",
+    "dni": "45.389.697",
+    "telefono": "299‐6057818",
+    "alta": "20/10/2023",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "1028",
+    "nombre": "REYES, RODRIGO ALEXIS",
+    "dni": "32.588.109",
+    "telefono": "299‐5695432",
+    "alta": "21/03/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1088",
+    "nombre": "RINALDI, RAMIRO WALTER HUGO",
+    "dni": "30.701.176",
+    "telefono": "299‐4728881",
+    "alta": "05/02/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "1126",
+    "nombre": "RÍOS, CARLOS ALBERTO",
+    "dni": "27.674.864",
+    "telefono": "299‐5889199",
+    "alta": "07/05/2024",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1171",
+    "nombre": "RÍOS, OSVALDO GABRIEL",
+    "dni": "35.664.080",
+    "telefono": "299‐6253725",
+    "alta": "19/11/2024",
+    "categoria": "TII TB Cat VII"
+  },
+  {
+    "legajo": "169",
+    "nombre": "RÍOS, RAÚL OSMAR",
+    "dni": "22.801.998",
+    "telefono": "299‐4533626",
+    "alta": "01/10/2013",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "1020",
+    "nombre": "RIQUELME, VITO MARTÍN",
+    "dni": "33.823.377",
+    "telefono": "299‐6112381",
+    "alta": "01/02/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1204",
+    "nombre": "RIVAS, NÉSTOR EMILIANO",
+    "dni": "33.532.816",
+    "telefono": "299‐5085699",
+    "alta": "14/05/2025",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "1127",
+    "nombre": "RIVERA, GASTÓN RODRIGO",
+    "dni": "35.865.055",
+    "telefono": "299‐4091801",
+    "alta": "07/05/2024",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "199",
+    "nombre": "RIVERA, SERGIO ALEJANDRO",
+    "dni": "17.627.428",
+    "telefono": "0351‐3851512",
+    "alta": "10/01/2014",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "627",
+    "nombre": "RIVERA, WALTER MARTÍN",
+    "dni": "31.314.359",
+    "telefono": "299‐4277890",
+    "alta": "04/01/2019",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1220",
+    "nombre": "ROCHA, EMILIANO NICOLÁS",
+    "dni": "43.555.002",
+    "telefono": "299‐6243894",
+    "alta": "01/09/2025",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "1179",
+    "nombre": "RODRÍGUEZ, DIEGO NICOLÁS",
+    "dni": "25.615.169",
+    "telefono": "299‐6232800",
+    "alta": "16/12/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1123",
+    "nombre": "RODRÍGUEZ, LUIS ÁNGEL",
+    "dni": "26.702.890",
+    "telefono": "299‐5286054",
+    "alta": "24/04/2024",
+    "categoria": "TIII TS Cat X"
+  },
+  {
+    "legajo": "1149",
+    "nombre": "RODRÍGUEZ, MARCELO NICOLÁS",
+    "dni": "31.226.215",
+    "telefono": "299‐4187914",
+    "alta": "22/07/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "804",
+    "nombre": "RODRÍGUEZ, MARIO ALBERTO",
+    "dni": "28.503.754",
+    "telefono": "297‐4277943",
+    "alta": "27/03/2024",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1008",
+    "nombre": "RODRÍGUEZ, RICARDO JAVIER",
+    "dni": "37.172.756",
+    "telefono": "299‐4049931",
+    "alta": "17/10/2022",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1039",
+    "nombre": "ROJAS, CRISTIAN ELADIO",
+    "dni": "28.624.139",
+    "telefono": "299‐5235081",
+    "alta": "22/05/2023",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "613",
+    "nombre": "ROMÁN, CRISTIAN ALEJANDRO",
+    "dni": "36.151.982",
+    "telefono": "2942‐627812",
+    "alta": "17/10/2018",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1208",
+    "nombre": "ROMEO, TOMÁS JOAQUÍN",
+    "dni": "42.849.679",
+    "telefono": "299‐6739960",
+    "alta": "19/05/2025",
+    "categoria": "TII TB Cat I"
+  },
+  {
+    "legajo": "216",
+    "nombre": "ROMERO, DANIEL GASPAR",
+    "dni": "31.226.279",
+    "telefono": "299‐5346651",
+    "alta": "05/05/2014",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1223",
+    "nombre": "ROMERO, GUSTAVO GERMÁN",
+    "dni": "45.734.812",
+    "telefono": "299‐6553973",
+    "alta": "15/09/2025",
+    "categoria": "TII TB Cat I"
+  },
+  {
+    "legajo": "1172",
+    "nombre": "ROSALES, JORGE MAURICIO",
+    "dni": "36.453.447",
+    "telefono": "299‐4276125",
+    "alta": "19/11/2024",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1213",
+    "nombre": "RUILOVA, SEBASTIÁN ALEJANDRO",
+    "dni": "33.485.543",
+    "telefono": "299‐5226724",
+    "alta": "09/06/2025",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "255",
+    "nombre": "RUIZ, JESÚS JUAN MARTÍN",
+    "dni": "37.621.121",
+    "telefono": "2954‐442619",
+    "alta": "15/08/2014",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "599",
+    "nombre": "RUSSO, LUCAS EMANUEL",
+    "dni": "37.962.697",
+    "telefono": "299‐4659449",
+    "alta": "04/09/2018",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1209",
+    "nombre": "SÁEZ, JONATAN SANTIAGO",
+    "dni": "34.658.216",
+    "telefono": "299‐4617085",
+    "alta": "19/05/2025",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "111",
+    "nombre": "SAIZ, MARCELO ANDRÉS",
+    "dni": "21.640.213",
+    "telefono": "299‐5025621",
+    "alta": "10/06/2013",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1077",
+    "nombre": "SAJAMA, BERNABÉ ANTONIO",
+    "dni": "36.840.102",
+    "telefono": "299‐4609910",
+    "alta": "02/10/2023",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1052",
+    "nombre": "SALAMANCA, SERGIO EDUARDO",
+    "dni": "29.011.224",
+    "telefono": "299‐5502472",
+    "alta": "03/07/2023",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1114",
+    "nombre": "SALATINO, LUCAS NICOLÁS",
+    "dni": "36.669.091",
+    "telefono": "299‐5331690",
+    "alta": "12/04/2024",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "856",
+    "nombre": "SALAZAR, ALEXIS EMANUEL",
+    "dni": "40.067.287",
+    "telefono": "299‐5070455",
+    "alta": "15/02/2022",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1073",
+    "nombre": "SÁNCHEZ DÍAZ, GREGORIO NICOLÁS",
+    "dni": "34.866.951",
+    "telefono": "299‐6014561",
+    "alta": "02/10/2023",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "744",
+    "nombre": "SÁNCHEZ, HUGO MARTÍN FRANCISCO",
+    "dni": "30.731.349",
+    "telefono": "299‐4642559",
+    "alta": "05/06/2019",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "88",
+    "nombre": "SANDER, NICOLÁS CATRIEL",
+    "dni": "36.992.690",
+    "telefono": "299‐5961179",
+    "alta": "29/01/2013",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "583",
+    "nombre": "SANHUEZA, GUILLERMO NICOLÁS",
+    "dni": "28.485.188",
+    "telefono": "299‐6566342",
+    "alta": "07/07/2018",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "83",
+    "nombre": "SANTORO, MATÍAS SEBASTIÁN",
+    "dni": "33.037.929",
+    "telefono": "299‐4194599",
+    "alta": "05/03/2013",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "1136",
+    "nombre": "SAN MARTÍN, FÉLIX DARÍO",
+    "dni": "31.226.186",
+    "telefono": "299‐5890175",
+    "alta": "05/06/2024",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "1228",
+    "nombre": "SCHOFER, FRANCO MARTÍN",
+    "dni": "31.755.320",
+    "telefono": "280‐4854389",
+    "alta": "01/10/2025",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "363",
+    "nombre": "SEPÚLVEDA, LUCAS GABRIEL",
+    "dni": "37.401.554",
+    "telefono": "299‐5368975",
+    "alta": "16/02/2016",
+    "categoria": "TII TA Cat VII"
+  },
+  {
+    "legajo": "1013",
+    "nombre": "SEPÚLVEDA, MARCELO ALFONSO",
+    "dni": "26.132.049",
+    "telefono": "299‐5530551",
+    "alta": "24/10/2022",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1210",
+    "nombre": "SEPÚLVEDA, MAXIMILANO GABRIEL",
+    "dni": "32.474.057",
+    "telefono": "294‐2603950",
+    "alta": "19/05/2025",
+    "categoria": "TII TB Cat III"
+  },
+  {
+    "legajo": "89",
+    "nombre": "SIEBEN, GASTÓN ALEJANDRO",
+    "dni": "35.236.040",
+    "telefono": "2942‐464456",
+    "alta": "29/01/2013",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "254",
+    "nombre": "SIERRA, MATÍAS ISMAEL",
+    "dni": "28.485.358",
+    "telefono": "299‐6287295",
+    "alta": "22/08/2014",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "861",
+    "nombre": "SILVA, FRANCO DELVIS",
+    "dni": "33.532.722",
+    "telefono": "299‐5247912",
+    "alta": "09/05/2022",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "607",
+    "nombre": "SILVEIRA, LEOPOLDO",
+    "dni": "92.759.277",
+    "telefono": "299‐4707463",
+    "alta": "01/10/2018",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "848",
+    "nombre": "SIMON PITRIPAN, JONATHAN MAXIMILIANO",
+    "dni": "42.449.376",
+    "telefono": "299‐6063420",
+    "alta": "03/01/2022",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "353",
+    "nombre": "SIN, PABLO GERÓNIMO ANDRÉS",
+    "dni": "36.514.465",
+    "telefono": "299‐6002267",
+    "alta": "19/10/2015",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "232",
+    "nombre": "SOLÍS, CARLOS ALBERTO",
+    "dni": "18.199.707",
+    "telefono": "299‐6002001",
+    "alta": "21/07/2014",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1100",
+    "nombre": "SOLORZA, KEVIN EZEQUIEL",
+    "dni": "38.811.848",
+    "telefono": "299‐5118978",
+    "alta": "08/03/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "610",
+    "nombre": "SORIA, SANTIAGO AGUSTÍN",
+    "dni": "40.899.424",
+    "telefono": "299‐5017225",
+    "alta": "01/10/2018",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1111",
+    "nombre": "SOTO, ENZO ELÍAS",
+    "dni": "30.272.626",
+    "telefono": "299‐5185761",
+    "alta": "08/04/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "775",
+    "nombre": "SPAGNOLO, FLORENCIA ANABELA",
+    "dni": "33.472.990",
+    "telefono": "299‐6233752",
+    "alta": "05/02/2021",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1078",
+    "nombre": "SPANU, JUAN IGNACIO",
+    "dni": "36.816.885",
+    "telefono": "299‐4217796",
+    "alta": "09/10/2023",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "811",
+    "nombre": "STREVENSKY, SERGIO ROLANDO",
+    "dni": "29.418.377",
+    "telefono": "299‐5507000",
+    "alta": "05/04/2021",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "202",
+    "nombre": "STRILLEVSKY, ALICIA",
+    "dni": "20.676.695",
+    "telefono": "299‐5795639",
+    "alta": "16/01/2014",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1089",
+    "nombre": "STUBBIA, ALEJANDRO DAVID",
+    "dni": "34.749.672",
+    "telefono": "299‐4056986",
+    "alta": "05/02/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1046",
+    "nombre": "SUELDO, RICARDO ALBERTO",
+    "dni": "20.643.754",
+    "telefono": "299‐6213931",
+    "alta": "12/06/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1121",
+    "nombre": "SYME, CARLOS",
+    "dni": "25.528.653",
+    "telefono": "299‐6237125",
+    "alta": "17/04/2024",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "103",
+    "nombre": "TAPIA, LUIS MARTÍN",
+    "dni": "31.530.410",
+    "telefono": "299‐5553897",
+    "alta": "09/05/2013",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "745",
+    "nombre": "TAUX, ELVIO ALFREDO",
+    "dni": "14.777.697",
+    "telefono": "299‐6050312",
+    "alta": "01/07/2019",
+    "categoria": "TII TB Cat VI"
+  },
+  {
+    "legajo": "351",
+    "nombre": "TEAR, JUAN PEDRO",
+    "dni": "26.617.309",
+    "telefono": "299‐6226785",
+    "alta": "02/11/2015",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1090",
+    "nombre": "TEJERINA, HÉCTOR MAURICIO",
+    "dni": "35.281.206",
+    "telefono": "299‐5185662",
+    "alta": "05/02/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "1155",
+    "nombre": "TKACZEK, NICOLÁS AGUSTÍN",
+    "dni": "44.462.635",
+    "telefono": "299‐6291590",
+    "alta": "23/08/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "587",
+    "nombre": "TOTH, ANDRÉS",
+    "dni": "24.825.916",
+    "telefono": "299‐5744995",
+    "alta": "06/11/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "655",
+    "nombre": "TRAIMAN, LUIS ALFREDO",
+    "dni": "30.500.925",
+    "telefono": "2984‐572710",
+    "alta": "20/05/2019",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "110",
+    "nombre": "TRIPAINAO, CARLOS DANIEL",
+    "dni": "33.637.153",
+    "telefono": "299‐5274398",
+    "alta": "10/06/2013",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1153",
+    "nombre": "TRONCOSO, NICOLÁS ALEXANDER",
+    "dni": "39.882.204",
+    "telefono": "299‐4651431",
+    "alta": "16/08/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "852",
+    "nombre": "TRUSSI, SERGIO MAXIMILIANO",
+    "dni": "33.041.914",
+    "telefono": "299‐4069458",
+    "alta": "11/02/2022",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1128",
+    "nombre": "URIBE, WALTER ALEXANDER",
+    "dni": "44.671.659",
+    "telefono": "294‐2586643",
+    "alta": "07/05/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "821",
+    "nombre": "URIBE, RODOLFO RICARDO LUIS",
+    "dni": "36.626.662",
+    "telefono": "299‐4628725",
+    "alta": "26/05/2021",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1048",
+    "nombre": "URRUTIA, AGUSTÍN JULIÁN",
+    "dni": "39.522.546",
+    "telefono": "294‐2584761",
+    "alta": "14/06/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "332",
+    "nombre": "URRUTIA, FRANCISCO CRISTIAN",
+    "dni": "22.601.652",
+    "telefono": "299‐4387419",
+    "alta": "27/07/2015",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "1214",
+    "nombre": "URRUTIA, MAXIMILIANO HERNÁN",
+    "dni": "38.232.858",
+    "telefono": "299‐4670462",
+    "alta": "09/06/2025",
+    "categoria": "TII TB Cat V"
+  },
+  {
+    "legajo": "1068",
+    "nombre": "URRUTIA, RICARDO ANDRÉS",
+    "dni": "33.952.688",
+    "telefono": "299‐4668927",
+    "alta": "22/08/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "847",
+    "nombre": "VALENZUELA, DAVID ARIEL",
+    "dni": "30.500.310",
+    "telefono": "299‐4019339",
+    "alta": "03/01/2022",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "478",
+    "nombre": "VALENZUELA, MATÍAS LUIS",
+    "dni": "36.372.080",
+    "telefono": "299‐4678392",
+    "alta": "26/03/2018",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "1024",
+    "nombre": "VALLEJOS, JOAQUÍN ARIEL",
+    "dni": "44.014.897",
+    "telefono": "299‐4659402",
+    "alta": "01/03/2023",
+    "categoria": "TII TA Cat VI"
+  },
+  {
+    "legajo": "1129",
+    "nombre": "VANZELLA, DIEGO NICOLÁS",
+    "dni": "33.917.793",
+    "telefono": "299‐5807547",
+    "alta": "07/05/2024",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "181",
+    "nombre": "VARGAS, HÉCTOR MARIANO",
+    "dni": "29.009.617",
+    "telefono": "299‐6064380",
+    "alta": "14/11/2013",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "962",
+    "nombre": "VARGAS, JAVIER ANDRÉS",
+    "dni": "32.538.155",
+    "telefono": "299‐3279870",
+    "alta": "12/07/2011",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "482",
+    "nombre": "VÁSQUEZ, JULIO CÉSAR",
+    "dni": "35.032.309",
+    "telefono": "299‐5093212",
+    "alta": "01/03/2018",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1178",
+    "nombre": "VÁSQUEZ, SERGIO MAXIMILIANO",
+    "dni": "36.257.187",
+    "telefono": "299‐6722155",
+    "alta": "16/12/2024",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1164",
+    "nombre": "VÁZQUEZ, ÁNGEL FRANCO",
+    "dni": "32.020.479",
+    "telefono": "299‐5551026",
+    "alta": "02/10/2024",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "1061",
+    "nombre": "VÁZQUEZ, NICOLÁS ALEJANDRO",
+    "dni": "41.609.123",
+    "telefono": "299‐5951066",
+    "alta": "01/08/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1246",
+    "nombre": "VELÁZQUEZ, JOSÉ LUIS",
+    "dni": "22.473.669",
+    "telefono": "299‐5718778",
+    "alta": "02/03/2026",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "233",
+    "nombre": "VERA, BENJAMÍN SEBASTIÁN",
+    "dni": "31.949.144",
+    "telefono": "299‐4028123",
+    "alta": "24/07/2014",
+    "categoria": "TII TA Cat VIII"
+  },
+  {
+    "legajo": "1101",
+    "nombre": "VERA, EMANUEL ALEJANDRO",
+    "dni": "41.977.681",
+    "telefono": "299‐4646761",
+    "alta": "08/03/2024",
+    "categoria": "TII TB Cat IV"
+  },
+  {
+    "legajo": "1168",
+    "nombre": "VERGARA, GABRIEL ORLANDO",
+    "dni": "40.294.281",
+    "telefono": "299‐6596756",
+    "alta": "01/11/2024",
+    "categoria": "TII TA Cat III"
+  },
+  {
+    "legajo": "467",
+    "nombre": "VERGARA, JOSÉ OCTAVIO",
+    "dni": "32.544.975",
+    "telefono": "299‐6578910",
+    "alta": "23/01/2018",
+    "categoria": "TII TA Cat IX"
+  },
+  {
+    "legajo": "1063",
+    "nombre": "VERGARA MENA, DANILO ALEXIS",
+    "dni": "39.443.346",
+    "telefono": "294‐4913335",
+    "alta": "01/08/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "288",
+    "nombre": "VIGNA, MATÍAS DELMAR",
+    "dni": "31.506.599",
+    "telefono": "299‐4122771",
+    "alta": "05/01/2015",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "1037",
+    "nombre": "VIVANCO, LAUTARO NICOLÁS",
+    "dni": "42.449.773",
+    "telefono": "294‐4708605",
+    "alta": "22/05/2023",
+    "categoria": "TII TA Cat IV"
+  },
+  {
+    "legajo": "480",
+    "nombre": "WAIMAN, MARCOS ANSELMO",
+    "dni": "33.668.045",
+    "telefono": "299‐5221009",
+    "alta": "26/03/2018",
+    "categoria": "TII TA Cat X"
+  },
+  {
+    "legajo": "1197",
+    "nombre": "WIMBERGER, MAXIMILIANO OSCAR",
+    "dni": "34.095.537",
+    "telefono": "299‐4587480",
+    "alta": "01/04/2025",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1021",
+    "nombre": "WINKLER, RICARDO LEOPOLDO",
+    "dni": "20.121.245",
+    "telefono": "299‐6566284",
+    "alta": "01/02/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "1040",
+    "nombre": "YBAÑEZ PASTENE, MAXIMILIANO",
+    "dni": "33.450.105",
+    "telefono": "299‐5352603",
+    "alta": "22/05/2023",
+    "categoria": "TII TA Cat V"
+  },
+  {
+    "legajo": "1057",
+    "nombre": "ZARAGOZA, NICOLÁS EMMANUEL",
+    "dni": "29.732.247",
+    "telefono": "299‐6552219",
+    "alta": "12/07/2023",
+    "categoria": "SPJ"
+  },
+  {
+    "legajo": "206",
+    "nombre": "ZUÑIGA, SEBASTIÁN MIGUEL",
+    "dni": "33.041.911",
+    "telefono": "299‐5136683",
+    "alta": "14/03/2014",
+    "categoria": "TII TA Cat XI"
+  },
+  {
+    "legajo": "1093",
+    "nombre": "ZWENGER, GERMÁN AGUSTÍN",
+    "dni": "40.840.315",
+    "telefono": "298‐4907967",
+    "alta": "07/02/2024",
+    "categoria": "TII TA Cat VII"
+  }
+]

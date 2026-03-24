@@ -49,6 +49,7 @@ interface PlanillaDetalle {
   periodoInicio: string;
   periodoFin: string;
   estado: string;
+  pasoActual: number;
   totalHorasNormales: string;
   totalHorasExtra50: string;
   totalHorasExtra100: string;
@@ -66,6 +67,10 @@ interface PlanillaDetalle {
     categoria: { codigo: string; nombre: string } | null;
     diagramas: { diagrama: { nombre: string } }[];
   };
+  flujo?: {
+    nombre: string;
+    pasos: { orden: number; rolAprobador: string; nombrePaso: string }[];
+  } | null;
 }
 
 const DOW_LABELS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
@@ -229,8 +234,13 @@ export default function PlanillaDetailPage() {
   const isOwner = planilla.usuario.id === user?.id;
   const canEdit = isOwner && (planilla.estado === 'BORRADOR' || planilla.estado === 'RECHAZADA');
   const canSend = canEdit && planilla.registros.length > 0;
-  const canApprove = ['SUPERVISOR', 'COORDINADOR', 'GERENTE', 'RRHH', 'ADMIN'].includes(user?.rol ?? '') &&
-    !isOwner &&
+  // canApprove: true only if this user's role matches the current approval step,
+  // or RRHH/ADMIN (nivel >= 90) who can approve any step
+  const currentStep = planilla.flujo?.pasos.find(p => p.orden === planilla.pasoActual);
+  const userNivel = user?.rolNivel ?? 0;
+  const canApprove = !isOwner &&
+    !!currentStep &&
+    (currentStep.rolAprobador === user?.rol || userNivel >= 90) &&
     (planilla.estado === 'ENVIADA' || planilla.estado === 'EN_REVISION');
   const totalHoras = Number(planilla.totalHorasNormales) + Number(planilla.totalHorasExtra50) + Number(planilla.totalHorasExtra100);
 

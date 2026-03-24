@@ -664,6 +664,8 @@ async function main() {
         { nombre: '8×6', tipo: client_1.DiagramaTipo.ROTATIVO, diasTrabajo: 8, diasDescanso: 6, descripcion: '8 días trabajo, 6 días franco' },
         { nombre: '21×7', tipo: client_1.DiagramaTipo.ROTATIVO, diasTrabajo: 21, diasDescanso: 7, descripcion: '21 días trabajo, 7 días franco' },
         { nombre: '2×1 (8×4)', tipo: client_1.DiagramaTipo.ROTATIVO, diasTrabajo: 8, diasDescanso: 4, descripcion: 'Perforación 2×1 máx 8×4 (Acta 2024)' },
+        { nombre: '14×7', tipo: client_1.DiagramaTipo.ROTATIVO, diasTrabajo: 14, diasDescanso: 7, descripcion: '14 días trabajo, 7 días franco' },
+        { nombre: '10×4', tipo: client_1.DiagramaTipo.ROTATIVO, diasTrabajo: 10, diasDescanso: 4, descripcion: '10 días trabajo, 4 días franco' },
     ];
     const diagramas = {};
     for (const d of diagramasData) {
@@ -680,19 +682,21 @@ async function main() {
         });
         diagramas[d.nombre] = diagrama.id;
     }
-    console.log('✅ 7 diagramas creados');
+    console.log('✅ 9 diagramas creados');
     const accionCierreRRHH = {
         PLANILLA: 'CERRAR',
         VACACION: 'CONFIRMAR',
         AUSENCIA: 'APROBAR',
+        CAMBIO_DIAGRAMA: 'AUTORIZAR',
     };
     const tipoDocLabels = {
         PLANILLA: 'Planillas',
         VACACION: 'Vacaciones',
         AUSENCIA: 'Ausencias',
+        CAMBIO_DIAGRAMA: 'Cambios de Diagrama',
     };
     const flujosConfig = [];
-    for (const tipo of ['PLANILLA', 'VACACION', 'AUSENCIA']) {
+    for (const tipo of ['PLANILLA', 'VACACION', 'AUSENCIA', 'CAMBIO_DIAGRAMA']) {
         const label = tipoDocLabels[tipo];
         const accionRRHH = accionCierreRRHH[tipo];
         // Patrón A: 3 pasos
@@ -848,7 +852,7 @@ async function main() {
     const sectoresPatronB = ['Logística y Transporte', 'CMASS'];
     // Patrón C (1 paso): Administración, Almacén, Intendencia, Wireline
     const sectoresPatronC = ['Administración', 'Almacén', 'Intendencia', 'Wireline'];
-    for (const tipo of ['PLANILLA', 'VACACION', 'AUSENCIA']) {
+    for (const tipo of ['PLANILLA', 'VACACION', 'AUSENCIA', 'CAMBIO_DIAGRAMA']) {
         for (const sectorNombre of sectoresPatronA) {
             await prisma.flujoAsignacion.create({
                 data: { flujoId: flujos[`${tipo}_A`], tipoDocumento: tipo, sectorId: sectores[sectorNombre] },
@@ -865,7 +869,7 @@ async function main() {
             });
         }
     }
-    console.log('✅ 27 asignaciones de flujo creadas (9 sectores × 3 tipos)');
+    console.log('✅ 36 asignaciones de flujo creadas (9 sectores × 4 tipos)');
     // ═════════════════════════════════════════════════
     // RESUMEN
     // ═════════════════════════════════════════════════
@@ -875,7 +879,7 @@ async function main() {
     console.log('  9 flujos de aprobación (3 patrones × 3 tipos documento)');
     console.log(`  ${userCount + 1} usuarios (1 admin sistema + ${userCount} empleados)`);
     console.log('  Convenios: CCT 644/12 PP (15 cats, 25 conceptos) + CCT 637/11 PJ (4 cats, 22 conceptos)');
-    console.log('  7 diagramas de trabajo');
+    console.log('  9 diagramas de trabajo');
     console.log('  ' + feriados.length + ' feriados configurados');
     console.log('───────────────────────────────────────────');
     console.log('Usuarios clave para login:');
