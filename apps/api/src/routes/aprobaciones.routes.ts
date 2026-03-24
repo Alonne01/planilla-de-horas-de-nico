@@ -218,7 +218,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     // Computes for BOTH the selected period and the previous one.
     const MESES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
-    type FaltanteUser = { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector: { id: string; nombre: string } | null };
+    type FaltanteUser = { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; diagramaColor: string | null; sector: { id: string; nombre: string } | null };
     type FaltanteEntry = { usuario: FaltanteUser; planillaId: string | null; estado: string };
     type FaltantesPeriodo = { label: string; periodoInicio: string; periodoFin: string; items: FaltanteEntry[] } | null;
 

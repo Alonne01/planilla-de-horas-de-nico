@@ -9,7 +9,7 @@ import { toast } from '@/stores/toastStore';
 import { useCanApprove } from '@/hooks/useCanApprove';
 import {
   CheckCircle2, XCircle, Loader2, Clock, Palmtree, Calendar,
-  History, AlertCircle, ChevronRight, X, Send, AlertTriangle, Filter, UserX
+  History, AlertCircle, ChevronRight, X, Send, AlertTriangle, Filter
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 import ScopeToggle from '@/components/layout/ScopeToggle';
@@ -152,6 +152,8 @@ export default function AprobacionesPage() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const [tab, setTab] = useState<'planillas' | 'vacaciones' | 'ausencias' | 'compensatorios'>('planillas');
+  const [subTab, setSubTab] = useState<'pendientes' | 'historial' | 'faltantes'>('pendientes');
+  const switchTab = (t: typeof tab) => { setTab(t); setSubTab('pendientes'); };
   const [rechazandoId, setRechazandoId] = useState<string | null>(null);
   const [rechazandoTipo, setRechazandoTipo] = useState<'planilla' | 'vacacion' | 'ausencia'>('planilla');
   const [motivoRechazo, setMotivoRechazo] = useState('');
@@ -303,7 +305,7 @@ export default function AprobacionesPage() {
       <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
         <div className="flex gap-1 bg-muted/20 rounded-lg p-1 w-fit">
           <button
-            onClick={() => setTab('planillas')}
+            onClick={() => switchTab('planillas')}
             className={cn(
               'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
               tab === 'planillas' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
@@ -322,7 +324,7 @@ export default function AprobacionesPage() {
             )}
           </button>
           <button
-            onClick={() => setTab('vacaciones')}
+            onClick={() => switchTab('vacaciones')}
             className={cn(
               'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
               tab === 'vacaciones' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
@@ -336,7 +338,7 @@ export default function AprobacionesPage() {
             )}
           </button>
           <button
-            onClick={() => setTab('ausencias')}
+            onClick={() => switchTab('ausencias')}
             className={cn(
               'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
               tab === 'ausencias' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
@@ -350,7 +352,7 @@ export default function AprobacionesPage() {
             )}
           </button>
           <button
-            onClick={() => setTab('compensatorios')}
+            onClick={() => switchTab('compensatorios')}
             className={cn(
               'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
               tab === 'compensatorios' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
@@ -366,172 +368,116 @@ export default function AprobacionesPage() {
         </div>
       </div>
 
+      {/* Sub-tabs */}
+      {!isLoading && (
+        <div className="flex gap-1 bg-muted/30 rounded-lg p-1 w-fit">
+          <button
+            onClick={() => setSubTab('pendientes')}
+            className={cn(
+              'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+              subTab === 'pendientes' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Pendientes
+          </button>
+          <button
+            onClick={() => setSubTab('historial')}
+            className={cn(
+              'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+              subTab === 'historial' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Historial
+          </button>
+          {tab === 'planillas' && (
+            <button
+              onClick={() => setSubTab('faltantes')}
+              className={cn(
+                'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                subTab === 'faltantes' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              Faltantes
+              {faltantesCount > 0 && (
+                <span className="ml-1 bg-destructive text-destructive-foreground rounded-full text-[10px] px-1.5 min-w-[16px] text-center inline-block">
+                  {faltantesCount}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+      )}
       {isLoading ? (
         <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
       ) : tab === 'planillas' ? (
         <div className="space-y-4">
-          {/* Section A – Pendientes de aprobación */}
-          {filteredPlanillas.length > 0 && (
-            <section>
-              <div className="flex items-center gap-2 mb-3">
-                <Clock className="h-4 w-4 text-blue-400" />
-                <h2 className="text-sm font-semibold text-foreground">Pendientes de aprobación</h2>
-                <span className="text-xs text-muted-foreground">({filteredPlanillas.length})</span>
-              </div>
-              <div className="space-y-2">
-                {filteredPlanillas.map((p) => (
-                  <div key={p.id} className="rounded-xl border border-border bg-card p-3 sm:p-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="font-medium text-sm truncate">{p.usuario.apellido}, {p.usuario.nombre}</span>
-                          {p.usuario.legajo && <span className="text-[10px] text-muted-foreground">#{p.usuario.legajo}</span>}
-                          <span className="text-xs text-muted-foreground">{p.usuario.sector?.nombre ?? p.usuario.rol}</span>
-                          <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[p.estado])}>
-                            {p.estado === 'EN_REVISION' ? 'En revisión' : p.estado.charAt(0) + p.estado.slice(1).toLowerCase()}
-                          </span>
-                          <StepBadge item={p} />
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Período: {new Date(p.periodoInicio).toLocaleDateString('es-AR')} — {new Date(p.periodoFin).toLocaleDateString('es-AR')}
-                        </p>
-                        {p.enviadaAt && (
-                          <p className="text-[10px] text-muted-foreground">
-                            Enviada: {new Date(p.enviadaAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          onClick={() => navigate(`/planillas/${p.id}`)}
-                          className="p-2 rounded-lg hover:bg-accent text-muted-foreground"
-                          title="Ver planilla"
-                        >
-                          <ChevronRight className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => { setConfirmandoId(p.id); setConfirmandoTipo('planilla'); setConfirmandoNombre(`${p.usuario.apellido}, ${p.usuario.nombre}`); }}
-                          disabled={aprobarPlanillaMutation.isPending}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
-                        </button>
-                        <button
-                          onClick={() => { setRechazandoId(p.id); setRechazandoTipo('planilla'); setMotivoRechazo(''); }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
-                        >
-                          <X className="h-3.5 w-3.5" /> Rechazar
-                        </button>
-                      </div>
-                    </div>
-                    <ApprovalProgressBar pasos={buildPasosSimple(p)} estado={p.estado} />
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Section B – Faltantes */}
-          {(faltantesActualCount > 0 || faltantesAnteriorCount > 0) && (
+          {/* Sub-tab: Pendientes */}
+          {subTab === 'pendientes' && (
             <>
-              {filteredPlanillas.length > 0 && <div className="border-t border-border pt-4 mt-4" />}
-              <section>
-                <div className="flex items-center gap-2 mb-3">
-                  <UserX className="h-4 w-4 text-destructive" />
-                  <h2 className="text-sm font-semibold text-foreground">Faltantes</h2>
-                </div>
-                <div className="flex items-center gap-1 bg-muted/30 rounded-lg p-1 w-fit mb-3">
-                  <button
-                    onClick={() => setFaltantesPeriodoTab('actual')}
-                    className={cn(
-                      'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
-                      faltantesPeriodoTab === 'actual' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    Actual {faltantesActualCount > 0 && <span className="ml-1 text-destructive">({faltantesActualCount})</span>}
-                  </button>
-                  <button
-                    onClick={() => setFaltantesPeriodoTab('anterior')}
-                    className={cn(
-                      'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
-                      faltantesPeriodoTab === 'anterior' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    Anterior {faltantesAnteriorCount > 0 && <span className="ml-1 text-destructive">({faltantesAnteriorCount})</span>}
-                  </button>
-                </div>
-                {(() => {
-                  const periodoFaltantes = faltantesPeriodoTab === 'actual' ? faltantesActual : faltantesAnterior;
-                  const titulo = faltantesPeriodoTab === 'actual' ? 'Período actual' : 'Período anterior';
-                  return (
-                    <>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-xs text-muted-foreground font-medium">{titulo}</span>
-                        {periodoFaltantes && (
-                          <span className="text-xs text-muted-foreground">
-                            · {periodoFaltantes.label} · {periodoFaltantes.items.length} faltante{periodoFaltantes.items.length !== 1 ? 's' : ''}
-                          </span>
-                        )}
+              {filteredPlanillas.length > 0 ? (
+                <div className="space-y-2">
+                  {filteredPlanillas.map((p) => (
+                    <div key={p.id} className="rounded-xl border border-border bg-card p-3 sm:p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="font-medium text-sm truncate">{p.usuario.apellido}, {p.usuario.nombre}</span>
+                            {p.usuario.legajo && <span className="text-[10px] text-muted-foreground">#{p.usuario.legajo}</span>}
+                            <span className="text-xs text-muted-foreground">{p.usuario.sector?.nombre ?? p.usuario.rol}</span>
+                            <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[p.estado])}>
+                              {p.estado === 'EN_REVISION' ? 'En revisión' : p.estado.charAt(0) + p.estado.slice(1).toLowerCase()}
+                            </span>
+                            <StepBadge item={p} />
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Período: {new Date(p.periodoInicio).toLocaleDateString('es-AR')} — {new Date(p.periodoFin).toLocaleDateString('es-AR')}
+                          </p>
+                          {p.enviadaAt && (
+                            <p className="text-[10px] text-muted-foreground">
+                              Enviada: {new Date(p.enviadaAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            onClick={() => navigate(`/planillas/${p.id}`)}
+                            className="p-2 rounded-lg hover:bg-accent text-muted-foreground"
+                            title="Ver planilla"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => { setConfirmandoId(p.id); setConfirmandoTipo('planilla'); setConfirmandoNombre(`${p.usuario.apellido}, ${p.usuario.nombre}`); }}
+                            disabled={aprobarPlanillaMutation.isPending}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
+                          </button>
+                          <button
+                            onClick={() => { setRechazandoId(p.id); setRechazandoTipo('planilla'); setMotivoRechazo(''); }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" /> Rechazar
+                          </button>
+                        </div>
                       </div>
-                      {periodoFaltantes && periodoFaltantes.items.length > 0 ? (
-                        <div className="space-y-2">
-                          {periodoFaltantes.items.map((f) => (
-                            <div key={f.usuario.id} className={cn(
-                              'rounded-xl border p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4',
-                              f.usuario.diagramaColor && DIAGRAMA_CARD_BG[f.usuario.diagramaColor]
-                                ? DIAGRAMA_CARD_BG[f.usuario.diagramaColor]
-                                : 'border-border bg-card',
-                            )}>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                                  <span className="font-medium text-sm truncate">{f.usuario.apellido}, {f.usuario.nombre}</span>
-                                  {f.usuario.legajo && <span className="text-xs text-muted-foreground">#{f.usuario.legajo}</span>}
-                                  <span className="text-xs text-muted-foreground">{f.usuario.sector?.nombre ?? f.usuario.rol}</span>
-                                  <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium',
-                                    f.estado === 'SIN_PLANILLA' ? 'bg-muted/40 text-muted-foreground' :
-                                    f.estado === 'RECHAZADA' ? 'bg-red-500/20 text-red-400' :
-                                    'bg-muted/30 text-muted-foreground'
-                                  )}>
-                                    {f.estado === 'SIN_PLANILLA' ? 'Sin planilla' :
-                                     f.estado === 'RECHAZADA' ? 'Rechazada' : 'Borrador'}
-                                  </span>
-                                </div>
-                              </div>
-                              {f.planillaId && (
-                                <button
-                                  onClick={() => navigate(`/planillas/${f.planillaId}`)}
-                                  className="p-2 rounded-lg hover:bg-accent text-muted-foreground shrink-0"
-                                  title="Ver planilla"
-                                >
-                                  <ChevronRight className="h-4 w-4" />
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-center py-8 text-muted-foreground border border-dashed border-border rounded-xl">
-                          <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-30 text-emerald-400" />
-                          <p className="text-xs">Todos enviaron su planilla</p>
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              </section>
+                      <ApprovalProgressBar pasos={buildPasosSimple(p)} estado={p.estado} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-16 text-muted-foreground">
+                  <CheckCircle2 className="h-10 w-10 mx-auto mb-3 opacity-30 text-emerald-400" />
+                  <p className="text-sm">No hay planillas pendientes de aprobación</p>
+                </div>
+              )}
             </>
           )}
 
-          {/* Section C – Historial */}
-          {filteredHistPlanillas.length > 0 && (
+          {/* Sub-tab: Historial */}
+          {subTab === 'historial' && (
             <>
-              {(filteredPlanillas.length > 0 || faltantesActualCount > 0 || faltantesAnteriorCount > 0) && <div className="border-t border-border pt-4 mt-4" />}
-              <section>
-                <div className="flex items-center gap-2 mb-3">
-                  <History className="h-4 w-4 text-muted-foreground" />
-                  <h2 className="text-sm font-semibold text-foreground">Historial</h2>
-                  <span className="text-xs text-muted-foreground">({filteredHistPlanillas.length})</span>
-                </div>
+              {filteredHistPlanillas.length > 0 ? (
                 <div className="space-y-1.5">
                   {filteredHistPlanillas.map((p) => (
                     <div key={p.id}
@@ -561,87 +507,162 @@ export default function AprobacionesPage() {
                     </div>
                   ))}
                 </div>
-              </section>
+              ) : (
+                <div className="text-center py-16 text-muted-foreground">
+                  <History className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">Sin historial de planillas</p>
+                </div>
+              )}
             </>
           )}
 
-          {planillasPendienteCount === 0 && faltantesActualCount === 0 && faltantesAnteriorCount === 0 && filteredHistPlanillas.length === 0 && (
-            <div className="text-center py-16 text-muted-foreground">
-              <CheckCircle2 className="h-10 w-10 mx-auto mb-3 opacity-30 text-emerald-400" />
-              <p className="text-sm">No hay planillas pendientes de aprobación</p>
-            </div>
+          {/* Sub-tab: Faltantes */}
+          {subTab === 'faltantes' && (
+            <>
+              <div className="flex items-center gap-1 bg-muted/30 rounded-lg p-1 w-fit">
+                <button
+                  onClick={() => setFaltantesPeriodoTab('actual')}
+                  className={cn(
+                    'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                    faltantesPeriodoTab === 'actual' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  Actual {faltantesActualCount > 0 && <span className="ml-1 text-destructive">({faltantesActualCount})</span>}
+                </button>
+                <button
+                  onClick={() => setFaltantesPeriodoTab('anterior')}
+                  className={cn(
+                    'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                    faltantesPeriodoTab === 'anterior' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  Anterior {faltantesAnteriorCount > 0 && <span className="ml-1 text-destructive">({faltantesAnteriorCount})</span>}
+                </button>
+              </div>
+              {(() => {
+                const periodoFaltantes = faltantesPeriodoTab === 'actual' ? faltantesActual : faltantesAnterior;
+                const titulo = faltantesPeriodoTab === 'actual' ? 'Período actual' : 'Período anterior';
+                return (
+                  <>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs text-muted-foreground font-medium">{titulo}</span>
+                      {periodoFaltantes && (
+                        <span className="text-xs text-muted-foreground">
+                          · {periodoFaltantes.label} · {periodoFaltantes.items.length} faltante{periodoFaltantes.items.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                    {periodoFaltantes && periodoFaltantes.items.length > 0 ? (
+                      <div className="space-y-2">
+                        {periodoFaltantes.items.map((f) => (
+                          <div key={f.usuario.id} className={cn(
+                            'rounded-xl border p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4',
+                            f.usuario.diagramaColor && DIAGRAMA_CARD_BG[f.usuario.diagramaColor]
+                              ? DIAGRAMA_CARD_BG[f.usuario.diagramaColor]
+                              : 'border-border bg-card',
+                          )}>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                <span className="font-medium text-sm truncate">{f.usuario.apellido}, {f.usuario.nombre}</span>
+                                {f.usuario.legajo && <span className="text-xs text-muted-foreground">#{f.usuario.legajo}</span>}
+                                <span className="text-xs text-muted-foreground">{f.usuario.sector?.nombre ?? f.usuario.rol}</span>
+                                <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium',
+                                  f.estado === 'SIN_PLANILLA' ? 'bg-muted/40 text-muted-foreground' :
+                                  f.estado === 'RECHAZADA' ? 'bg-red-500/20 text-red-400' :
+                                  'bg-muted/30 text-muted-foreground'
+                                )}>
+                                  {f.estado === 'SIN_PLANILLA' ? 'Sin planilla' :
+                                   f.estado === 'RECHAZADA' ? 'Rechazada' : 'Borrador'}
+                                </span>
+                              </div>
+                            </div>
+                            {f.planillaId && (
+                              <button
+                                onClick={() => navigate(`/planillas/${f.planillaId}`)}
+                                className="p-2 rounded-lg hover:bg-accent text-muted-foreground shrink-0"
+                                title="Ver planilla"
+                              >
+                                <ChevronRight className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground border border-dashed border-border rounded-xl">
+                        <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-30 text-emerald-400" />
+                        <p className="text-xs">Todos enviaron su planilla</p>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </>
           )}
         </div>
       ) : tab === 'vacaciones' ? (
         <div className="space-y-4">
-          {/* Section A – Pendientes de aprobación */}
-          {filteredVacaciones.length > 0 && (
-            <section>
-              <div className="flex items-center gap-2 mb-3">
-                <Palmtree className="h-4 w-4 text-emerald-400" />
-                <h2 className="text-sm font-semibold text-foreground">Pendientes de aprobación</h2>
-                <span className="text-xs text-muted-foreground">({filteredVacaciones.length})</span>
-              </div>
-              <div className="space-y-2">
-                {filteredVacaciones.map((v) => (
-                  <div key={v.id} className="rounded-xl border border-border bg-card p-3 sm:p-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="font-medium text-sm">{v.usuario.apellido}, {v.usuario.nombre}</span>
-                          {v.usuario.legajo && <span className="text-[10px] text-muted-foreground">#{v.usuario.legajo}</span>}
-                          <span className="text-xs text-muted-foreground">{v.usuario.sector?.nombre ?? v.usuario.rol}</span>
-                          <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[v.estado])}>
-                            {v.estado === 'EN_REVISION' ? 'En revisión' : v.estado.charAt(0) + v.estado.slice(1).toLowerCase()}
-                          </span>
-                          <StepBadge item={v} />
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(v.fechaInicio).toLocaleDateString('es-AR')} — {new Date(v.fechaFin).toLocaleDateString('es-AR')}
-                          {' · '}<span className="font-medium">{v.diasHabiles} días hábiles</span>
-                          <span className="text-muted-foreground/60"> ({v.diasTotales} corridos)</span>
-                        </p>
-                        {v.motivo && <p className="text-xs text-muted-foreground mt-0.5">«{v.motivo}»</p>}
-                        <p className="text-[10px] text-muted-foreground">
-                          Solicitada: {new Date(v.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => { setConfirmandoId(v.id); setConfirmandoTipo('vacacion'); setConfirmandoNombre(`${v.usuario.apellido}, ${v.usuario.nombre}`); }}
-                          disabled={aprobarVacacionMutation.isPending}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
-                        </button>
-                        <button
-                          onClick={() => { setRechazandoId(v.id); setRechazandoTipo('vacacion'); setMotivoRechazo(''); }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
-                        >
-                          <X className="h-3.5 w-3.5" /> Rechazar
-                        </button>
-                      </div>
-                    </div>
-                    <ApprovalProgressBar pasos={buildPasosSimple(v)} estado={v.estado} />
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Section B – Historial */}
-          {filteredHistVacaciones.length > 0 && (
+          {subTab === 'pendientes' && (
             <>
-              {filteredVacaciones.length > 0 && <div className="border-t border-border pt-4 mt-4" />}
-              <section>
-                <div className="flex items-center gap-2 mb-3">
-                  <History className="h-4 w-4 text-muted-foreground" />
-                  <h2 className="text-sm font-semibold text-foreground">Historial</h2>
-                  <span className="text-xs text-muted-foreground">({filteredHistVacaciones.length})</span>
+              {filteredVacaciones.length > 0 ? (
+                <div className="space-y-2">
+                  {filteredVacaciones.map((v) => (
+                    <div key={v.id} className="rounded-xl border border-border bg-card p-3 sm:p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="font-medium text-sm">{v.usuario.apellido}, {v.usuario.nombre}</span>
+                            {v.usuario.legajo && <span className="text-[10px] text-muted-foreground">#{v.usuario.legajo}</span>}
+                            <span className="text-xs text-muted-foreground">{v.usuario.sector?.nombre ?? v.usuario.rol}</span>
+                            <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[v.estado])}>
+                              {v.estado === 'EN_REVISION' ? 'En revisión' : v.estado.charAt(0) + v.estado.slice(1).toLowerCase()}
+                            </span>
+                            <StepBadge item={v} />
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(v.fechaInicio).toLocaleDateString('es-AR')} — {new Date(v.fechaFin).toLocaleDateString('es-AR')}
+                            {' · '}<span className="font-medium">{v.diasHabiles} días hábiles</span>
+                            <span className="text-muted-foreground/60"> ({v.diasTotales} corridos)</span>
+                          </p>
+                          {v.motivo && <p className="text-xs text-muted-foreground mt-0.5">«{v.motivo}»</p>}
+                          <p className="text-[10px] text-muted-foreground">
+                            Solicitada: {new Date(v.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => { setConfirmandoId(v.id); setConfirmandoTipo('vacacion'); setConfirmandoNombre(`${v.usuario.apellido}, ${v.usuario.nombre}`); }}
+                            disabled={aprobarVacacionMutation.isPending}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
+                          </button>
+                          <button
+                            onClick={() => { setRechazandoId(v.id); setRechazandoTipo('vacacion'); setMotivoRechazo(''); }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" /> Rechazar
+                          </button>
+                        </div>
+                      </div>
+                      <ApprovalProgressBar pasos={buildPasosSimple(v)} estado={v.estado} />
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <div className="text-center py-16 text-muted-foreground">
+                  <Palmtree className="h-10 w-10 mx-auto mb-3 opacity-30 text-emerald-400" />
+                  <p className="text-sm">No hay solicitudes de vacaciones pendientes</p>
+                </div>
+              )}
+            </>
+          )}
+          {subTab === 'historial' && (
+            <>
+              {filteredHistVacaciones.length > 0 ? (
                 <div className="space-y-1.5">
                   {filteredHistVacaciones.map((v) => (
-                    <div key={v.id} className="rounded-lg border border-border bg-card/50 p-3 cursor-pointer hover:bg-muted/10 transition-colors">
+                    <div key={v.id} className="rounded-lg border border-border bg-card/50 p-3 hover:bg-muted/10 transition-colors">
                       <div className="flex items-center gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -665,97 +686,88 @@ export default function AprobacionesPage() {
                     </div>
                   ))}
                 </div>
-              </section>
+              ) : (
+                <div className="text-center py-16 text-muted-foreground">
+                  <History className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">Sin historial de vacaciones</p>
+                </div>
+              )}
             </>
-          )}
-
-          {vacacionesPendienteCount === 0 && filteredHistVacaciones.length === 0 && (
-            <div className="text-center py-16 text-muted-foreground">
-              <Palmtree className="h-10 w-10 mx-auto mb-3 opacity-30 text-emerald-400" />
-              <p className="text-sm">No hay solicitudes de vacaciones pendientes</p>
-            </div>
           )}
         </div>
       ) : tab === 'ausencias' ? (
         <div className="space-y-4">
-          {/* Section A – Pendientes de aprobación */}
-          {filteredAusencias.length > 0 && (
-            <section>
-              <div className="flex items-center gap-2 mb-3">
-                <AlertTriangle className="h-4 w-4 text-amber-400" />
-                <h2 className="text-sm font-semibold text-foreground">Pendientes de aprobación</h2>
-                <span className="text-xs text-muted-foreground">({filteredAusencias.length})</span>
-              </div>
-              <div className="space-y-2">
-                {filteredAusencias.map((a) => (
-                  <div key={a.id} className="rounded-xl border border-border bg-card p-3 sm:p-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="font-medium text-sm">{a.usuario.apellido}, {a.usuario.nombre}</span>
-                          {a.usuario.legajo && <span className="text-[10px] text-muted-foreground">#{a.usuario.legajo}</span>}
-                          <span className="text-xs text-muted-foreground">{a.usuario.sector?.nombre ?? a.usuario.rol}</span>
-                          <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[a.estado])}>
-                            {a.estado === 'EN_REVISION' ? 'En revisión' : a.estado.charAt(0) + a.estado.slice(1).toLowerCase()}
-                          </span>
-                          <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium',
-                            a.tipo === 'CERTIFICADO_MEDICO' ? 'bg-blue-500/20 text-blue-400' :
-                            a.tipo === 'FALTA_JUSTIFICADA' ? 'bg-amber-500/20 text-amber-400' :
-                            a.tipo === 'FALTA_INJUSTIFICADA' ? 'bg-red-500/20 text-red-400' :
-                            'bg-purple-500/20 text-purple-400'
-                          )}>
-                            {TIPO_AUSENCIA_LABELS[a.tipo] ?? a.tipo.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
-                          </span>
-                          <StepBadge item={a} />
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(a.fechaInicio).toLocaleDateString('es-AR')} — {new Date(a.fechaFin).toLocaleDateString('es-AR')}
-                          {' · '}<span className="font-medium">{a.diasAusencia} día{a.diasAusencia !== 1 ? 's' : ''}</span>
-                        </p>
-                        {a.numeroCertificado && (
-                          <p className="text-[10px] text-muted-foreground">Certificado Nº: {a.numeroCertificado}</p>
-                        )}
-                        {a.descripcion && <p className="text-xs text-muted-foreground mt-0.5">«{a.descripcion}»</p>}
-                        {a.cargadaPor && (
-                          <p className="text-[10px] text-muted-foreground">Cargada por: {a.cargadaPor.nombre} {a.cargadaPor.apellido}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => { setConfirmandoId(a.id); setConfirmandoTipo('ausencia'); setConfirmandoNombre(`${a.usuario.apellido}, ${a.usuario.nombre}`); }}
-                          disabled={aprobarAusenciaMutation.isPending}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
-                        </button>
-                        <button
-                          onClick={() => { setRechazandoId(a.id); setRechazandoTipo('ausencia'); setMotivoRechazo(''); }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
-                        >
-                          <X className="h-3.5 w-3.5" /> Rechazar
-                        </button>
-                      </div>
-                    </div>
-                    <ApprovalProgressBar pasos={buildPasosSimple(a)} estado={a.estado} />
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Section B – Historial */}
-          {filteredHistAusencias.length > 0 && (
+          {subTab === 'pendientes' && (
             <>
-              {filteredAusencias.length > 0 && <div className="border-t border-border pt-4 mt-4" />}
-              <section>
-                <div className="flex items-center gap-2 mb-3">
-                  <History className="h-4 w-4 text-muted-foreground" />
-                  <h2 className="text-sm font-semibold text-foreground">Historial</h2>
-                  <span className="text-xs text-muted-foreground">({filteredHistAusencias.length})</span>
+              {filteredAusencias.length > 0 ? (
+                <div className="space-y-2">
+                  {filteredAusencias.map((a) => (
+                    <div key={a.id} className="rounded-xl border border-border bg-card p-3 sm:p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="font-medium text-sm">{a.usuario.apellido}, {a.usuario.nombre}</span>
+                            {a.usuario.legajo && <span className="text-[10px] text-muted-foreground">#{a.usuario.legajo}</span>}
+                            <span className="text-xs text-muted-foreground">{a.usuario.sector?.nombre ?? a.usuario.rol}</span>
+                            <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[a.estado])}>
+                              {a.estado === 'EN_REVISION' ? 'En revisión' : a.estado.charAt(0) + a.estado.slice(1).toLowerCase()}
+                            </span>
+                            <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium',
+                              a.tipo === 'CERTIFICADO_MEDICO' ? 'bg-blue-500/20 text-blue-400' :
+                              a.tipo === 'FALTA_JUSTIFICADA' ? 'bg-amber-500/20 text-amber-400' :
+                              a.tipo === 'FALTA_INJUSTIFICADA' ? 'bg-red-500/20 text-red-400' :
+                              'bg-purple-500/20 text-purple-400'
+                            )}>
+                              {TIPO_AUSENCIA_LABELS[a.tipo] ?? a.tipo.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
+                            </span>
+                            <StepBadge item={a} />
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(a.fechaInicio).toLocaleDateString('es-AR')} — {new Date(a.fechaFin).toLocaleDateString('es-AR')}
+                            {' · '}<span className="font-medium">{a.diasAusencia} día{a.diasAusencia !== 1 ? 's' : ''}</span>
+                          </p>
+                          {a.numeroCertificado && (
+                            <p className="text-[10px] text-muted-foreground">Certificado Nº: {a.numeroCertificado}</p>
+                          )}
+                          {a.descripcion && <p className="text-xs text-muted-foreground mt-0.5">«{a.descripcion}»</p>}
+                          {a.cargadaPor && (
+                            <p className="text-[10px] text-muted-foreground">Cargada por: {a.cargadaPor.nombre} {a.cargadaPor.apellido}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => { setConfirmandoId(a.id); setConfirmandoTipo('ausencia'); setConfirmandoNombre(`${a.usuario.apellido}, ${a.usuario.nombre}`); }}
+                            disabled={aprobarAusenciaMutation.isPending}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
+                          </button>
+                          <button
+                            onClick={() => { setRechazandoId(a.id); setRechazandoTipo('ausencia'); setMotivoRechazo(''); }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" /> Rechazar
+                          </button>
+                        </div>
+                      </div>
+                      <ApprovalProgressBar pasos={buildPasosSimple(a)} estado={a.estado} />
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <div className="text-center py-16 text-muted-foreground">
+                  <AlertTriangle className="h-10 w-10 mx-auto mb-3 opacity-30 text-amber-400" />
+                  <p className="text-sm">No hay ausencias pendientes de aprobación</p>
+                </div>
+              )}
+            </>
+          )}
+          {subTab === 'historial' && (
+            <>
+              {filteredHistAusencias.length > 0 ? (
                 <div className="space-y-1.5">
                   {filteredHistAusencias.map((a) => (
-                    <div key={a.id} className="rounded-lg border border-border bg-card/50 p-3 cursor-pointer hover:bg-muted/10 transition-colors">
+                    <div key={a.id} className="rounded-lg border border-border bg-card/50 p-3 hover:bg-muted/10 transition-colors">
                       <div className="flex items-center gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -779,64 +791,66 @@ export default function AprobacionesPage() {
                     </div>
                   ))}
                 </div>
-              </section>
+              ) : (
+                <div className="text-center py-16 text-muted-foreground">
+                  <History className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">Sin historial de ausencias</p>
+                </div>
+              )}
             </>
-          )}
-
-          {ausenciasPendienteCount === 0 && filteredHistAusencias.length === 0 && (
-            <div className="text-center py-16 text-muted-foreground">
-              <AlertTriangle className="h-10 w-10 mx-auto mb-3 opacity-30 text-amber-400" />
-              <p className="text-sm">No hay ausencias pendientes de aprobación</p>
-            </div>
           )}
         </div>
       ) : tab === 'compensatorios' ? (
         <div className="space-y-4">
-          {filteredCompensatorios.length > 0 && (
-            <section>
-              <div className="flex items-center gap-2 mb-2">
-                <Calendar className="h-4 w-4 text-purple-400" />
-                <h2 className="text-sm font-semibold text-foreground">Días compensatorios pendientes</h2>
-                <span className="text-xs text-muted-foreground">({filteredCompensatorios.length})</span>
-              </div>
-              <p className="text-xs text-muted-foreground mb-3">
-                Los compensatorios se aprueban junto con su planilla. Esta vista es informativa.
-              </p>
-              <div className="space-y-2">
-                {filteredCompensatorios.map((c) => (
-                  <div key={c.id} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="font-medium text-sm">{c.planilla.usuario.apellido}, {c.planilla.usuario.nombre}</span>
-                        <span className="text-xs text-muted-foreground">{c.planilla.usuario.sector?.nombre ?? c.planilla.usuario.rol}</span>
-                        {c.planilla.usuario.legajo && (
-                          <span className="text-xs text-muted-foreground">#{c.planilla.usuario.legajo}</span>
-                        )}
-                        <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[c.planilla.estado])}>
-                          {c.planilla.estado === 'EN_REVISION' ? 'En revisión' : c.planilla.estado.charAt(0) + c.planilla.estado.slice(1).toLowerCase()}
-                        </span>
+          {subTab === 'pendientes' && (
+            <>
+              {filteredCompensatorios.length > 0 ? (
+                <section>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Los compensatorios se aprueban junto con su planilla. Esta vista es informativa.
+                  </p>
+                  <div className="space-y-2">
+                    {filteredCompensatorios.map((c) => (
+                      <div key={c.id} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="font-medium text-sm">{c.planilla.usuario.apellido}, {c.planilla.usuario.nombre}</span>
+                            <span className="text-xs text-muted-foreground">{c.planilla.usuario.sector?.nombre ?? c.planilla.usuario.rol}</span>
+                            {c.planilla.usuario.legajo && (
+                              <span className="text-xs text-muted-foreground">#{c.planilla.usuario.legajo}</span>
+                            )}
+                            <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[c.planilla.estado])}>
+                              {c.planilla.estado === 'EN_REVISION' ? 'En revisión' : c.planilla.estado.charAt(0) + c.planilla.estado.slice(1).toLowerCase()}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Franco compensatorio: <span className="font-medium">{new Date(c.fecha).toLocaleDateString('es-AR')}</span>
+                          </p>
+                          {c.observaciones && <p className="text-xs text-muted-foreground mt-0.5">«{c.observaciones}»</p>}
+                        </div>
+                        <button
+                          onClick={() => navigate(`/planillas/${c.planilla.id}`)}
+                          className="p-2 rounded-lg hover:bg-accent text-muted-foreground shrink-0"
+                          title="Ver planilla"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        Franco compensatorio: <span className="font-medium">{new Date(c.fecha).toLocaleDateString('es-AR')}</span>
-                      </p>
-                      {c.observaciones && <p className="text-xs text-muted-foreground mt-0.5">«{c.observaciones}»</p>}
-                    </div>
-                    <button
-                      onClick={() => navigate(`/planillas/${c.planilla.id}`)}
-                      className="p-2 rounded-lg hover:bg-accent text-muted-foreground shrink-0"
-                      title="Ver planilla"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </section>
+                </section>
+              ) : (
+                <div className="text-center py-16 text-muted-foreground">
+                  <Calendar className="h-10 w-10 mx-auto mb-3 opacity-30 text-purple-400" />
+                  <p className="text-sm">No hay compensatorios pendientes</p>
+                </div>
+              )}
+            </>
           )}
-          {compensatoriosPendienteCount === 0 && (
+          {subTab === 'historial' && (
             <div className="text-center py-16 text-muted-foreground">
-              <Calendar className="h-10 w-10 mx-auto mb-3 opacity-30 text-purple-400" />
-              <p className="text-sm">No hay compensatorios pendientes</p>
+              <History className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Los compensatorios se resuelven con su planilla</p>
             </div>
           )}
         </div>
