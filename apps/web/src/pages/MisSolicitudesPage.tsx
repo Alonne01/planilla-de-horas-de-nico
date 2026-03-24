@@ -171,7 +171,7 @@ function SolicitudCard({ solicitud }: { solicitud: Solicitud }) {
 export default function MisSolicitudesPage() {
   const [tipoFilter, setTipoFilter] = useState('');
 
-  const { data: solicitudes = [], isLoading } = useQuery<Solicitud[]>({
+  const { data: solicitudes = [], isLoading, isError } = useQuery<Solicitud[]>({
     queryKey: ['mis-solicitudes'],
     queryFn: async () => (await api.get('/mis-solicitudes')).data,
     staleTime: 30_000,
@@ -223,6 +223,12 @@ export default function MisSolicitudesPage() {
       {isLoading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : isError ? (
+        <div className="text-center py-12 text-red-400">
+          <XCircle className="h-10 w-10 mx-auto mb-2 opacity-50" />
+          <p className="text-sm font-medium">Error al cargar solicitudes</p>
+          <p className="text-xs text-muted-foreground">Intentá recargar la página</p>
         </div>
       ) : solicitudes.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">

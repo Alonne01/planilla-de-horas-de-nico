@@ -88,7 +88,11 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       where.usuarioId = { in: visibleIds };
     }
 
-    if (estado) where.estado = estado;
+    if (estado) {
+      const raw = Array.isArray(estado) ? estado.join(',') : String(estado);
+      const estados = raw.split(',').map(s => s.trim()).filter(Boolean);
+      where.estado = estados.length === 1 ? estados[0] : { in: estados };
+    }
 
     const periodoInicio = req.query.periodoInicio as string | undefined;
     const periodoFin = req.query.periodoFin as string | undefined;

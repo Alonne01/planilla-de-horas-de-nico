@@ -160,9 +160,15 @@ router.get('/preview/:planillaId', requireLevel(LEVEL_RRHH), async (req: AuthReq
     };
 
     // Determine sueldo básico: override → CCT BASICO_PP/BASICO_PJ valor → 0
-    let sueldoBasico = u.sueldoBasicoOverride ? Number(u.sueldoBasicoOverride) : 0;
+    let sueldoBasico = 0;
     let basicoNombre = 'Sueldo Básico';
 
+    // Priority 1: per-user override
+    if (u.sueldoBasicoOverride !== null && u.sueldoBasicoOverride !== undefined) {
+      sueldoBasico = Number(u.sueldoBasicoOverride);
+    }
+
+    // Priority 2: CCT concept with code BASICO_*
     if (!sueldoBasico) {
       const conceptoBasico = cctConceptos.find((c) => c.codigo.startsWith('BASICO_'));
       if (conceptoBasico) {
@@ -170,6 +176,10 @@ router.get('/preview/:planillaId', requireLevel(LEVEL_RRHH), async (req: AuthReq
         sueldoBasico = activeVal?.monto ? Number(activeVal.monto) : (conceptoBasico.montoFijo ? Number(conceptoBasico.montoFijo) : 0);
         basicoNombre = conceptoBasico.nombre;
       }
+    }
+
+    if (!sueldoBasico) {
+      console.warn(`[recibo-preview] sueldoBasico=0 for usuario ${u.id ?? planilla.usuarioId} — override=${u.sueldoBasicoOverride}, CCT concepts=${cctConceptos.length}`);
     }
 
     // Hour totals
