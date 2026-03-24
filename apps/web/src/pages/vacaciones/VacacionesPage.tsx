@@ -6,7 +6,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useCanApprove } from '@/hooks/useCanApprove';
 import {
   Palmtree, Plus, Send, XCircle,
-  Loader2, X, Calendar, ChevronLeft, ChevronRight, Filter
+  Loader2, X, Calendar, ChevronLeft, ChevronRight, Filter, UserCheck, Clock
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 import ScopeToggle from '@/components/layout/ScopeToggle';
@@ -21,7 +21,15 @@ interface Vacacion {
   estado: string;
   motivo: string | null;
   obsRechazo: string | null;
-  usuario: { nombre: string; apellido: string; sector?: { id: string; nombre: string } | null };
+  createdAt: string;
+  usuario: {
+    id: string;
+    nombre: string;
+    apellido: string;
+    legajo: string | null;
+    rol: string;
+    sector?: { id: string; nombre: string } | null;
+  };
 }
 
 interface Saldo {
@@ -170,18 +178,34 @@ export default function VacacionesPage({ embedded = false }: VacacionesPageProps
             <div key={v.id} className="rounded-xl border border-border bg-card p-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Calendar className="h-4 w-4 text-primary" />
-                    <span className="font-medium text-sm">
-                      {new Date(v.fechaInicio).toLocaleDateString('es-AR')} — {new Date(v.fechaFin).toLocaleDateString('es-AR')}
-                    </span>
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[v.estado])}>
                       {v.estado === 'EN_REVISION' ? 'En Revisión' : v.estado.charAt(0) + v.estado.slice(1).toLowerCase()}
                     </span>
-                    <span className="text-xs text-muted-foreground">{v.diasTotales} día{v.diasTotales !== 1 ? 's' : ''} corridos</span>
+                    <span className="font-medium text-sm flex items-center gap-1">
+                      <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                      {new Date(v.fechaInicio).toLocaleDateString('es-AR')} — {new Date(v.fechaFin).toLocaleDateString('es-AR')}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{v.diasHabiles} háb. / {v.diasTotales} corrido{v.diasTotales !== 1 ? 's' : ''}</span>
                   </div>
-                  {v.motivo && <p className="text-xs text-muted-foreground">{v.motivo}</p>}
-                  {v.obsRechazo && <p className="text-xs text-red-400 flex items-center gap-1"><XCircle className="h-3 w-3" /> {v.obsRechazo}</p>}
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                    <span className="flex items-center gap-1">
+                      <UserCheck className="h-3 w-3" />
+                      {v.usuario.apellido}, {v.usuario.nombre}
+                    </span>
+                    {v.usuario.legajo && (
+                      <span className="font-mono text-[11px]">Leg. {v.usuario.legajo}</span>
+                    )}
+                    {v.usuario.sector?.nombre && (
+                      <span>{v.usuario.sector.nombre}</span>
+                    )}
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      Solicitada {new Date(v.createdAt).toLocaleDateString('es-AR')}
+                    </span>
+                  </div>
+                  {v.motivo && <p className="text-xs text-muted-foreground mt-1">{v.motivo}</p>}
+                  {v.obsRechazo && <p className="text-xs text-red-400 flex items-center gap-1 mt-1"><XCircle className="h-3 w-3" /> {v.obsRechazo}</p>}
                 </div>
                 <div className="flex gap-2">
                   {v.estado === 'BORRADOR' && (
