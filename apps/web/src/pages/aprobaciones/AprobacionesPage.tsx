@@ -168,7 +168,7 @@ export default function AprobacionesPage() {
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
   const canApprove = useCanApprove();
   const showScopeToggle = isRRHH;
-  const [expandedHistIds, setExpandedHistIds] = useState<Set<string>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   interface Sector { id: string; nombre: string; }
   const { data: sectores = [] } = useQuery<Sector[]>({
@@ -202,8 +202,8 @@ export default function AprobacionesPage() {
   const filteredHistVacaciones = filterBySector(data?.historial.vacaciones ?? []);
   const filteredHistAusencias = filterBySector(data?.historial.ausencias ?? []);
 
-  const toggleHistExpand = (id: string) =>
-    setExpandedHistIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const toggleExpand = (id: string) =>
+    setExpandedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
 
   const filterFaltantesPeriodo = (p: FaltantesPeriodo | null | undefined): FaltantesPeriodo | null => {
     if (!p) return null;
@@ -422,8 +422,11 @@ export default function AprobacionesPage() {
               {filteredPlanillas.length > 0 ? (
                 <div className="space-y-2">
                   {filteredPlanillas.map((p) => (
-                    <div key={p.id} className="rounded-xl border border-border bg-card p-3 sm:p-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                    <div key={p.id}
+                      onClick={() => toggleExpand(p.id)}
+                      className="rounded-xl border border-border bg-card p-3 sm:p-4 cursor-pointer hover:bg-muted/10 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className="font-medium text-sm truncate">{p.usuario.apellido}, {p.usuario.nombre}</span>
@@ -437,36 +440,43 @@ export default function AprobacionesPage() {
                           <p className="text-xs text-muted-foreground">
                             Período: {new Date(p.periodoInicio).toLocaleDateString('es-AR')} — {new Date(p.periodoFin).toLocaleDateString('es-AR')}
                           </p>
+                        </div>
+                        {expandedIds.has(p.id)
+                          ? <ChevronDown className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+                          : <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />}
+                      </div>
+                      {expandedIds.has(p.id) && (
+                        <div className="mt-2 space-y-2">
                           {p.enviadaAt && (
                             <p className="text-[10px] text-muted-foreground">
                               Enviada: {new Date(p.enviadaAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                             </p>
                           )}
+                          <ApprovalProgressBar pasos={buildPasosSimple(p)} estado={p.estado} />
+                          <div className="flex items-center gap-2 flex-wrap pt-1" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={() => navigate(`/planillas/${p.id}`)}
+                              className="p-2 rounded-lg hover:bg-accent text-muted-foreground"
+                              title="Ver planilla"
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => { setConfirmandoId(p.id); setConfirmandoTipo('planilla'); setConfirmandoNombre(`${p.usuario.apellido}, ${p.usuario.nombre}`); }}
+                              disabled={aprobarPlanillaMutation.isPending}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
+                            </button>
+                            <button
+                              onClick={() => { setRechazandoId(p.id); setRechazandoTipo('planilla'); setMotivoRechazo(''); }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
+                            >
+                              <X className="h-3.5 w-3.5" /> Rechazar
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <button
-                            onClick={() => navigate(`/planillas/${p.id}`)}
-                            className="p-2 rounded-lg hover:bg-accent text-muted-foreground"
-                            title="Ver planilla"
-                          >
-                            <ChevronRight className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => { setConfirmandoId(p.id); setConfirmandoTipo('planilla'); setConfirmandoNombre(`${p.usuario.apellido}, ${p.usuario.nombre}`); }}
-                            disabled={aprobarPlanillaMutation.isPending}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
-                          </button>
-                          <button
-                            onClick={() => { setRechazandoId(p.id); setRechazandoTipo('planilla'); setMotivoRechazo(''); }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
-                          >
-                            <X className="h-3.5 w-3.5" /> Rechazar
-                          </button>
-                        </div>
-                      </div>
-                      <ApprovalProgressBar pasos={buildPasosSimple(p)} estado={p.estado} />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -486,7 +496,7 @@ export default function AprobacionesPage() {
                 <div className="space-y-1.5">
                   {filteredHistPlanillas.map((p) => (
                     <div key={p.id}
-                      onClick={() => toggleHistExpand(p.id)}
+                      onClick={() => toggleExpand(p.id)}
                       className="rounded-lg border border-border bg-card/50 p-3 cursor-pointer hover:bg-muted/10 transition-colors"
                     >
                       <div className="flex items-center gap-3">
@@ -506,11 +516,11 @@ export default function AprobacionesPage() {
                             </p>
                           )}
                         </div>
-                        {expandedHistIds.has(p.id)
+                        {expandedIds.has(p.id)
                           ? <ChevronDown className="h-4 w-4 text-muted-foreground/50 shrink-0" />
                           : <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />}
                       </div>
-                      {expandedHistIds.has(p.id) && (
+                      {expandedIds.has(p.id) && (
                         <ApprovalProgressBar pasos={buildPasosSimple(p)} estado={p.estado} />
                       )}
                     </div>
@@ -616,8 +626,11 @@ export default function AprobacionesPage() {
               {filteredVacaciones.length > 0 ? (
                 <div className="space-y-2">
                   {filteredVacaciones.map((v) => (
-                    <div key={v.id} className="rounded-xl border border-border bg-card p-3 sm:p-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                    <div key={v.id}
+                      onClick={() => toggleExpand(v.id)}
+                      className="rounded-xl border border-border bg-card p-3 sm:p-4 cursor-pointer hover:bg-muted/10 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className="font-medium text-sm">{v.usuario.apellido}, {v.usuario.nombre}</span>
@@ -633,28 +646,35 @@ export default function AprobacionesPage() {
                             {' · '}<span className="font-medium">{v.diasHabiles} días hábiles</span>
                             <span className="text-muted-foreground/60"> ({v.diasTotales} corridos)</span>
                           </p>
-                          {v.motivo && <p className="text-xs text-muted-foreground mt-0.5">«{v.motivo}»</p>}
+                        </div>
+                        {expandedIds.has(v.id)
+                          ? <ChevronDown className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+                          : <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />}
+                      </div>
+                      {expandedIds.has(v.id) && (
+                        <div className="mt-2 space-y-2">
+                          {v.motivo && <p className="text-xs text-muted-foreground">«{v.motivo}»</p>}
                           <p className="text-[10px] text-muted-foreground">
                             Solicitada: {new Date(v.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                           </p>
+                          <ApprovalProgressBar pasos={buildPasosSimple(v)} estado={v.estado} />
+                          <div className="flex items-center gap-2 shrink-0 pt-1" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={() => { setConfirmandoId(v.id); setConfirmandoTipo('vacacion'); setConfirmandoNombre(`${v.usuario.apellido}, ${v.usuario.nombre}`); }}
+                              disabled={aprobarVacacionMutation.isPending}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
+                            </button>
+                            <button
+                              onClick={() => { setRechazandoId(v.id); setRechazandoTipo('vacacion'); setMotivoRechazo(''); }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
+                            >
+                              <X className="h-3.5 w-3.5" /> Rechazar
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            onClick={() => { setConfirmandoId(v.id); setConfirmandoTipo('vacacion'); setConfirmandoNombre(`${v.usuario.apellido}, ${v.usuario.nombre}`); }}
-                            disabled={aprobarVacacionMutation.isPending}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
-                          </button>
-                          <button
-                            onClick={() => { setRechazandoId(v.id); setRechazandoTipo('vacacion'); setMotivoRechazo(''); }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
-                          >
-                            <X className="h-3.5 w-3.5" /> Rechazar
-                          </button>
-                        </div>
-                      </div>
-                      <ApprovalProgressBar pasos={buildPasosSimple(v)} estado={v.estado} />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -672,7 +692,7 @@ export default function AprobacionesPage() {
                 <div className="space-y-1.5">
                   {filteredHistVacaciones.map((v) => (
                     <div key={v.id}
-                      onClick={() => toggleHistExpand(v.id)}
+                      onClick={() => toggleExpand(v.id)}
                       className="rounded-lg border border-border bg-card/50 p-3 cursor-pointer hover:bg-muted/10 transition-colors"
                     >
                       <div className="flex items-center gap-3">
@@ -693,11 +713,11 @@ export default function AprobacionesPage() {
                             </p>
                           )}
                         </div>
-                        {expandedHistIds.has(v.id)
+                        {expandedIds.has(v.id)
                           ? <ChevronDown className="h-4 w-4 text-muted-foreground/50 shrink-0" />
                           : <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />}
                       </div>
-                      {expandedHistIds.has(v.id) && (
+                      {expandedIds.has(v.id) && (
                         <ApprovalProgressBar pasos={buildPasosSimple(v)} estado={v.estado} />
                       )}
                     </div>
@@ -719,8 +739,11 @@ export default function AprobacionesPage() {
               {filteredAusencias.length > 0 ? (
                 <div className="space-y-2">
                   {filteredAusencias.map((a) => (
-                    <div key={a.id} className="rounded-xl border border-border bg-card p-3 sm:p-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                    <div key={a.id}
+                      onClick={() => toggleExpand(a.id)}
+                      className="rounded-xl border border-border bg-card p-3 sm:p-4 cursor-pointer hover:bg-muted/10 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className="font-medium text-sm">{a.usuario.apellido}, {a.usuario.nombre}</span>
@@ -743,31 +766,38 @@ export default function AprobacionesPage() {
                             {new Date(a.fechaInicio).toLocaleDateString('es-AR')} — {new Date(a.fechaFin).toLocaleDateString('es-AR')}
                             {' · '}<span className="font-medium">{a.diasAusencia} día{a.diasAusencia !== 1 ? 's' : ''}</span>
                           </p>
+                        </div>
+                        {expandedIds.has(a.id)
+                          ? <ChevronDown className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+                          : <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />}
+                      </div>
+                      {expandedIds.has(a.id) && (
+                        <div className="mt-2 space-y-2">
                           {a.numeroCertificado && (
                             <p className="text-[10px] text-muted-foreground">Certificado Nº: {a.numeroCertificado}</p>
                           )}
-                          {a.descripcion && <p className="text-xs text-muted-foreground mt-0.5">«{a.descripcion}»</p>}
+                          {a.descripcion && <p className="text-xs text-muted-foreground">«{a.descripcion}»</p>}
                           {a.cargadaPor && (
                             <p className="text-[10px] text-muted-foreground">Cargada por: {a.cargadaPor.nombre} {a.cargadaPor.apellido}</p>
                           )}
+                          <ApprovalProgressBar pasos={buildPasosSimple(a)} estado={a.estado} />
+                          <div className="flex items-center gap-2 shrink-0 pt-1" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={() => { setConfirmandoId(a.id); setConfirmandoTipo('ausencia'); setConfirmandoNombre(`${a.usuario.apellido}, ${a.usuario.nombre}`); }}
+                              disabled={aprobarAusenciaMutation.isPending}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
+                            </button>
+                            <button
+                              onClick={() => { setRechazandoId(a.id); setRechazandoTipo('ausencia'); setMotivoRechazo(''); }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
+                            >
+                              <X className="h-3.5 w-3.5" /> Rechazar
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            onClick={() => { setConfirmandoId(a.id); setConfirmandoTipo('ausencia'); setConfirmandoNombre(`${a.usuario.apellido}, ${a.usuario.nombre}`); }}
-                            disabled={aprobarAusenciaMutation.isPending}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
-                          </button>
-                          <button
-                            onClick={() => { setRechazandoId(a.id); setRechazandoTipo('ausencia'); setMotivoRechazo(''); }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
-                          >
-                            <X className="h-3.5 w-3.5" /> Rechazar
-                          </button>
-                        </div>
-                      </div>
-                      <ApprovalProgressBar pasos={buildPasosSimple(a)} estado={a.estado} />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -785,7 +815,7 @@ export default function AprobacionesPage() {
                 <div className="space-y-1.5">
                   {filteredHistAusencias.map((a) => (
                     <div key={a.id}
-                      onClick={() => toggleHistExpand(a.id)}
+                      onClick={() => toggleExpand(a.id)}
                       className="rounded-lg border border-border bg-card/50 p-3 cursor-pointer hover:bg-muted/10 transition-colors"
                     >
                       <div className="flex items-center gap-3">
@@ -806,11 +836,11 @@ export default function AprobacionesPage() {
                             </p>
                           )}
                         </div>
-                        {expandedHistIds.has(a.id)
+                        {expandedIds.has(a.id)
                           ? <ChevronDown className="h-4 w-4 text-muted-foreground/50 shrink-0" />
                           : <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />}
                       </div>
-                      {expandedHistIds.has(a.id) && (
+                      {expandedIds.has(a.id) && (
                         <ApprovalProgressBar pasos={buildPasosSimple(a)} estado={a.estado} />
                       )}
                     </div>
