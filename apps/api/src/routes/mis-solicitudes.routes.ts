@@ -52,7 +52,7 @@ function enriquecerPasos(
 ): PasoUnificado[] {
   return pasosFlujo.map((paso) => {
     const entry = historial.find(
-      (h) => h.pasoFlujo === paso.orden && h.estadoNuevo !== 'RECHAZADA',
+      (h) => h.pasoFlujo === paso.orden + 1 && h.estadoNuevo !== 'RECHAZADA',
     );
     return {
       orden: paso.orden,
