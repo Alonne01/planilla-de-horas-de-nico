@@ -219,7 +219,7 @@ export default function VacacionesPage({ embedded = false }: VacacionesPageProps
   const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
   const canApprove = useCanApprove();
-  const showScopeToggle = canApprove === true && !isRRHH;
+  const showScopeToggle = canApprove === true && (user?.rolNivel ?? 0) >= 70 && !isRRHH;
 
   interface Sector { id: string; nombre: string; }
   const { data: sectores = [] } = useQuery<Sector[]>({
