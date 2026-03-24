@@ -52,8 +52,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
   { label: 'Planillas', path: '/planillas', icon: Clock },
-  { label: 'Vacaciones', path: '/vacaciones', icon: Palmtree },
-  { label: 'Ausencias', path: '/ausencias', icon: FileX },
+  { label: 'Ausencias y Vac.', path: '/ausencias', icon: FileX },
   { label: 'Mis Solicitudes', path: '/mis-solicitudes', icon: ClipboardList },
   { label: 'Aprobaciones', path: '/aprobaciones', icon: CheckCircle2, minLevel: 60, requireApprover: true },
   { label: 'Mensajes', path: '/mensajes', icon: MessageSquare },

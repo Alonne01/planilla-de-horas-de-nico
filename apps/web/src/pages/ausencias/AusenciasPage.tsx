@@ -1,11 +1,12 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import api, { getUploadUrl } from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import { useCanApprove } from '@/hooks/useCanApprove';
 import CalendarRangePicker from '@/components/layout/CalendarRangePicker';
+import VacacionesPage from '@/pages/vacaciones/VacacionesPage';
 import {
   AlertTriangle, Plus, Trash2, Loader2, X,
   Calendar, FileText, Send, Upload, Palmtree,
@@ -82,7 +83,11 @@ const ESTADO_LABELS: Record<string, string> = {
 
 export default function AusenciasPage() {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get('tab') === 'vacaciones') ? 'vacaciones' : 'ausencias';
+  const setActiveTab = (tab: 'ausencias' | 'vacaciones') => {
+    setSearchParams(tab === 'ausencias' ? {} : { tab: 'vacaciones' }, { replace: true });
+  };
   const user = useAuthStore((s) => s.user);
   const [showForm, setShowForm] = useState(false);
   const [showCompForm, setShowCompForm] = useState(false);
@@ -160,6 +165,41 @@ export default function AusenciasPage() {
 
   return (
     <div className="space-y-6">
+      {/* Page header with tabs */}
+      <div>
+        <h1 className="text-2xl font-bold text-foreground flex items-center gap-2 mb-4">
+          <AlertTriangle className="h-6 w-6 text-amber-400" /> Ausencias y Vacaciones
+        </h1>
+        <div className="flex gap-1 bg-muted/50 rounded-lg p-1 w-fit">
+          <button
+            onClick={() => setActiveTab('ausencias')}
+            className={cn(
+              'px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2',
+              activeTab === 'ausencias'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <AlertTriangle className="h-4 w-4" /> Ausencias
+          </button>
+          <button
+            onClick={() => setActiveTab('vacaciones')}
+            className={cn(
+              'px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2',
+              activeTab === 'vacaciones'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Palmtree className="h-4 w-4" /> Vacaciones
+          </button>
+        </div>
+      </div>
+
+      {activeTab === 'vacaciones' ? (
+        <VacacionesPage embedded />
+      ) : (
+      <>
       {/* Compensatorio balance card */}
       {saldo && (
         <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4">
@@ -178,9 +218,6 @@ export default function AusenciasPage() {
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <AlertTriangle className="h-6 w-6 text-amber-400" /> Ausencias
-          </h1>
           <p className="text-sm text-muted-foreground">
             {filteredAusencias.length} registro{filteredAusencias.length !== 1 ? 's' : ''} — {filteredTotalDias} días total
           </p>
@@ -191,12 +228,6 @@ export default function AusenciasPage() {
             className="inline-flex items-center gap-2 px-3 py-2 sm:px-4 rounded-lg bg-amber-600 text-white text-xs sm:text-sm font-medium hover:bg-amber-700 transition-colors"
           >
             <FileText className="h-4 w-4" /> Solicitar ausencia
-          </button>
-          <button
-            onClick={() => navigate('/vacaciones?crear=true')}
-            className="inline-flex items-center gap-2 px-3 py-2 sm:px-4 rounded-lg bg-emerald-600 text-white text-xs sm:text-sm font-medium hover:bg-emerald-700 transition-colors"
-          >
-            <Palmtree className="h-4 w-4" /> Solicitar vacaciones
           </button>
           <button
             onClick={() => setShowCompForm(true)}
@@ -388,6 +419,8 @@ export default function AusenciasPage() {
             queryClient.invalidateQueries({ queryKey: ['ausencias'] });
           }}
         />
+      )}
+      </>
       )}
     </div>
   );

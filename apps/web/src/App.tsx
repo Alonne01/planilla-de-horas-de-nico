@@ -16,7 +16,6 @@ import ConveniosPage from '@/pages/admin/ConveniosPage';
 import PlanillasPage from '@/pages/planillas/PlanillasPage';
 import PlanillaDetailPage from '@/pages/planillas/PlanillaDetailPage';
 import FlujosPage from '@/pages/admin/FlujosPage';
-import VacacionesPage from '@/pages/vacaciones/VacacionesPage';
 import AusenciasPage from '@/pages/ausencias/AusenciasPage';
 import AnalyticsPage from '@/pages/analytics/AnalyticsPage';
 import ConfigPage from '@/pages/admin/ConfigPage';
@@ -137,7 +136,7 @@ export default function App() {
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/planillas" element={<PlanillasPage />} />
               <Route path="/planillas/:id" element={<PlanillaDetailPage />} />
-              <Route path="/vacaciones" element={<VacacionesPage />} />
+              <Route path="/vacaciones" element={<Navigate to="/ausencias?tab=vacaciones" replace />} />
               <Route path="/ausencias" element={<AusenciasPage />} />
               <Route path="/aprobaciones" element={<AprobacionesPage />} />
               <Route path="/mensajes" element={<MensajesPage />} />

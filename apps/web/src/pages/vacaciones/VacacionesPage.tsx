@@ -39,7 +39,11 @@ const ESTADO_STYLES: Record<string, string> = {
   RECHAZADA: 'bg-red-500/20 text-red-400',
 };
 
-export default function VacacionesPage() {
+interface VacacionesPageProps {
+  embedded?: boolean;
+}
+
+export default function VacacionesPage({ embedded = false }: VacacionesPageProps = {}) {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const [showForm, setShowForm] = useState(() => {
@@ -92,36 +96,38 @@ export default function VacacionesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Palmtree className="h-6 w-6 text-emerald-400" /> Vacaciones
-          </h1>
-          <p className="text-sm text-muted-foreground">{filteredVacaciones.length} solicitud{filteredVacaciones.length !== 1 ? 'es' : ''}</p>
+      {!embedded && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <Palmtree className="h-6 w-6 text-emerald-400" /> Vacaciones
+            </h1>
+            <p className="text-sm text-muted-foreground">{filteredVacaciones.length} solicitud{filteredVacaciones.length !== 1 ? 'es' : ''}</p>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <PeriodSelector value={periodo} onChange={setPeriodo} />
-          {showScopeToggle && <ScopeToggle value={scope} onChange={setScope} />}
-          {isRRHH && sectores.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              <select
-                className="h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm"
-                value={filterSector}
-                onChange={(e) => setFilterSector(e.target.value)}
-              >
-                <option value="">Todos los sectores</option>
-                {sectores.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nombre}</option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-3">
+        <PeriodSelector value={periodo} onChange={setPeriodo} />
+        {showScopeToggle && <ScopeToggle value={scope} onChange={setScope} />}
+        {isRRHH && sectores.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <select
+              className="h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm"
+              value={filterSector}
+              onChange={(e) => setFilterSector(e.target.value)}
+            >
+              <option value="">Todos los sectores</option>
+              {sectores.map((s) => (
+                <option key={s.id} value={s.id}>{s.nombre}</option>
+              ))}
+            </select>
+          </div>
+        )}
         {canCreate && (
           <button
             onClick={() => setShowForm(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors"
           >
             <Plus className="h-4 w-4" /> Solicitar vacaciones
           </button>
