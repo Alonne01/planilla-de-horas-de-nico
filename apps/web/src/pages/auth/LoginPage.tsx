@@ -1,19 +1,28 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import api from '@/services/api';
-import { Loader2, LogIn, Eye, EyeOff } from 'lucide-react';
+import { Loader2, LogIn, Eye, EyeOff, Bug, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
-  password: z.string().min(1, 'Contraseña requerida'),
+  password: z.string(),
 });
 
 type LoginForm = z.infer<typeof loginSchema>;
+
+interface DebugUser {
+  id: string;
+  nombre: string;
+  apellido: string;
+  email: string;
+  rol: string;
+  sector: { nombre: string } | null;
+}
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -22,6 +31,9 @@ export default function LoginPage() {
   const setRememberMe = useAuthStore((s) => s.setRememberMe);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [debugUsers, setDebugUsers] = useState<DebugUser[]>([]);
+  const [debugSearch, setDebugSearch] = useState('');
+  const [debugLoggingIn, setDebugLoggingIn] = useState<string | null>(null);
 
   const {
     register,
@@ -30,6 +42,27 @@ export default function LoginPage() {
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
   });
+
+  // Fetch debug users if debug mode is active
+  useEffect(() => {
+    api.get('/auth/debug-users')
+      .then((res) => setDebugUsers(res.data))
+      .catch(() => {}); // 404 = debug mode not active
+  }, []);
+
+  const debugLogin = async (email: string) => {
+    setError('');
+    setDebugLoggingIn(email);
+    try {
+      const res = await api.post('/auth/login', { email, password: '' });
+      setAuth(res.data.user, res.data.accessToken);
+      navigate(res.data.user.primerLogin ? '/cambiar-password' : '/dashboard');
+    } catch {
+      setError('Error al ingresar en modo debug');
+    } finally {
+      setDebugLoggingIn(null);
+    }
+  };
 
   const onSubmit = async (data: LoginForm) => {
     setError('');
@@ -166,6 +199,87 @@ export default function LoginPage() {
           </form>
         </div>
 
+        {/* Debug Mode User Picker */}
+        {debugUsers.length > 0 && (
+          <div className="mt-6">
+            <div className="flex items-center gap-2 mb-3 px-1">
+              <Bug className="h-4 w-4 text-yellow-400" />
+              <span className="text-xs font-semibold text-yellow-400">MODO DEBUG — Click para ingresar</span>
+            </div>
+
+            <div className="relative mb-3">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Buscar por nombre, email, rol o sector..."
+                value={debugSearch}
+                onChange={(e) => setDebugSearch(e.target.value)}
+                className="w-full h-9 pl-9 pr-3 rounded-lg border border-border bg-card text-foreground text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+
+            <div className="max-h-80 overflow-y-auto space-y-1 rounded-xl border border-border bg-card p-2">
+              {(() => {
+                const search = debugSearch.toLowerCase();
+                const filtered = debugUsers.filter((u) =>
+                  !search ||
+                  `${u.nombre} ${u.apellido}`.toLowerCase().includes(search) ||
+                  u.email.toLowerCase().includes(search) ||
+                  u.rol.toLowerCase().includes(search) ||
+                  (u.sector?.nombre ?? '').toLowerCase().includes(search)
+                );
+
+                const roleOrder = ['ADMIN', 'RRHH', 'GERENTE', 'COORDINADOR', 'SUPERVISOR', 'OPERADOR'];
+                const grouped: { rol: string; users: DebugUser[] }[] = [];
+                const seen = new Set<string>();
+
+                for (const rol of roleOrder) {
+                  const users = filtered.filter((u) => u.rol === rol);
+                  if (users.length > 0) { grouped.push({ rol, users }); seen.add(rol); }
+                }
+                // Catch any roles not in the predefined order
+                const otherUsers = filtered.filter((u) => !seen.has(u.rol));
+                if (otherUsers.length > 0) grouped.push({ rol: 'OTROS', users: otherUsers });
+
+                if (grouped.length === 0) {
+                  return <p className="text-xs text-muted-foreground text-center py-3">Sin resultados</p>;
+                }
+
+                return grouped.map((g) => (
+                  <div key={g.rol}>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">
+                      {g.rol} ({g.users.length})
+                    </p>
+                    {g.users.map((u) => (
+                      <button
+                        key={u.id}
+                        onClick={() => debugLogin(u.email)}
+                        disabled={debugLoggingIn !== null}
+                        className={cn(
+                          'w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-left text-xs',
+                          'hover:bg-accent/50 transition-colors',
+                          'disabled:opacity-50 disabled:cursor-wait',
+                          debugLoggingIn === u.email && 'bg-primary/10'
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <span className="font-medium text-foreground truncate block">
+                            {u.apellido}, {u.nombre}
+                          </span>
+                          <span className="text-muted-foreground truncate block">{u.email}</span>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground shrink-0 ml-2">
+                          {u.sector?.nombre ?? '—'}
+                        </span>
+                        {debugLoggingIn === u.email && <Loader2 className="h-3 w-3 animate-spin ml-1 shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -17,6 +17,7 @@ const prisma = new PrismaClient();
 const router = Router();
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+const DEBUG_AUTH = process.env.DEBUG_AUTH === 'true' && process.env.NODE_ENV !== 'production';
 
 // Cookie config — sameSite: 'lax' is safe because frontend proxies API calls
 // through the same origin (Vite proxy in dev, nginx in production)
@@ -32,7 +33,7 @@ const COOKIE_OPTIONS = {
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
-  password: z.string().min(1, 'Password requerido'),
+  password: z.string().min(DEBUG_AUTH ? 0 : 1, 'Password requerido'),
 });
 
 const changePasswordSchema = z.object({
@@ -54,6 +55,35 @@ const resetPasswordSchema = z.object({
     .min(8, 'Mínimo 8 caracteres')
     .regex(/[A-Z]/, 'Debe contener al menos una mayúscula')
     .regex(/[0-9]/, 'Debe contener al menos un número'),
+});
+
+// ─── GET /auth/debug-users (dev only) ────────────
+
+router.get('/debug-users', async (_req: Request, res: Response): Promise<void> => {
+  if (!DEBUG_AUTH) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+
+  try {
+    const usuarios = await prisma.usuario.findMany({
+      where: { activo: true },
+      select: {
+        id: true,
+        nombre: true,
+        apellido: true,
+        email: true,
+        rol: true,
+        sector: { select: { nombre: true } },
+      },
+      orderBy: [{ rol: 'asc' }, { apellido: 'asc' }],
+    });
+
+    res.json(usuarios);
+  } catch (error) {
+    console.error('Error en debug-users:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
 });
 
 // ─── POST /auth/login ────────────────────────────
@@ -81,10 +111,13 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const passwordValid = await bcrypt.compare(password, usuario.passwordHash);
-    if (!passwordValid) {
-      res.status(401).json({ error: 'Credenciales inválidas' });
-      return;
+    // Skip password check in debug mode
+    if (!DEBUG_AUTH) {
+      const passwordValid = await bcrypt.compare(password, usuario.passwordHash);
+      if (!passwordValid) {
+        res.status(401).json({ error: 'Credenciales inválidas' });
+        return;
+      }
     }
 
     // Look up role level from RolConfig
