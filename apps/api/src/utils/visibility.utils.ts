@@ -95,10 +95,12 @@ export async function getFlowVisibleUserIds(
     where: { id: userId },
     select: { sectorId: true },
   });
-  // Global flow: own sector peers. Sector-specific: peers in all visible sectors.
+  // Global flow: own sector peers. Sector-specific: own sector only (if it has a matching flow).
+  // Without this restriction, a coordinator in Sector A sees peers from Sectors B, C, etc.
+  // just because those sectors also have COORDINADOR in their flow steps.
   const sectorFilter = isGlobal
     ? (me?.sectorId ? [me.sectorId] : [])
-    : visibleSectorIds;
+    : (me?.sectorId && visibleSectorIds.includes(me.sectorId) ? [me.sectorId] : []);
 
   if (sectorFilter.length > 0) {
     const sectorPeers = await prisma.usuario.findMany({
