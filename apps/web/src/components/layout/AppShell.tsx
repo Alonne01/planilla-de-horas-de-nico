@@ -38,12 +38,14 @@ import {
 } from 'lucide-react';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useCanApprove } from '@/hooks/useCanApprove';
 
 interface NavItem {
   label: string;
   path: string;
   icon: React.ElementType;
   minLevel?: number;
+  requireApprover?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -51,7 +53,7 @@ const navItems: NavItem[] = [
   { label: 'Planillas', path: '/planillas', icon: Clock },
   { label: 'Vacaciones', path: '/vacaciones', icon: Palmtree },
   { label: 'Ausencias', path: '/ausencias', icon: FileX },
-  { label: 'Aprobaciones', path: '/aprobaciones', icon: CheckCircle2, minLevel: 60 },
+  { label: 'Aprobaciones', path: '/aprobaciones', icon: CheckCircle2, minLevel: 60, requireApprover: true },
   { label: 'Mensajes', path: '/mensajes', icon: MessageSquare },
   { label: 'Recibos', path: '/recibos', icon: FileText },
   { label: 'Calendario Vac.', path: '/vacaciones/gantt', icon: CalendarRange, minLevel: 70 },
@@ -84,6 +86,7 @@ export default function AppShell() {
   const user = useAuthStore((s) => s.user);
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const queryClient = useQueryClient();
+  const canApprove = useCanApprove();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -143,7 +146,11 @@ export default function AppShell() {
   };
 
   const filteredNavItems = navItems.filter(
-    (item) => !item.minLevel || (user && (user.rolNivel ?? 0) >= item.minLevel)
+    (item) => {
+      if (item.minLevel && (!user || (user.rolNivel ?? 0) < item.minLevel)) return false;
+      if (item.requireApprover && canApprove === false) return false;
+      return true;
+    }
   );
 
   const filteredAdminItems = adminItems.filter(

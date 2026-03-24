@@ -319,4 +319,42 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   }
 });
 
+/**
+ * GET /aprobaciones/can-approve
+ * Lightweight check: is the current user part of any approval flow?
+ */
+router.get('/can-approve', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userNivel = req.user!.rolNivel ?? 0;
+
+    // RRHH / ADMIN always approve
+    if (userNivel >= 90) {
+      res.json({ canApprove: true });
+      return;
+    }
+    // Below SUPERVISOR → never
+    if (userNivel < 60) {
+      res.json({ canApprove: false });
+      return;
+    }
+
+    const match = await prisma.flujoPaso.findFirst({
+      where: {
+        flujo: {
+          empresaId: req.user!.empresaId,
+          activo: true,
+          asignaciones: { some: { activo: true } },
+        },
+        rolAprobador: req.user!.rol,
+      },
+      select: { id: true },
+    });
+
+    res.json({ canApprove: !!match });
+  } catch (error) {
+    console.error('Error checking can-approve:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 export default router;

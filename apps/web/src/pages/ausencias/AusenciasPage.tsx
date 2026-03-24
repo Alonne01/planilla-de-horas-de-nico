@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api, { getUploadUrl } from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
+import { useCanApprove } from '@/hooks/useCanApprove';
 import CalendarRangePicker from '@/components/layout/CalendarRangePicker';
 import {
   AlertTriangle, Plus, Trash2, Loader2, X,
@@ -89,7 +90,8 @@ export default function AusenciasPage() {
   const [periodo, setPeriodo] = useState(getCurrentPeriod());
   const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
-  const showScopeToggle = (user?.rolNivel ?? 0) >= 60 && !isRRHH;
+  const canApprove = useCanApprove();
+  const showScopeToggle = canApprove === true && !isRRHH;
 
   interface Sector { id: string; nombre: string; }
   const { data: sectores = [] } = useQuery<Sector[]>({
@@ -108,6 +110,7 @@ export default function AusenciasPage() {
       params.set('periodoInicio', periodo.inicio);
       params.set('periodoFin', periodo.fin);
       if (showScopeToggle && scope === 'mio') params.set('scope', 'mio');
+      else if (!showScopeToggle && canApprove !== true) params.set('scope', 'mio');
       return (await api.get(`/ausencias?${params.toString()}`)).data;
     },
   });

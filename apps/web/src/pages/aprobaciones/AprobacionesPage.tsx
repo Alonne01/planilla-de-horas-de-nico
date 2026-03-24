@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { DIAGRAMA_CARD_BG } from '@/constants/planillaConstants';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/stores/toastStore';
+import { useCanApprove } from '@/hooks/useCanApprove';
 import {
   CheckCircle2, XCircle, Loader2, Clock, Palmtree, Calendar,
   History, AlertCircle, ChevronRight, X, Send, AlertTriangle, Filter, UserX
@@ -114,7 +115,8 @@ export default function AprobacionesPage() {
   const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
   const [faltantesPeriodoTab, setFaltantesPeriodoTab] = useState<'actual' | 'anterior'>('actual');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
-  const showScopeToggle = (user?.rolNivel ?? 0) >= 60 && !isRRHH;
+  const canApprove = useCanApprove();
+  const showScopeToggle = canApprove === true && !isRRHH;
 
   interface Sector { id: string; nombre: string; }
   const { data: sectores = [] } = useQuery<Sector[]>({
@@ -130,6 +132,7 @@ export default function AprobacionesPage() {
       return api.get(`/aprobaciones?${params.toString()}`).then(r => r.data);
     },
     refetchInterval: 30000,
+    enabled: canApprove !== false,
   });
 
   const filterBySector = <T extends { usuario: { sector?: { nombre: string } | null } }>(items: T[]) =>
@@ -202,7 +205,7 @@ export default function AprobacionesPage() {
   const compensatoriosPendienteCount = filteredCompensatorios.length;
   const pendingTotal = planillasPendienteCount + vacacionesPendienteCount + ausenciasPendienteCount + compensatoriosPendienteCount;
 
-  if ((user?.rolNivel ?? 0) < 60) {
+  if ((user?.rolNivel ?? 0) < 60 || canApprove === false) {
     return (
       <div className="text-center py-16 text-muted-foreground">
         <AlertCircle className="h-10 w-10 mx-auto mb-3 opacity-40" />
