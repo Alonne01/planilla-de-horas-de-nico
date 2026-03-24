@@ -153,14 +153,14 @@ export async function notificarAprobadoresPaso(
       approverIds = [owner.coordinadorId];
     } else if (['RRHH', 'ADMIN', 'GERENTE'].includes(rolAprobador)) {
       const users = await prisma.usuario.findMany({
-        where: { empresaId, activo: true, rol: { codigo: rolAprobador } },
+        where: { empresaId, activo: true, rol: rolAprobador },
         select: { id: true },
       });
       approverIds = users.map(u => u.id);
     } else if (owner.sectorId) {
       // Fallback: same sector with that role
       const users = await prisma.usuario.findMany({
-        where: { empresaId, sectorId: owner.sectorId, activo: true, rol: { codigo: rolAprobador } },
+        where: { empresaId, sectorId: owner.sectorId, activo: true, rol: rolAprobador },
         select: { id: true },
       });
       approverIds = users.map(u => u.id);

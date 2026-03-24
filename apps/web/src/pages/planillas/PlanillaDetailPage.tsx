@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
+import { toast } from '@/stores/toastStore';
 import {
   ArrowLeft, Send, CheckCircle2, XCircle, Loader2,
   Clock, MapPin, Car, Moon, AlertCircle, AlertTriangle, X, Download, CalendarClock, Lock, Zap, Printer
@@ -142,6 +143,8 @@ export default function PlanillaDetailPage() {
     onError: (err: any) => {
       if (err.response?.status === 400 && err.response?.data?.diasFaltantes) {
         setDiasFaltantes(err.response.data.diasFaltantes);
+      } else {
+        toast({ title: 'Error', description: err.response?.data?.error ?? 'Error al enviar planilla', variant: 'destructive' });
       }
     },
   });
@@ -153,6 +156,9 @@ export default function PlanillaDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['planillas'] });
       queryClient.invalidateQueries({ queryKey: ['aprobaciones'] });
     },
+    onError: (err: any) => {
+      toast({ title: 'Error', description: err.response?.data?.error ?? 'Error al aprobar planilla', variant: 'destructive' });
+    },
   });
 
   const rechazarMutation = useMutation({
@@ -162,6 +168,9 @@ export default function PlanillaDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['planillas'] });
       queryClient.invalidateQueries({ queryKey: ['aprobaciones'] });
       setShowRechazo(false);
+    },
+    onError: (err: any) => {
+      toast({ title: 'Error', description: err.response?.data?.error ?? 'Error al rechazar planilla', variant: 'destructive' });
     },
   });
 
