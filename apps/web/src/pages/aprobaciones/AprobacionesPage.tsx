@@ -112,6 +112,7 @@ export default function AprobacionesPage() {
   const [filterSector, setFilterSector] = useState('');
   const [periodo, setPeriodo] = useState(getCurrentPeriod());
   const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
+  const [faltantesPeriodoTab, setFaltantesPeriodoTab] = useState<'actual' | 'anterior'>('actual');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
   const showScopeToggle = (user?.rolNivel ?? 0) >= 60 && !isRRHH;
 
@@ -152,7 +153,9 @@ export default function AprobacionesPage() {
   };
   const faltantesActual = filterFaltantesPeriodo(data?.faltantes?.actual);
   const faltantesAnterior = filterFaltantesPeriodo(data?.faltantes?.anterior);
-  const faltantesCount = (faltantesActual?.items.length ?? 0) + (faltantesAnterior?.items.length ?? 0);
+  const faltantesActualCount = faltantesActual?.items.length ?? 0;
+  const faltantesAnteriorCount = faltantesAnterior?.items.length ?? 0;
+  const faltantesCount = faltantesActualCount + faltantesAnteriorCount;
 
   const aprobarPlanillaMutation = useMutation({
     mutationFn: (id: string) => api.post(`/planillas/${id}/avanzar`),
@@ -534,66 +537,89 @@ export default function AprobacionesPage() {
           )}
         </div>
       ) : tab === 'faltantes' ? (
-        <div className="space-y-6">
-          {[
-            { periodo: faltantesActual, titulo: 'Período actual' },
-            { periodo: faltantesAnterior, titulo: 'Período anterior' },
-          ].map(({ periodo, titulo }) => (
-            <section key={titulo}>
-              <div className="flex items-center gap-2 mb-2">
-                <UserX className="h-4 w-4 text-destructive" />
-                <h2 className="text-sm font-semibold text-foreground">{titulo}</h2>
-                {periodo && (
-                  <span className="text-xs text-muted-foreground">
-                    {periodo.label} · {periodo.items.length} faltante{periodo.items.length !== 1 ? 's' : ''}
-                  </span>
-                )}
-              </div>
-
-              {periodo && periodo.items.length > 0 ? (
-                <div className="space-y-2">
-                  {periodo.items.map((f) => (
-                    <div key={f.usuario.id} className={cn(
-                      'rounded-xl border p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4',
-                      f.usuario.diagramaColor && DIAGRAMA_CARD_BG[f.usuario.diagramaColor]
-                        ? DIAGRAMA_CARD_BG[f.usuario.diagramaColor]
-                        : 'border-border bg-card',
-                    )}>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                          <span className="font-medium text-sm truncate">{f.usuario.apellido}, {f.usuario.nombre}</span>
-                          {f.usuario.legajo && <span className="text-xs text-muted-foreground">#{f.usuario.legajo}</span>}
-                          <span className="text-xs text-muted-foreground">{f.usuario.sector?.nombre ?? f.usuario.rol}</span>
-                          <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium',
-                            f.estado === 'SIN_PLANILLA' ? 'bg-muted/40 text-muted-foreground' :
-                            f.estado === 'RECHAZADA' ? 'bg-red-500/20 text-red-400' :
-                            'bg-muted/30 text-muted-foreground'
-                          )}>
-                            {f.estado === 'SIN_PLANILLA' ? 'Sin planilla' :
-                             f.estado === 'RECHAZADA' ? 'Rechazada' : 'Borrador'}
-                          </span>
-                        </div>
-                      </div>
-                      {f.planillaId && (
-                        <button
-                          onClick={() => navigate(`/planillas/${f.planillaId}`)}
-                          className="p-2 rounded-lg hover:bg-accent text-muted-foreground shrink-0"
-                          title="Ver planilla"
-                        >
-                          <ChevronRight className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground border border-dashed border-border rounded-xl">
-                  <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-30 text-emerald-400" />
-                  <p className="text-xs">Todos enviaron su planilla</p>
-                </div>
+        <div className="space-y-4">
+          {/* Period sub-toggle */}
+          <div className="flex items-center gap-1 bg-muted/30 rounded-lg p-1 w-fit">
+            <button
+              onClick={() => setFaltantesPeriodoTab('actual')}
+              className={cn(
+                'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                faltantesPeriodoTab === 'actual' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
               )}
-            </section>
-          ))}
+            >
+              Actual {faltantesActualCount > 0 && <span className="ml-1 text-destructive">({faltantesActualCount})</span>}
+            </button>
+            <button
+              onClick={() => setFaltantesPeriodoTab('anterior')}
+              className={cn(
+                'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                faltantesPeriodoTab === 'anterior' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              Anterior {faltantesAnteriorCount > 0 && <span className="ml-1 text-destructive">({faltantesAnteriorCount})</span>}
+            </button>
+          </div>
+
+          {(() => {
+            const periodo = faltantesPeriodoTab === 'actual' ? faltantesActual : faltantesAnterior;
+            const titulo = faltantesPeriodoTab === 'actual' ? 'Período actual' : 'Período anterior';
+            return (
+              <section>
+                <div className="flex items-center gap-2 mb-2">
+                  <UserX className="h-4 w-4 text-destructive" />
+                  <h2 className="text-sm font-semibold text-foreground">{titulo}</h2>
+                  {periodo && (
+                    <span className="text-xs text-muted-foreground">
+                      {periodo.label} · {periodo.items.length} faltante{periodo.items.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {periodo && periodo.items.length > 0 ? (
+                  <div className="space-y-2">
+                    {periodo.items.map((f) => (
+                      <div key={f.usuario.id} className={cn(
+                        'rounded-xl border p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4',
+                        f.usuario.diagramaColor && DIAGRAMA_CARD_BG[f.usuario.diagramaColor]
+                          ? DIAGRAMA_CARD_BG[f.usuario.diagramaColor]
+                          : 'border-border bg-card',
+                      )}>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <span className="font-medium text-sm truncate">{f.usuario.apellido}, {f.usuario.nombre}</span>
+                            {f.usuario.legajo && <span className="text-xs text-muted-foreground">#{f.usuario.legajo}</span>}
+                            <span className="text-xs text-muted-foreground">{f.usuario.sector?.nombre ?? f.usuario.rol}</span>
+                            <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium',
+                              f.estado === 'SIN_PLANILLA' ? 'bg-muted/40 text-muted-foreground' :
+                              f.estado === 'RECHAZADA' ? 'bg-red-500/20 text-red-400' :
+                              'bg-muted/30 text-muted-foreground'
+                            )}>
+                              {f.estado === 'SIN_PLANILLA' ? 'Sin planilla' :
+                               f.estado === 'RECHAZADA' ? 'Rechazada' : 'Borrador'}
+                            </span>
+                          </div>
+                        </div>
+                        {f.planillaId && (
+                          <button
+                            onClick={() => navigate(`/planillas/${f.planillaId}`)}
+                            className="p-2 rounded-lg hover:bg-accent text-muted-foreground shrink-0"
+                            title="Ver planilla"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground border border-dashed border-border rounded-xl">
+                    <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-30 text-emerald-400" />
+                    <p className="text-xs">Todos enviaron su planilla</p>
+                  </div>
+                )}
+              </section>
+            );
+          })()}
         </div>
       ) : tab === 'historial' ? (
         <div className="space-y-4">
