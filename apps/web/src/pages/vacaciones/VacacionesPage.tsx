@@ -42,7 +42,11 @@ const ESTADO_STYLES: Record<string, string> = {
 export default function VacacionesPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const rol = useAuthStore.getState().user?.rol ?? '';
+    return params.get('crear') === 'true' && ['OPERADOR', 'SUPERVISOR', 'COORDINADOR', 'GERENTE'].includes(rol);
+  });
   const [filterSector, setFilterSector] = useState('');
   const [periodo, setPeriodo] = useState(getCurrentPeriod());
   const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
@@ -190,7 +194,7 @@ export default function VacacionesPage() {
       )}
 
       {/* Create Modal */}
-      {showForm && (
+      {canCreate && showForm && (
         <VacacionFormModal
           saldo={saldo}
           onClose={() => setShowForm(false)}

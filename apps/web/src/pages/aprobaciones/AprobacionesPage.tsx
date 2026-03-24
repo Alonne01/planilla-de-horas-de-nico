@@ -15,12 +15,17 @@ import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSele
 import ScopeToggle from '@/components/layout/ScopeToggle';
 
 // ─── Types ───────────────────────────────────────
+interface FlujoPaso { orden: number; nombrePaso: string; rolAprobador: string }
+interface FlujoInfo { pasos: FlujoPaso[] }
+
 interface PlanillaItem {
   id: string;
   periodoInicio: string;
   periodoFin: string;
   estado: string;
   enviadaAt: string | null;
+  pasoActual: number;
+  flujo?: FlujoInfo | null;
   obsRechazo?: string | null;
   usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
 }
@@ -29,9 +34,12 @@ interface VacacionItem {
   id: string;
   fechaInicio: string;
   fechaFin: string;
+  diasHabiles: number;
   diasTotales: number;
   estado: string;
   motivo: string | null;
+  pasoActual: number;
+  flujo?: FlujoInfo | null;
   obsRechazo?: string | null;
   createdAt: string;
   usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
@@ -45,7 +53,12 @@ interface AusenciaItem {
   diasAusencia: number;
   estado: string;
   descripcion: string | null;
+  numeroCertificado?: string | null;
+  pasoActual: number;
+  flujo?: FlujoInfo | null;
   obsRechazo?: string | null;
+  createdAt: string;
+  cargadaPor?: { nombre: string; apellido: string } | null;
   usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
 }
 
@@ -97,6 +110,30 @@ const ESTADO_STYLES: Record<string, string> = {
   CERRADA: 'bg-muted/30 text-muted-foreground',
   BORRADOR: 'bg-muted/30 text-muted-foreground',
 };
+
+const TIPO_AUSENCIA_LABELS: Record<string, string> = {
+  CERTIFICADO_MEDICO: 'Cert. Médico',
+  FALTA_JUSTIFICADA: 'Falta Justificada',
+  FALTA_INJUSTIFICADA: 'Falta Injustificada',
+  LICENCIA_ESPECIAL: 'Lic. Especial',
+  FRANCO_COMPENSATORIO: 'Franco Comp.',
+};
+
+function getPasoActualLabel(item: { pasoActual: number; flujo?: FlujoInfo | null }): string | null {
+  if (!item.flujo?.pasos?.length) return null;
+  const paso = item.flujo.pasos.find(p => p.orden === item.pasoActual);
+  return paso?.nombrePaso ?? null;
+}
+
+function StepBadge({ item }: { item: { pasoActual: number; flujo?: FlujoInfo | null } }) {
+  const label = getPasoActualLabel(item);
+  if (!label) return null;
+  return (
+    <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/20">
+      Paso {item.pasoActual}/{item.flujo!.pasos.length}: {label}
+    </span>
+  );
+}
 
 export default function AprobacionesPage() {
   const navigate = useNavigate();
@@ -353,14 +390,21 @@ export default function AprobacionesPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className="font-medium text-sm truncate">{p.usuario.apellido}, {p.usuario.nombre}</span>
+                        {p.usuario.legajo && <span className="text-[10px] text-muted-foreground">#{p.usuario.legajo}</span>}
                         <span className="text-xs text-muted-foreground">{p.usuario.sector?.nombre ?? p.usuario.rol}</span>
                         <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[p.estado])}>
                           {p.estado === 'EN_REVISION' ? 'En revisión' : p.estado.charAt(0) + p.estado.slice(1).toLowerCase()}
                         </span>
+                        <StepBadge item={p} />
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(p.periodoInicio).toLocaleDateString('es-AR')} — {new Date(p.periodoFin).toLocaleDateString('es-AR')}
+                        Período: {new Date(p.periodoInicio).toLocaleDateString('es-AR')} — {new Date(p.periodoFin).toLocaleDateString('es-AR')}
                       </p>
+                      {p.enviadaAt && (
+                        <p className="text-[10px] text-muted-foreground">
+                          Enviada: {new Date(p.enviadaAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
@@ -400,20 +444,26 @@ export default function AprobacionesPage() {
       ) : tab === 'vacaciones' ? (
         <div className="space-y-4">
           {filteredVacaciones.map((v) => (
-            <div key={v.id} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
+            <div key={v.id} className="rounded-xl border border-border bg-card p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <span className="font-medium text-sm">{v.usuario.apellido}, {v.usuario.nombre}</span>
+                  {v.usuario.legajo && <span className="text-[10px] text-muted-foreground">#{v.usuario.legajo}</span>}
                   <span className="text-xs text-muted-foreground">{v.usuario.sector?.nombre ?? v.usuario.rol}</span>
                   <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[v.estado])}>
                     {v.estado === 'EN_REVISION' ? 'En revisión' : v.estado.charAt(0) + v.estado.slice(1).toLowerCase()}
                   </span>
+                  <StepBadge item={v} />
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {new Date(v.fechaInicio).toLocaleDateString('es-AR')} — {new Date(v.fechaFin).toLocaleDateString('es-AR')}
-                  {' · '}<span className="font-medium">{v.diasTotales} días corridos</span>
+                  {' · '}<span className="font-medium">{v.diasHabiles} días hábiles</span>
+                  <span className="text-muted-foreground/60"> ({v.diasTotales} corridos)</span>
                 </p>
                 {v.motivo && <p className="text-xs text-muted-foreground mt-0.5">«{v.motivo}»</p>}
+                <p className="text-[10px] text-muted-foreground">
+                  Solicitada: {new Date(v.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -442,10 +492,11 @@ export default function AprobacionesPage() {
       ) : tab === 'ausencias' ? (
         <div className="space-y-4">
           {filteredAusencias.map((a) => (
-            <div key={a.id} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
+            <div key={a.id} className="rounded-xl border border-border bg-card p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <span className="font-medium text-sm">{a.usuario.apellido}, {a.usuario.nombre}</span>
+                  {a.usuario.legajo && <span className="text-[10px] text-muted-foreground">#{a.usuario.legajo}</span>}
                   <span className="text-xs text-muted-foreground">{a.usuario.sector?.nombre ?? a.usuario.rol}</span>
                   <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[a.estado])}>
                     {a.estado === 'EN_REVISION' ? 'En revisión' : a.estado.charAt(0) + a.estado.slice(1).toLowerCase()}
@@ -456,14 +507,21 @@ export default function AprobacionesPage() {
                     a.tipo === 'FALTA_INJUSTIFICADA' ? 'bg-red-500/20 text-red-400' :
                     'bg-purple-500/20 text-purple-400'
                   )}>
-                    {a.tipo.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
+                    {TIPO_AUSENCIA_LABELS[a.tipo] ?? a.tipo.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
                   </span>
+                  <StepBadge item={a} />
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {new Date(a.fechaInicio).toLocaleDateString('es-AR')} — {new Date(a.fechaFin).toLocaleDateString('es-AR')}
                   {' · '}<span className="font-medium">{a.diasAusencia} día{a.diasAusencia !== 1 ? 's' : ''}</span>
                 </p>
+                {a.numeroCertificado && (
+                  <p className="text-[10px] text-muted-foreground">Certificado Nº: {a.numeroCertificado}</p>
+                )}
                 {a.descripcion && <p className="text-xs text-muted-foreground mt-0.5">«{a.descripcion}»</p>}
+                {a.cargadaPor && (
+                  <p className="text-[10px] text-muted-foreground">Cargada por: {a.cargadaPor.nombre} {a.cargadaPor.apellido}</p>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button

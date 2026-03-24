@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import api, { getUploadUrl } from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
@@ -7,7 +8,7 @@ import { useCanApprove } from '@/hooks/useCanApprove';
 import CalendarRangePicker from '@/components/layout/CalendarRangePicker';
 import {
   AlertTriangle, Plus, Trash2, Loader2, X,
-  Calendar, FileText, Send, Upload,
+  Calendar, FileText, Send, Upload, Palmtree,
   Clock, UserCheck, RotateCcw, Filter, XCircle,
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
@@ -81,6 +82,7 @@ const ESTADO_LABELS: Record<string, string> = {
 
 export default function AusenciasPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const [showForm, setShowForm] = useState(false);
   const [showCompForm, setShowCompForm] = useState(false);
@@ -189,6 +191,12 @@ export default function AusenciasPage() {
             className="inline-flex items-center gap-2 px-3 py-2 sm:px-4 rounded-lg bg-amber-600 text-white text-xs sm:text-sm font-medium hover:bg-amber-700 transition-colors"
           >
             <FileText className="h-4 w-4" /> Solicitar ausencia
+          </button>
+          <button
+            onClick={() => navigate('/vacaciones?crear=true')}
+            className="inline-flex items-center gap-2 px-3 py-2 sm:px-4 rounded-lg bg-emerald-600 text-white text-xs sm:text-sm font-medium hover:bg-emerald-700 transition-colors"
+          >
+            <Palmtree className="h-4 w-4" /> Solicitar vacaciones
           </button>
           <button
             onClick={() => setShowCompForm(true)}
