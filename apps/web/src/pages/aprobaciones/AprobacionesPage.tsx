@@ -182,7 +182,8 @@ export default function AprobacionesPage() {
       if (showScopeToggle && scope === 'mio') params.set('scope', 'mio');
       return api.get(`/aprobaciones?${params.toString()}`).then(r => r.data);
     },
-    refetchInterval: 30000,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
     enabled: canApprove !== false,
   });
 

@@ -174,43 +174,80 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     });
     const compensatoriosPendientes = compensatoriosRaw.filter(c => matchesCurrentStep(c.planilla));
 
-    // ── Recent history (last 30 items) ────────────────────────────
+    // ── Recent history ────────────────────────────────────────────
+    // Include items in final states AND items where the user personally
+    // approved their step (even if still in progress at a later step).
+    // When scope='mio', only show the user's own items (skip personal approvals of others).
+    const userHistInclude = { select: { id: true, nombre: true, apellido: true, legajo: true, rol: true, sector: { select: { nombre: true } } } };
+    const isMioScope = scope === 'mio';
+
+    // Find entity IDs where the current user has an approval entry (bounded to last 90 days)
+    const histCutoff = new Date(); histCutoff.setDate(histCutoff.getDate() - 90);
+    const histDateFilter = { createdAt: { gte: histCutoff } };
+
+    let myPlanillaIds: string[] = [];
+    let myVacacionIds: string[] = [];
+    let myAusenciaIds: string[] = [];
+
+    if (!isMioScope) {
+      const [myPlanillaHist, myVacacionHist, myAusenciaHist] = await Promise.all([
+        prisma.planillaHistorial.findMany({
+          where: { usuarioId: userId, estadoNuevo: { in: ['EN_REVISION', 'APROBADA'] }, ...histDateFilter },
+          select: { planillaId: true },
+          distinct: ['planillaId'],
+        }),
+        prisma.vacacionHistorial.findMany({
+          where: { usuarioId: userId, estadoNuevo: { in: ['EN_REVISION', 'APROBADA'] }, ...histDateFilter },
+          select: { vacacionId: true },
+          distinct: ['vacacionId'],
+        }),
+        prisma.ausenciaHistorial.findMany({
+          where: { usuarioId: userId, estadoNuevo: { in: ['EN_REVISION', 'APROBADA'] }, ...histDateFilter },
+          select: { ausenciaId: true },
+          distinct: ['ausenciaId'],
+        }),
+      ]);
+      myPlanillaIds = myPlanillaHist.map(h => h.planillaId);
+      myVacacionIds = myVacacionHist.map(h => h.vacacionId);
+      myAusenciaIds = myAusenciaHist.map(h => h.ausenciaId);
+    }
+
     const planillasHistory = await prisma.planilla.findMany({
       where: {
-        ...userFilter,
         ...planillaPeriodFilter,
-        estado: { in: ['APROBADA', 'RECHAZADA', 'CERRADA'] },
+        OR: [
+          { ...userFilter, estado: { in: ['APROBADA', 'RECHAZADA', 'CERRADA'] } },
+          ...(myPlanillaIds.length ? [{ id: { in: myPlanillaIds }, estado: { notIn: ['BORRADOR'] as const } }] : []),
+        ],
       },
-      include: {
-        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true, rol: true, sector: { select: { nombre: true } } } },
-      },
-      orderBy: { aprobadaAt: 'desc' },
+      include: { usuario: userHistInclude },
+      orderBy: { updatedAt: 'desc' },
       take: 15,
     });
 
     const vacacionesHistory = await prisma.vacacion.findMany({
       where: {
-        ...userFilter,
         ...fechaPeriodFilter,
-        estado: { in: ['APROBADA', 'RECHAZADA'] },
+        OR: [
+          { ...userFilter, estado: { in: ['APROBADA', 'RECHAZADA'] } },
+          ...(myVacacionIds.length ? [{ id: { in: myVacacionIds }, estado: { notIn: ['BORRADOR'] as const } }] : []),
+        ],
       },
-      include: {
-        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true, rol: true, sector: { select: { nombre: true } } } },
-      },
-      orderBy: { aprobadaAt: 'desc' },
+      include: { usuario: userHistInclude },
+      orderBy: { updatedAt: 'desc' },
       take: 15,
     });
 
     const ausenciasHistory = await prisma.ausencia.findMany({
       where: {
-        ...userFilter,
         ...fechaPeriodFilter,
-        estado: { in: ['APROBADA', 'RECHAZADA'] },
+        OR: [
+          { ...userFilter, estado: { in: ['APROBADA', 'RECHAZADA'] } },
+          ...(myAusenciaIds.length ? [{ id: { in: myAusenciaIds }, estado: { notIn: ['BORRADOR'] as const } }] : []),
+        ],
       },
-      include: {
-        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true, rol: true, sector: { select: { nombre: true } } } },
-      },
-      orderBy: { aprobadaAt: 'desc' },
+      include: { usuario: userHistInclude },
+      orderBy: { updatedAt: 'desc' },
       take: 15,
     });
 

@@ -498,6 +498,7 @@ model PlanillaHistorial {
   planilla Planilla @relation(fields: [planillaId], references: [id], onDelete: Cascade)
   usuario  Usuario  @relation(fields: [usuarioId], references: [id])
 
+  @@index([usuarioId, estadoNuevo, createdAt])
   @@map("planillas_historial")
 }
 
@@ -583,6 +584,7 @@ model VacacionHistorial {
   vacacion Vacacion @relation(fields: [vacacionId], references: [id], onDelete: Cascade)
   usuario  Usuario  @relation(fields: [usuarioId], references: [id])
 
+  @@index([usuarioId, estadoNuevo, createdAt])
   @@map("vacaciones_historial")
 }
 
@@ -678,6 +680,7 @@ model AusenciaHistorial {
   ausencia Ausencia @relation(fields: [ausenciaId], references: [id], onDelete: Cascade)
   usuario  Usuario  @relation(fields: [usuarioId], references: [id])
 
+  @@index([usuarioId, estadoNuevo, createdAt])
   @@map("ausencias_historial")
 }
 
