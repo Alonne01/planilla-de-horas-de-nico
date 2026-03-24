@@ -27,3 +27,9 @@ export const ESTADO_COLORS: Record<string, string> = {
   RECHAZADA: 'bg-red-500',
   CERRADA: 'bg-purple-500',
 };
+
+/** Card background tint for Well Testing diagram colors */
+export const DIAGRAMA_CARD_BG: Record<string, string> = {
+  AZUL: 'bg-blue-950/40 border-blue-500/30',
+  AMARILLO: 'bg-yellow-950/30 border-yellow-500/30',
+};

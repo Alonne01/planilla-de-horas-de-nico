@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
+import { DIAGRAMA_CARD_BG } from '@/constants/planillaConstants';
 import { useAuthStore } from '@/stores/authStore';
 import { Users, Search, Mail, Calendar, Briefcase, ChevronDown } from 'lucide-react';
 
@@ -128,7 +129,12 @@ export default function EquipoPage() {
           {filtered.map((emp) => (
             <div
               key={emp.id}
-              className="rounded-xl border border-border bg-card p-4 space-y-2 hover:border-primary/30 transition-colors"
+              className={cn(
+                'rounded-xl border p-4 space-y-2 transition-colors',
+                isWellTesting && emp.diagramaColor && DIAGRAMA_CARD_BG[emp.diagramaColor]
+                  ? DIAGRAMA_CARD_BG[emp.diagramaColor]
+                  : 'border-border bg-card hover:border-primary/30',
+              )}
             >
               <div className="flex items-start justify-between">
                 <div>

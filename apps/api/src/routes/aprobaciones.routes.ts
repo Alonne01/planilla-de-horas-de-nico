@@ -273,6 +273,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         where: visibleUsersWhere,
         select: {
           id: true, nombre: true, apellido: true, legajo: true, rol: true,
+          diagramaColor: true,
           sector: { select: { id: true, nombre: true } },
         },
       });

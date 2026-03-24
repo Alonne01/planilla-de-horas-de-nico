@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
+import { DIAGRAMA_CARD_BG } from '@/constants/planillaConstants';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/stores/toastStore';
 import {
@@ -61,7 +62,7 @@ interface CompensatorioItem {
 }
 
 interface FaltanteItem {
-  usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { id: string; nombre: string } | null };
+  usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; diagramaColor?: string | null; sector?: { id: string; nombre: string } | null };
   planillaId: string | null;
   estado: string; // 'SIN_PLANILLA' | 'BORRADOR' | 'RECHAZADA'
 }
@@ -552,7 +553,12 @@ export default function AprobacionesPage() {
               {periodo && periodo.items.length > 0 ? (
                 <div className="space-y-2">
                   {periodo.items.map((f) => (
-                    <div key={f.usuario.id} className="rounded-xl border border-border bg-card p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                    <div key={f.usuario.id} className={cn(
+                      'rounded-xl border p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4',
+                      f.usuario.diagramaColor && DIAGRAMA_CARD_BG[f.usuario.diagramaColor]
+                        ? DIAGRAMA_CARD_BG[f.usuario.diagramaColor]
+                        : 'border-border bg-card',
+                    )}>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                           <span className="font-medium text-sm truncate">{f.usuario.apellido}, {f.usuario.nombre}</span>
