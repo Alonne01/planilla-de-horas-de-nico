@@ -155,7 +155,7 @@ export default function AprobacionesPage() {
   const faltantesAnterior = filterFaltantesPeriodo(data?.faltantes?.anterior);
   const faltantesActualCount = faltantesActual?.items.length ?? 0;
   const faltantesAnteriorCount = faltantesAnterior?.items.length ?? 0;
-  const faltantesCount = faltantesActualCount + faltantesAnteriorCount;
+  const faltantesCount = faltantesActualCount;
 
   const aprobarPlanillaMutation = useMutation({
     mutationFn: (id: string) => api.post(`/planillas/${id}/avanzar`),
