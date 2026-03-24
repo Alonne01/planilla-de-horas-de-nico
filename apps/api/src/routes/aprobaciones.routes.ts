@@ -220,7 +220,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
           ...(myPlanillaIds.length ? [{ id: { in: myPlanillaIds }, estado: { notIn: ['BORRADOR'] as const } }] : []),
         ],
       },
-      include: { usuario: userHistInclude },
+      include: { usuario: userHistInclude, ...flujoInclude },
       orderBy: { updatedAt: 'desc' },
       take: 15,
     });
@@ -233,7 +233,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
           ...(myVacacionIds.length ? [{ id: { in: myVacacionIds }, estado: { notIn: ['BORRADOR'] as const } }] : []),
         ],
       },
-      include: { usuario: userHistInclude },
+      include: { usuario: userHistInclude, ...flujoInclude },
       orderBy: { updatedAt: 'desc' },
       take: 15,
     });
@@ -246,7 +246,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
           ...(myAusenciaIds.length ? [{ id: { in: myAusenciaIds }, estado: { notIn: ['BORRADOR'] as const } }] : []),
         ],
       },
-      include: { usuario: userHistInclude },
+      include: { usuario: userHistInclude, ...flujoInclude },
       orderBy: { createdAt: 'desc' },
       take: 15,
     });

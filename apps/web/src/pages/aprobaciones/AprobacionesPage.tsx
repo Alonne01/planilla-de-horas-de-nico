@@ -9,7 +9,7 @@ import { toast } from '@/stores/toastStore';
 import { useCanApprove } from '@/hooks/useCanApprove';
 import {
   CheckCircle2, XCircle, Loader2, Clock, Palmtree, Calendar,
-  History, AlertCircle, ChevronRight, X, Send, AlertTriangle, Filter
+  History, AlertCircle, ChevronRight, ChevronDown, X, Send, AlertTriangle, Filter
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 import ScopeToggle from '@/components/layout/ScopeToggle';
@@ -167,7 +167,8 @@ export default function AprobacionesPage() {
   const [faltantesPeriodoTab, setFaltantesPeriodoTab] = useState<'actual' | 'anterior'>('actual');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
   const canApprove = useCanApprove();
-  const showScopeToggle = canApprove === true && !isRRHH;
+  const showScopeToggle = isRRHH;
+  const [expandedHistIds, setExpandedHistIds] = useState<Set<string>>(new Set());
 
   interface Sector { id: string; nombre: string; }
   const { data: sectores = [] } = useQuery<Sector[]>({
@@ -200,6 +201,9 @@ export default function AprobacionesPage() {
   const filteredHistPlanillas = filterBySector(data?.historial.planillas ?? []);
   const filteredHistVacaciones = filterBySector(data?.historial.vacaciones ?? []);
   const filteredHistAusencias = filterBySector(data?.historial.ausencias ?? []);
+
+  const toggleHistExpand = (id: string) =>
+    setExpandedHistIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
 
   const filterFaltantesPeriodo = (p: FaltantesPeriodo | null | undefined): FaltantesPeriodo | null => {
     if (!p) return null;
@@ -482,7 +486,7 @@ export default function AprobacionesPage() {
                 <div className="space-y-1.5">
                   {filteredHistPlanillas.map((p) => (
                     <div key={p.id}
-                      onClick={() => navigate(`/planillas/${p.id}`)}
+                      onClick={() => toggleHistExpand(p.id)}
                       className="rounded-lg border border-border bg-card/50 p-3 cursor-pointer hover:bg-muted/10 transition-colors"
                     >
                       <div className="flex items-center gap-3">
@@ -502,9 +506,13 @@ export default function AprobacionesPage() {
                             </p>
                           )}
                         </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+                        {expandedHistIds.has(p.id)
+                          ? <ChevronDown className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+                          : <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />}
                       </div>
-                      <ApprovalProgressBar pasos={buildPasosSimple(p)} estado={p.estado} />
+                      {expandedHistIds.has(p.id) && (
+                        <ApprovalProgressBar pasos={buildPasosSimple(p)} estado={p.estado} />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -663,7 +671,10 @@ export default function AprobacionesPage() {
               {filteredHistVacaciones.length > 0 ? (
                 <div className="space-y-1.5">
                   {filteredHistVacaciones.map((v) => (
-                    <div key={v.id} className="rounded-lg border border-border bg-card/50 p-3 hover:bg-muted/10 transition-colors">
+                    <div key={v.id}
+                      onClick={() => toggleHistExpand(v.id)}
+                      className="rounded-lg border border-border bg-card/50 p-3 cursor-pointer hover:bg-muted/10 transition-colors"
+                    >
                       <div className="flex items-center gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -682,8 +693,13 @@ export default function AprobacionesPage() {
                             </p>
                           )}
                         </div>
+                        {expandedHistIds.has(v.id)
+                          ? <ChevronDown className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+                          : <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />}
                       </div>
-                      <ApprovalProgressBar pasos={buildPasosSimple(v)} estado={v.estado} />
+                      {expandedHistIds.has(v.id) && (
+                        <ApprovalProgressBar pasos={buildPasosSimple(v)} estado={v.estado} />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -768,7 +784,10 @@ export default function AprobacionesPage() {
               {filteredHistAusencias.length > 0 ? (
                 <div className="space-y-1.5">
                   {filteredHistAusencias.map((a) => (
-                    <div key={a.id} className="rounded-lg border border-border bg-card/50 p-3 hover:bg-muted/10 transition-colors">
+                    <div key={a.id}
+                      onClick={() => toggleHistExpand(a.id)}
+                      className="rounded-lg border border-border bg-card/50 p-3 cursor-pointer hover:bg-muted/10 transition-colors"
+                    >
                       <div className="flex items-center gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -787,8 +806,13 @@ export default function AprobacionesPage() {
                             </p>
                           )}
                         </div>
+                        {expandedHistIds.has(a.id)
+                          ? <ChevronDown className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+                          : <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />}
                       </div>
-                      <ApprovalProgressBar pasos={buildPasosSimple(a)} estado={a.estado} />
+                      {expandedHistIds.has(a.id) && (
+                        <ApprovalProgressBar pasos={buildPasosSimple(a)} estado={a.estado} />
+                      )}
                     </div>
                   ))}
                 </div>
