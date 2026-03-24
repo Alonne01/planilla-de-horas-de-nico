@@ -7,7 +7,7 @@ const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 const SMTP_FROM = process.env.SMTP_FROM ?? 'noreply@planillahoras.com';
 
-const isSmtpConfigured = !!(SMTP_HOST && SMTP_USER && SMTP_PASS);
+export const isSmtpConfigured = !!(SMTP_HOST && SMTP_USER && SMTP_PASS);
 
 // Create transporter only if SMTP is configured
 const transporter = isSmtpConfigured

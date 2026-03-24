@@ -16,6 +16,7 @@ type ForgotPasswordForm = z.infer<typeof forgotPasswordSchema>;
 export default function ForgotPasswordPage() {
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
+  const [devResetUrl, setDevResetUrl] = useState('');
 
   const {
     register,
@@ -27,8 +28,12 @@ export default function ForgotPasswordPage() {
 
   const onSubmit = async (data: ForgotPasswordForm) => {
     setError('');
+    setDevResetUrl('');
     try {
-      await api.post('/auth/forgot-password', { email: data.email });
+      const res = await api.post('/auth/forgot-password', { email: data.email });
+      if (res.data.resetUrl) {
+        setDevResetUrl(res.data.resetUrl);
+      }
       setSent(true);
     } catch (err: unknown) {
       if (err && typeof err === 'object' && 'response' in err) {
@@ -68,9 +73,22 @@ export default function ForgotPasswordPage() {
                 Email enviado
               </h2>
               <p className="text-sm text-muted-foreground mb-6">
-                Si el email existe en nuestro sistema, recibirás un link para restablecer tu contraseña.
                 Revisá tu bandeja de entrada y la carpeta de spam.
               </p>
+
+              {devResetUrl && (
+                <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 text-left">
+                  <p className="text-xs font-semibold text-yellow-400 mb-2">
+                    🛠️ Modo desarrollo — SMTP no configurado
+                  </p>
+                  <a
+                    href={devResetUrl}
+                    className="text-xs text-primary hover:underline break-all"
+                  >
+                    {devResetUrl}
+                  </a>
+                </div>
+              )}
               <Link
                 to="/login"
                 className={cn(

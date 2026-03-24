@@ -11,7 +11,7 @@ import {
   revokeAllRefreshTokensForUser,
 } from '../utils/jwt.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
-import { sendPasswordResetEmail } from '../utils/email.utils.js';
+import { sendPasswordResetEmail, isSmtpConfigured } from '../utils/email.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -325,17 +325,18 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
 
     const { email } = parsed.data;
 
-    // Always respond 200 to prevent email enumeration
-    const successMessage = 'Si el email existe en nuestro sistema, recibirás un link para restablecer tu contraseña.';
-
     const usuario = await prisma.usuario.findUnique({
       where: { email },
       select: { id: true, activo: true },
     });
 
-    if (!usuario || !usuario.activo) {
-      // Don't reveal that the user doesn't exist
-      res.json({ message: successMessage });
+    if (!usuario) {
+      res.status(404).json({ error: 'No existe una cuenta con ese email' });
+      return;
+    }
+
+    if (!usuario.activo) {
+      res.status(403).json({ error: 'La cuenta asociada a ese email está inactiva' });
       return;
     }
 
@@ -361,7 +362,16 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
     const resetUrl = `${FRONTEND_URL}/reset-password?token=${token}`;
     await sendPasswordResetEmail(email, resetUrl);
 
-    res.json({ message: successMessage });
+    const response: Record<string, string> = {
+      message: 'Te enviamos un link para restablecer tu contraseña. Revisá tu bandeja de entrada y spam.',
+    };
+
+    // In dev mode (SMTP not configured), include the reset link so devs can test the flow
+    if (!isSmtpConfigured && process.env.NODE_ENV !== 'production') {
+      response.resetUrl = resetUrl;
+    }
+
+    res.json(response);
   } catch (error) {
     console.error('Error en forgot-password:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
