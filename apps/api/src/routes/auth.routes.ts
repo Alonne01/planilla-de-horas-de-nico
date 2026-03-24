@@ -18,6 +18,16 @@ const router = Router();
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:3000';
 
+// Cookie config — sameSite: 'lax' is safe because frontend proxies API calls
+// through the same origin (Vite proxy in dev, nginx in production)
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+  path: '/',
+};
+
 // ─── Schemas de validación ───────────────────────
 
 const loginSchema = z.object({
@@ -96,13 +106,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     const refreshToken = signRefreshToken(usuario.id);
 
     // Set refresh token in httpOnly cookie
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      path: '/',
-    });
+    res.cookie('refreshToken', refreshToken, COOKIE_OPTIONS);
 
     res.json({
       accessToken,
@@ -179,13 +183,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     const accessToken = signAccessToken(tokenPayload);
     const newRefreshToken = signRefreshToken(usuario.id);
 
-    res.cookie('refreshToken', newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      path: '/',
-    });
+    res.cookie('refreshToken', newRefreshToken, COOKIE_OPTIONS);
 
     res.json({
       accessToken,
@@ -217,7 +215,12 @@ router.post('/logout', (req: Request, res: Response): void => {
     revokeRefreshToken(refreshToken);
   }
 
-  res.clearCookie('refreshToken', { path: '/' });
+  res.clearCookie('refreshToken', {
+    path: '/',
+    httpOnly: true,
+    secure: COOKIE_OPTIONS.secure,
+    sameSite: COOKIE_OPTIONS.sameSite,
+  });
   res.status(204).send();
 });
 

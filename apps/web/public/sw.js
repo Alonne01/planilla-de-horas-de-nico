@@ -1,10 +1,10 @@
-const CACHE_NAME = 'planilla-horas-v1';
+const CACHE_NAME = 'planilla-horas-v2';
 const PRECACHE_URLS = [
   '/',
   '/index.html',
 ];
 
-// Install: precache shell
+// Install: precache shell, activate immediately
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
@@ -12,7 +12,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate: clean old caches
+// Activate: clean ALL old caches, claim clients immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -22,12 +22,11 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: network-first for API, cache-first for static assets
+// Fetch strategy
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Skip cross-origin requests entirely (e.g. API on a different port)
-  // Let the browser handle them natively to avoid CORS issues from the SW
+  // Skip cross-origin requests (API on a different port/tunnel)
   if (url.origin !== self.location.origin) {
     return;
   }
@@ -37,15 +36,33 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Never cache same-origin /api calls (proxy scenario)
+  // Never cache /api calls
   if (url.pathname.startsWith('/api')) {
     event.respondWith(fetch(event.request));
     return;
   }
 
-  // Cache-first for static assets
-  if (event.request.destination === 'image' || event.request.destination === 'font' ||
+  // Stale-while-revalidate for JS/CSS — serve cached instantly, update in background
+  if (event.request.destination === 'script' || event.request.destination === 'style' ||
       url.pathname.endsWith('.js') || url.pathname.endsWith('.css')) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then((cache) =>
+        cache.match(event.request).then((cached) => {
+          const fetchPromise = fetch(event.request).then((response) => {
+            if (response.ok) cache.put(event.request, response.clone());
+            return response;
+          }).catch(() => cached);
+          // Keep SW alive for background revalidation
+          if (cached) event.waitUntil(fetchPromise);
+          return cached || fetchPromise;
+        })
+      )
+    );
+    return;
+  }
+
+  // Cache-first for images/fonts (rarely change)
+  if (event.request.destination === 'image' || event.request.destination === 'font') {
     event.respondWith(
       caches.match(event.request).then((cached) => {
         if (cached) return cached;

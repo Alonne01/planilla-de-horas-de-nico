@@ -17,5 +17,9 @@ export default defineConfig({
     hmr: {
       host: 'localhost',
     },
+    proxy: {
+      '/api': 'http://localhost:4000',
+      '/uploads': 'http://localhost:4000',
+    },
   },
 })

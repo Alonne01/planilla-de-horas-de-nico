@@ -32,82 +32,46 @@ mkdir "%TEMP_DIR%"
 :: ------------------------------------------------
 :: Step 1: Start API server
 :: ------------------------------------------------
-echo [1/4] Iniciando API server (puerto 4000)...
-set "CORS_ORIGINS=http://localhost:3000,https://*.trycloudflare.com"
-start "API-Server" /D "%API_DIR%" cmd /c "set CORS_ORIGINS=http://localhost:3000,https://*.trycloudflare.com&& npm run dev"
+echo [1/3] Iniciando API server (puerto 4000)...
+start "API-Server" /D "%API_DIR%" cmd /c "npm run dev"
 timeout /t 5 /nobreak >nul
 
 :: ------------------------------------------------
-:: Step 2: Start API tunnel
+:: Step 2: Start frontend (Vite proxy routes /api to localhost:4000)
 :: ------------------------------------------------
-echo [2/4] Creando tunel Cloudflare para API...
-start "API-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:4000 >%TEMP_DIR%\api_tunnel.txt 2>&1"
-echo       Esperando URL del tunel API...
+echo [2/3] Iniciando Frontend (puerto 3000, proxy API)...
+start "Frontend-Server" /D "%WEB_DIR%" cmd /c "npm run dev"
+timeout /t 5 /nobreak >nul
+
+:: ------------------------------------------------
+:: Step 3: Single tunnel for everything (Vite proxy handles API)
+:: ------------------------------------------------
+echo [3/3] Creando tunel Cloudflare...
+start "Cloudflare-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:3000 >%TEMP_DIR%\tunnel.txt 2>&1"
+echo       Esperando URL del tunel...
 
 :: Wait for tunnel URL to appear in the log
-set "API_URL="
-set ATTEMPTS=0
-:wait_api_url
-timeout /t 2 /nobreak >nul
-set /a ATTEMPTS+=1
-if %ATTEMPTS% gtr 15 (
-    echo [ERROR] Timeout esperando tunel API
-    goto cleanup
-)
-findstr /I /R "https.*trycloudflare" "%TEMP_DIR%\api_tunnel.txt" >nul 2>&1
-if %ERRORLEVEL% neq 0 goto wait_api_url
-
-:: Extract URL using type (can read locked files) piped to PowerShell
-for /f "usebackq delims=" %%u in (`type "%TEMP_DIR%\api_tunnel.txt" ^| powershell -NoProfile -Command "foreach($l in $input){if($l -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com'){$Matches[0];break}}"`) do (
-    set "API_URL=%%u"
-)
-
-if "!API_URL!"=="" (
-    echo [ERROR] No se pudo extraer URL del tunel API
-    echo [DEBUG] Contenido del log:
-    type "%TEMP_DIR%\api_tunnel.txt" 2>nul
-    goto cleanup
-)
-
-echo       API Tunnel: !API_URL!
-echo.
-
-:: ------------------------------------------------
-:: Step 3: Start frontend with API tunnel URL
-:: ------------------------------------------------
-echo [3/4] Iniciando Frontend (puerto 3000)...
-start "Frontend-Server" /D "%WEB_DIR%" cmd /c "set VITE_API_URL=!API_URL!&& npm run dev"
-timeout /t 5 /nobreak >nul
-
-:: ------------------------------------------------
-:: Step 4: Start frontend tunnel
-:: ------------------------------------------------
-echo [4/4] Creando tunel Cloudflare para Frontend...
-start "Frontend-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:3000 >%TEMP_DIR%\web_tunnel.txt 2>&1"
-echo       Esperando URL del tunel Frontend...
-
-:: Wait for tunnel URL
 set "WEB_URL="
 set ATTEMPTS=0
-:wait_web_url
+:wait_url
 timeout /t 2 /nobreak >nul
 set /a ATTEMPTS+=1
 if %ATTEMPTS% gtr 15 (
-    echo [ERROR] Timeout esperando tunel Frontend
+    echo [ERROR] Timeout esperando tunel
     goto cleanup
 )
-findstr /I /R "https.*trycloudflare" "%TEMP_DIR%\web_tunnel.txt" >nul 2>&1
-if %ERRORLEVEL% neq 0 goto wait_web_url
+findstr /I /R "https.*trycloudflare" "%TEMP_DIR%\tunnel.txt" >nul 2>&1
+if %ERRORLEVEL% neq 0 goto wait_url
 
-:: Extract URL using type (can read locked files) piped to PowerShell
-for /f "usebackq delims=" %%u in (`type "%TEMP_DIR%\web_tunnel.txt" ^| powershell -NoProfile -Command "foreach($l in $input){if($l -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com'){$Matches[0];break}}"`) do (
+:: Extract URL
+for /f "usebackq delims=" %%u in (`type "%TEMP_DIR%\tunnel.txt" ^| powershell -NoProfile -Command "foreach($l in $input){if($l -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com'){$Matches[0];break}}"`) do (
     set "WEB_URL=%%u"
 )
 
 if "!WEB_URL!"=="" (
-    echo [ERROR] No se pudo extraer URL del tunel Frontend
+    echo [ERROR] No se pudo extraer URL del tunel
     echo [DEBUG] Contenido del log:
-    type "%TEMP_DIR%\web_tunnel.txt" 2>nul
+    type "%TEMP_DIR%\tunnel.txt" 2>nul
     goto cleanup
 )
 
@@ -123,19 +87,18 @@ echo    PLANILLA DE HORAS - REMOTE TESTING ACTIVO
 echo.
 echo ========================================================
 echo.
-echo    FRONTEND (compartir esta URL para testing):
+echo    URL para compartir:
 echo.
 echo      !WEB_URL!
-echo.
-echo    API:
-echo.
-echo      !API_URL!
 echo.
 echo --------------------------------------------------------
 echo.
 echo    Servidores locales:
 echo      API:      http://localhost:4000
-echo      Frontend: http://localhost:3000
+echo      Frontend: http://localhost:3000 (proxy /api)
+echo.
+echo    Un solo tunel — Vite proxy enruta /api al backend.
+echo    Cookies same-origin, sin problemas de SameSite.
 echo.
 echo ========================================================
 echo.
@@ -149,8 +112,7 @@ echo Deteniendo servicios...
 pause
 taskkill /FI "WINDOWTITLE eq API-Server*" /F >nul 2>&1
 taskkill /FI "WINDOWTITLE eq Frontend-Server*" /F >nul 2>&1
-taskkill /FI "WINDOWTITLE eq API-Tunnel*" /F >nul 2>&1
-taskkill /FI "WINDOWTITLE eq Frontend-Tunnel*" /F >nul 2>&1
+taskkill /FI "WINDOWTITLE eq Cloudflare-Tunnel*" /F >nul 2>&1
 taskkill /IM cloudflared.exe /F >nul 2>&1
 
 echo Limpiando...

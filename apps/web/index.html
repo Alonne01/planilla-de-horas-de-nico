@@ -15,6 +15,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <title>Planilla de Horas</title>
+    <script>
+      // Apply persisted theme BEFORE React loads to prevent flash of wrong theme
+      (function(){try{var t=localStorage.getItem('planilla-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}})();
+    </script>
   </head>
   <body>
     <div id="root"></div>

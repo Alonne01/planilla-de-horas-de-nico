@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000`;
+export const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 /** Resolve a relative /uploads/… path to a full API URL */
 export function getUploadUrl(path: string | null | undefined): string {
