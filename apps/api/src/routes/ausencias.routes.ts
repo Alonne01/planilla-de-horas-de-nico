@@ -6,6 +6,7 @@ import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH } from '../middleware/roles.
 import { upload } from '../middleware/upload.middleware.js';
 import { inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { notificarAusencia, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
+import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -585,7 +586,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       where: { id: ausId },
       include: {
         flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
-        usuario: { select: { id: true, empresaId: true } },
+        usuario: { select: { id: true, empresaId: true, supervisorId: true, coordinadorId: true } },
       },
     });
 
@@ -614,11 +615,9 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada en el flujo` });
         return;
       }
-      if (pasoConfig.rolAprobador !== req.user!.rol) {
-        if ((req.user!.rolNivel ?? 0) < 90) {
-          res.status(403).json({ error: `Este paso requiere el rol ${pasoConfig.rolAprobador}` });
-          return;
-        }
+      if (!isResponsibleApprover(pasoConfig.rolAprobador, ausencia.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0)) {
+        res.status(403).json({ error: `No tenés autorización para aprobar esta ausencia en el paso de ${pasoConfig.rolAprobador}` });
+        return;
       }
 
       nuevoPaso = pasoActual + 1;
@@ -747,11 +746,22 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
 
     const ausencia = await prisma.ausencia.findUnique({
       where: { id: ausId },
-      include: { usuario: { select: { empresaId: true } } },
+      include: {
+        flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
+        usuario: { select: { empresaId: true, supervisorId: true, coordinadorId: true } },
+      },
     });
 
     if (!ausencia || ausencia.usuario.empresaId !== req.user!.empresaId) {
       res.status(404).json({ error: 'Ausencia no encontrada' });
+      return;
+    }
+
+    // Verify the caller is the responsible approver for this step
+    const pasos = ausencia.flujo?.pasos ?? [];
+    const currentStep = pasos.find(p => p.orden === ausencia.pasoActual);
+    if (!currentStep || !isResponsibleApprover(currentStep.rolAprobador, ausencia.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0)) {
+      res.status(403).json({ error: 'No tenés autorización para rechazar esta ausencia' });
       return;
     }
 

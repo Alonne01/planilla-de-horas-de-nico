@@ -6,6 +6,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH, LEVEL_ADMIN } from '../middleware/roles.middleware.js';
 import { notificarPlanilla, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { getFlowVisibleUserIds } from '../utils/visibility.utils.js';
+import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import {
   calcularHorasRegistro,
   getEmpresaConfig,
@@ -280,18 +281,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
         const pasos = planilla.flujo?.pasos ?? [];
         const currentStep = pasos.find(p => p.orden === planilla.pasoActual);
         const isPendingReview = planilla.estado === 'ENVIADA' || planilla.estado === 'EN_REVISION';
-        let isResponsibleApprover = false;
-        if (currentStep && isPendingReview) {
-          const role = currentStep.rolAprobador;
-          if (role === 'SUPERVISOR') {
-            isResponsibleApprover = planilla.usuario.supervisorId === req.user!.userId;
-          } else if (role === 'COORDINADOR') {
-            isResponsibleApprover = planilla.usuario.coordinadorId === req.user!.userId;
-          } else if (['RRHH', 'ADMIN', 'GERENTE'].includes(role)) {
-            isResponsibleApprover = role === req.user!.rol;
-          }
-        }
-        if (!isResponsibleApprover) {
+        if (!isPendingReview || !currentStep || !isResponsibleApprover(currentStep.rolAprobador, planilla.usuario, req.user!.userId, req.user!.rol, nivel)) {
           res.status(403).json({ error: 'Sin permisos para ver esta planilla' });
           return;
         }
@@ -450,7 +440,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       where: { id: planillaId },
       include: {
         flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
-        usuario: { select: { empresaId: true } },
+        usuario: { select: { empresaId: true, supervisorId: true, coordinadorId: true } },
       },
     });
 
@@ -480,12 +470,9 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada en el flujo` });
         return;
       }
-      if (pasoConfig.rolAprobador !== req.user!.rol) {
-        // ADMIN/RRHH (level >= 90) can approve any step
-        if ((req.user!.rolNivel ?? 0) < 90) {
-          res.status(403).json({ error: `Este paso requiere el rol ${pasoConfig.rolAprobador}` });
-          return;
-        }
+      if (!isResponsibleApprover(pasoConfig.rolAprobador, planilla.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0)) {
+        res.status(403).json({ error: `No tenés autorización para aprobar esta planilla en el paso de ${pasoConfig.rolAprobador}` });
+        return;
       }
 
       nuevoPaso = pasoActual + 1;
@@ -612,11 +599,22 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
 
     const planilla = await prisma.planilla.findUnique({
       where: { id: planillaId },
-      include: { usuario: { select: { empresaId: true } } },
+      include: {
+        flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
+        usuario: { select: { empresaId: true, supervisorId: true, coordinadorId: true } },
+      },
     });
 
     if (!planilla || planilla.usuario.empresaId !== req.user!.empresaId) {
       res.status(404).json({ error: 'Planilla no encontrada' });
+      return;
+    }
+
+    // Verify the caller is the responsible approver for this step
+    const pasos = planilla.flujo?.pasos ?? [];
+    const currentStep = pasos.find(p => p.orden === planilla.pasoActual);
+    if (!currentStep || !isResponsibleApprover(currentStep.rolAprobador, planilla.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0)) {
+      res.status(403).json({ error: 'No tenés autorización para rechazar esta planilla' });
       return;
     }
 

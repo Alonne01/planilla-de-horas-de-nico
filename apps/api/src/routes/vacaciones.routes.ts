@@ -5,6 +5,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
 import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
 import { notificarVacacion, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
+import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -536,7 +537,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       where: { id: vacId },
       include: {
         flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
-        usuario: { select: { id: true, empresaId: true, diasVacacionesUsados: true } },
+        usuario: { select: { id: true, empresaId: true, diasVacacionesUsados: true, supervisorId: true, coordinadorId: true } },
       },
     });
 
@@ -565,11 +566,9 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada en el flujo` });
         return;
       }
-      if (pasoConfig.rolAprobador !== req.user!.rol) {
-        if ((req.user!.rolNivel ?? 0) < 90) {
-          res.status(403).json({ error: `Este paso requiere el rol ${pasoConfig.rolAprobador}` });
-          return;
-        }
+      if (!isResponsibleApprover(pasoConfig.rolAprobador, vacacion.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0)) {
+        res.status(403).json({ error: `No tenés autorización para aprobar esta vacación en el paso de ${pasoConfig.rolAprobador}` });
+        return;
       }
 
       nuevoPaso = pasoActual + 1;
@@ -700,11 +699,22 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
 
     const vacacion = await prisma.vacacion.findUnique({
       where: { id: vacId },
-      include: { usuario: { select: { empresaId: true } } },
+      include: {
+        flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
+        usuario: { select: { empresaId: true, supervisorId: true, coordinadorId: true } },
+      },
     });
 
     if (!vacacion || vacacion.usuario.empresaId !== req.user!.empresaId) {
       res.status(404).json({ error: 'Vacación no encontrada' });
+      return;
+    }
+
+    // Verify the caller is the responsible approver for this step
+    const pasos = vacacion.flujo?.pasos ?? [];
+    const currentStep = pasos.find(p => p.orden === vacacion.pasoActual);
+    if (!currentStep || !isResponsibleApprover(currentStep.rolAprobador, vacacion.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0)) {
+      res.status(403).json({ error: 'No tenés autorización para rechazar esta vacación' });
       return;
     }
 
