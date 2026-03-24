@@ -247,7 +247,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         ],
       },
       include: { usuario: userHistInclude },
-      orderBy: { updatedAt: 'desc' },
+      orderBy: { createdAt: 'desc' },
       take: 15,
     });
 
