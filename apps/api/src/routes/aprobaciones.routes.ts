@@ -74,9 +74,9 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     // Helper: returns true if the item's current approval step matches the user's role
     const matchesCurrentStep = (item: { flujoId?: string | null; pasoActual: number; flujo?: { pasos: { orden: number; rolAprobador: string }[] } | null }) => {
-      if (!item.flujo || !item.flujoId) return true; // no flujo → legacy behavior
+      if (!item.flujo || !item.flujoId) return false; // no flujo → not approvable
       const paso = item.flujo.pasos.find(p => p.orden === item.pasoActual);
-      if (!paso) return true; // safety fallback
+      if (!paso) return false; // missing step config → fail closed
       return paso.rolAprobador === userRol;
     };
 

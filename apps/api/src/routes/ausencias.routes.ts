@@ -609,40 +609,105 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
 
     const pasos = ausencia.flujo?.pasos ?? [];
     const totalPasos = pasos.length;
+    const pasoActual = ausencia.pasoActual;
     let nuevoEstado: AusenciaEstado;
-    const nuevoPaso = ausencia.pasoActual + 1;
+    let nuevoPaso: number;
 
-    if (nuevoPaso > totalPasos || totalPasos === 0) {
+    // pasoActual is 1-based (matches FlujoPaso.orden)
+    if (pasoActual > totalPasos || totalPasos === 0) {
       nuevoEstado = 'APROBADA';
+      nuevoPaso = pasoActual;
     } else {
-      nuevoEstado = 'EN_REVISION';
+      const pasoConfig = pasos.find(p => p.orden === pasoActual);
+      if (!pasoConfig) {
+        res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada en el flujo` });
+        return;
+      }
+      if (pasoConfig.rolAprobador !== req.user!.rol) {
+        if ((req.user!.rolNivel ?? 0) < 90) {
+          res.status(403).json({ error: `Este paso requiere el rol ${pasoConfig.rolAprobador}` });
+          return;
+        }
+      }
+
+      nuevoPaso = pasoActual + 1;
+      nuevoEstado = nuevoPaso > totalPasos ? 'APROBADA' : 'EN_REVISION';
     }
 
-    const updated = await prisma.ausencia.update({
-      where: { id: ausId },
-      data: {
-        estado: nuevoEstado,
-        pasoActual: nuevoPaso,
-        ...(nuevoEstado === 'APROBADA' ? {
-          aprobada: true,
-          aprobadaPorId: req.user!.userId,
-          aprobadaAt: new Date(),
-        } : {}),
-      },
-    });
+    // Atomic: optimistic concurrency + duplicate check inside transaction
+    let updated;
+    try {
+      updated = await prisma.$transaction(async (tx) => {
+        // Optimistic concurrency: only advance if pasoActual hasn't changed
+        const { count } = await tx.ausencia.updateMany({
+          where: { id: ausId, pasoActual: pasoActual },
+          data: {
+            estado: nuevoEstado,
+            pasoActual: nuevoPaso,
+            ...(nuevoEstado === 'APROBADA' ? {
+              aprobada: true,
+              aprobadaPorId: req.user!.userId,
+              aprobadaAt: new Date(),
+            } : {}),
+          },
+        });
+        if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
 
-    await prisma.ausenciaHistorial.create({
-      data: {
-        ausenciaId: ausId,
-        usuarioId: req.user!.userId,
-        estadoAnterior: ausencia.estado as AusenciaEstado,
-        estadoNuevo: nuevoEstado,
-        pasoFlujo: nuevoPaso,
-        comentario: req.body?.comentario ?? null,
-      },
-    });
+        // Duplicate check inside tx scoped to current submission
+        const lastSubmission = await tx.ausenciaHistorial.findFirst({
+          where: { ausenciaId: ausId, estadoNuevo: 'PENDIENTE' },
+          orderBy: { createdAt: 'desc' },
+        });
+        const yaAprobo = await tx.ausenciaHistorial.findFirst({
+          where: {
+            ausenciaId: ausId,
+            usuarioId: req.user!.userId,
+            pasoFlujo: nuevoPaso,
+            createdAt: { gt: lastSubmission?.createdAt ?? new Date(0) },
+          },
+        });
+        if (yaAprobo) {
+          throw new Error('DUPLICATE_APPROVAL');
+        }
 
-    // Approved → inject locked days into employee planilla
+        // FRANCO_COMPENSATORIO: balance mutation inside transaction
+        if (nuevoEstado === 'APROBADA' && ausencia.tipo === 'FRANCO_COMPENSATORIO') {
+          const anio = new Date(ausencia.fechaInicio).getFullYear();
+          await tx.vacacionSaldo.update({
+            where: { usuarioId_anio: { usuarioId: ausencia.usuario.id, anio } },
+            data: {
+              compensatoriosPendientes: { decrement: ausencia.diasAusencia },
+              compensatoriosUsados: { increment: ausencia.diasAusencia },
+            },
+          });
+        }
+
+        await tx.ausenciaHistorial.create({
+          data: {
+            ausenciaId: ausId,
+            usuarioId: req.user!.userId,
+            estadoAnterior: ausencia.estado as AusenciaEstado,
+            estadoNuevo: nuevoEstado,
+            pasoFlujo: nuevoPaso,
+            comentario: req.body?.comentario ?? null,
+          },
+        });
+
+        return tx.ausencia.findUnique({ where: { id: ausId } });
+      });
+    } catch (error: any) {
+      if (error?.message === 'DUPLICATE_APPROVAL') {
+        res.status(409).json({ error: 'Ya aprobaste este paso. No se puede aprobar dos veces.' });
+        return;
+      }
+      if (error?.message === 'CONCURRENT_MODIFICATION') {
+        res.status(409).json({ error: 'La solicitud fue modificada por otro aprobador. Recargue la página.' });
+        return;
+      }
+      throw error;
+    }
+
+    // Approved → inject locked days into employee planilla (outside tx, idempotent)
     if (nuevoEstado === 'APROBADA') {
       const tipoLabel = formatTipoAusencia(ausencia.tipo);
       await inyectarDiasBloqueados({
@@ -652,18 +717,6 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         motivoBloqueo: ausencia.tipo,
         observaciones: `${tipoLabel}${ausencia.descripcion ? ` — ${ausencia.descripcion}` : ''}`,
       });
-
-      // FRANCO_COMPENSATORIO: move from pendientes to usados
-      if (ausencia.tipo === 'FRANCO_COMPENSATORIO') {
-        const anio = new Date(ausencia.fechaInicio).getFullYear();
-        await prisma.vacacionSaldo.update({
-          where: { usuarioId_anio: { usuarioId: ausencia.usuario.id, anio } },
-          data: {
-            compensatoriosPendientes: { decrement: ausencia.diasAusencia },
-            compensatoriosUsados: { increment: ausencia.diasAusencia },
-          },
-        });
-      }
     }
 
     // Notify absence requester

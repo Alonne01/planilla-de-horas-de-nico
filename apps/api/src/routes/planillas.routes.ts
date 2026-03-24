@@ -452,18 +452,20 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       nuevoEstado = nuevoPaso > totalPasos ? 'APROBADA' : 'EN_REVISION';
     }
 
-    // Atomic: update acquires row lock → duplicate check is serialized → no TOCTOU race
+    // Atomic: optimistic concurrency + duplicate check inside transaction
     let updated;
     try {
       updated = await prisma.$transaction(async (tx) => {
-        const result = await tx.planilla.update({
-          where: { id: planillaId },
+        // Optimistic concurrency: only advance if pasoActual hasn't changed
+        const { count } = await tx.planilla.updateMany({
+          where: { id: planillaId, pasoActual: planilla.pasoActual },
           data: {
             estado: nuevoEstado,
             pasoActual: nuevoPaso,
             ...(nuevoEstado === 'APROBADA' ? { aprobadaPorId: req.user!.userId, aprobadaAt: new Date() } : {}),
           },
         });
+        if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
 
         // Duplicate check INSIDE transaction (after row lock acquired by UPDATE)
         const yaAprobo = await tx.planillaHistorial.findFirst({
@@ -519,11 +521,15 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
           },
         });
 
-        return result;
+        return tx.planilla.findUnique({ where: { id: planillaId } });
       });
     } catch (error: any) {
       if (error?.message === 'DUPLICATE_APPROVAL') {
         res.status(409).json({ error: 'Ya aprobaste este paso. No se puede aprobar dos veces.' });
+        return;
+      }
+      if (error?.message === 'CONCURRENT_MODIFICATION') {
+        res.status(409).json({ error: 'La planilla fue modificada por otro aprobador. Recargue la página.' });
         return;
       }
       throw error;

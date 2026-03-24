@@ -519,42 +519,109 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
 
     const pasos = vacacion.flujo?.pasos ?? [];
     const totalPasos = pasos.length;
+    const pasoActual = vacacion.pasoActual;
     let nuevoEstado: VacacionEstado;
-    let nuevoPaso = vacacion.pasoActual + 1;
+    let nuevoPaso: number;
 
-    if (nuevoPaso > totalPasos || totalPasos === 0) {
+    // pasoActual is 1-based (matches FlujoPaso.orden)
+    if (pasoActual > totalPasos || totalPasos === 0) {
       nuevoEstado = 'APROBADA';
+      nuevoPaso = pasoActual;
     } else {
-      nuevoEstado = 'EN_REVISION';
+      const pasoConfig = pasos.find(p => p.orden === pasoActual);
+      if (!pasoConfig) {
+        res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada en el flujo` });
+        return;
+      }
+      if (pasoConfig.rolAprobador !== req.user!.rol) {
+        if ((req.user!.rolNivel ?? 0) < 90) {
+          res.status(403).json({ error: `Este paso requiere el rol ${pasoConfig.rolAprobador}` });
+          return;
+        }
+      }
+
+      nuevoPaso = pasoActual + 1;
+      nuevoEstado = nuevoPaso > totalPasos ? 'APROBADA' : 'EN_REVISION';
     }
 
-    const updated = await prisma.vacacion.update({
-      where: { id: vacId },
-      data: {
-        estado: nuevoEstado,
-        pasoActual: nuevoPaso,
-        ...(nuevoEstado === 'APROBADA' ? { aprobadaPorId: req.user!.userId, aprobadaAt: new Date() } : {}),
-      },
-    });
+    // Atomic: optimistic concurrency + duplicate check inside transaction
+    let updated;
+    try {
+      updated = await prisma.$transaction(async (tx) => {
+        // Optimistic concurrency: only advance if pasoActual hasn't changed
+        const { count } = await tx.vacacion.updateMany({
+          where: { id: vacId, pasoActual: pasoActual },
+          data: {
+            estado: nuevoEstado,
+            pasoActual: nuevoPaso,
+            ...(nuevoEstado === 'APROBADA' ? { aprobadaPorId: req.user!.userId, aprobadaAt: new Date() } : {}),
+          },
+        });
+        if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
 
-    // If approved, update VacacionSaldo.diasUsados
-    if (nuevoEstado === 'APROBADA') {
-      const anioVac = new Date(vacacion.fechaInicio).getFullYear();
-      await prisma.vacacionSaldo.upsert({
-        where: { usuarioId_anio: { usuarioId: vacacion.usuario.id, anio: anioVac } },
-        update: {
-          diasUsados: { increment: vacacion.diasTotales },
-          diasPendientes: { decrement: vacacion.diasTotales },
-        },
-        create: {
-          usuarioId: vacacion.usuario.id,
-          anio: anioVac,
-          diasCorrespondientes: 14, // fallback, should already exist
-          diasUsados: vacacion.diasTotales,
-        },
+        // Duplicate check inside tx scoped to current submission
+        const lastSubmission = await tx.vacacionHistorial.findFirst({
+          where: { vacacionId: vacId, estadoNuevo: 'PENDIENTE' },
+          orderBy: { createdAt: 'desc' },
+        });
+        const yaAprobo = await tx.vacacionHistorial.findFirst({
+          where: {
+            vacacionId: vacId,
+            usuarioId: req.user!.userId,
+            pasoFlujo: nuevoPaso,
+            createdAt: { gt: lastSubmission?.createdAt ?? new Date(0) },
+          },
+        });
+        if (yaAprobo) {
+          throw new Error('DUPLICATE_APPROVAL');
+        }
+
+        // Balance mutation inside transaction
+        if (nuevoEstado === 'APROBADA') {
+          const anioVac = new Date(vacacion.fechaInicio).getFullYear();
+          await tx.vacacionSaldo.upsert({
+            where: { usuarioId_anio: { usuarioId: vacacion.usuario.id, anio: anioVac } },
+            update: {
+              diasUsados: { increment: vacacion.diasTotales },
+              diasPendientes: { decrement: vacacion.diasTotales },
+            },
+            create: {
+              usuarioId: vacacion.usuario.id,
+              anio: anioVac,
+              diasCorrespondientes: 14,
+              diasUsados: vacacion.diasTotales,
+              diasPendientes: 14 - vacacion.diasTotales,
+            },
+          });
+        }
+
+        await tx.vacacionHistorial.create({
+          data: {
+            vacacionId: vacId,
+            usuarioId: req.user!.userId,
+            estadoAnterior: vacacion.estado,
+            estadoNuevo: nuevoEstado,
+            pasoFlujo: nuevoPaso,
+            comentario: req.body?.comentario ?? null,
+          },
+        });
+
+        return tx.vacacion.findUnique({ where: { id: vacId } });
       });
+    } catch (error: any) {
+      if (error?.message === 'DUPLICATE_APPROVAL') {
+        res.status(409).json({ error: 'Ya aprobaste este paso. No se puede aprobar dos veces.' });
+        return;
+      }
+      if (error?.message === 'CONCURRENT_MODIFICATION') {
+        res.status(409).json({ error: 'La solicitud fue modificada por otro aprobador. Recargue la página.' });
+        return;
+      }
+      throw error;
+    }
 
-      // Inject locked days into employee planilla
+    // Inject locked days outside transaction (idempotent)
+    if (nuevoEstado === 'APROBADA') {
       await inyectarDiasBloqueados({
         usuarioId: vacacion.usuario.id,
         fechaInicio: vacacion.fechaInicio,
@@ -563,17 +630,6 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         observaciones: `Vacaciones${vacacion.motivo ? ` — ${vacacion.motivo}` : ''}`,
       });
     }
-
-    await prisma.vacacionHistorial.create({
-      data: {
-        vacacionId: vacId,
-        usuarioId: req.user!.userId,
-        estadoAnterior: vacacion.estado,
-        estadoNuevo: nuevoEstado,
-        pasoFlujo: nuevoPaso,
-        comentario: req.body?.comentario ?? null,
-      },
-    });
 
     // Notify vacation requester
     const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
