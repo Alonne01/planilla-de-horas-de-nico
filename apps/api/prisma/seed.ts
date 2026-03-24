@@ -726,17 +726,19 @@ async function main() {
     PLANILLA: 'CERRAR',
     VACACION: 'CONFIRMAR',
     AUSENCIA: 'APROBAR',
+    CAMBIO_DIAGRAMA: 'AUTORIZAR',
   };
 
   const tipoDocLabels: Record<string, string> = {
     PLANILLA: 'Planillas',
     VACACION: 'Vacaciones',
     AUSENCIA: 'Ausencias',
+    CAMBIO_DIAGRAMA: 'Cambios de Diagrama',
   };
 
   const flujosConfig: FlujoConfig[] = [];
 
-  for (const tipo of ['PLANILLA', 'VACACION', 'AUSENCIA'] as const) {
+  for (const tipo of ['PLANILLA', 'VACACION', 'AUSENCIA', 'CAMBIO_DIAGRAMA'] as const) {
     const label = tipoDocLabels[tipo];
     const accionRRHH = accionCierreRRHH[tipo];
 
@@ -904,7 +906,7 @@ async function main() {
   // Patrón C (1 paso): Administración, Almacén, Intendencia, Wireline
   const sectoresPatronC = ['Administración', 'Almacén', 'Intendencia', 'Wireline'];
 
-  for (const tipo of ['PLANILLA', 'VACACION', 'AUSENCIA'] as const) {
+  for (const tipo of ['PLANILLA', 'VACACION', 'AUSENCIA', 'CAMBIO_DIAGRAMA'] as const) {
     for (const sectorNombre of sectoresPatronA) {
       await prisma.flujoAsignacion.create({
         data: { flujoId: flujos[`${tipo}_A`], tipoDocumento: tipo, sectorId: sectores[sectorNombre] },
@@ -921,7 +923,7 @@ async function main() {
       });
     }
   }
-  console.log('✅ 27 asignaciones de flujo creadas (9 sectores × 3 tipos)');
+  console.log('✅ 36 asignaciones de flujo creadas (9 sectores × 4 tipos)');
 
   // ═════════════════════════════════════════════════
   // RESUMEN

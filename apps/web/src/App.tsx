@@ -33,6 +33,7 @@ import CapacitacionesPage from '@/pages/CapacitacionesPage';
 import AuditoriaPage from '@/pages/AuditoriaPage';
 import LiquidacionPage from '@/pages/LiquidacionPage';
 import EquipoPage from '@/pages/EquipoPage';
+import CambiosDiagramaPage from '@/pages/CambiosDiagramaPage';
 import { Loader2 } from 'lucide-react';
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { toast } from '@/stores/toastStore';
@@ -143,6 +144,7 @@ export default function App() {
               <Route path="/vacaciones/gantt" element={<VacacionesGanttPage />} />
               <Route path="/capacitaciones" element={<CapacitacionesPage />} />
               <Route path="/equipo" element={<EquipoPage />} />
+              <Route path="/cambios-diagrama" element={<CambiosDiagramaPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               {/* Admin routes — Phase 2 */}
               <Route path="/admin/usuarios" element={<UsuariosPage />} />

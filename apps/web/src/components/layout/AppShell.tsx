@@ -34,6 +34,7 @@ import {
   Bell,
   FileSpreadsheet,
   ShieldCheck,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -56,6 +57,7 @@ const navItems: NavItem[] = [
   { label: 'Calendario Vac.', path: '/vacaciones/gantt', icon: CalendarRange, minLevel: 70 },
   { label: 'Capacitaciones', path: '/capacitaciones', icon: GraduationCap },
   { label: 'Mi Equipo', path: '/equipo', icon: Users },
+  { label: 'Cambios Diagrama', path: '/cambios-diagrama', icon: ArrowLeftRight, minLevel: 70 },
   { label: 'Analytics', path: '/analytics', icon: FileBarChart },
 ];
 

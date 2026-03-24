@@ -25,6 +25,7 @@ import capacitacionesRoutes from './capacitaciones.routes.js';
 import sesionesCapacitacionRoutes from './sesiones-capacitacion.routes.js';
 import auditoriaRoutes from './auditoria.routes.js';
 import liquidacionRoutes from './liquidacion.routes.js';
+import cambiosDiagramaRoutes from './cambios-diagrama.routes.js';
 
 const router = Router();
 
@@ -47,6 +48,7 @@ router.use('/vacaciones', vacacionesRoutes);
 router.use('/vacacion-saldos', vacacionSaldosRoutes);
 router.use('/aprobaciones', aprobacionesRoutes);
 router.use('/ausencias', ausenciasRoutes);
+router.use('/cambios-diagrama', cambiosDiagramaRoutes);
 
 // Mensajes
 router.use('/mensajes', mensajesRoutes);

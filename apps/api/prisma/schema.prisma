@@ -62,6 +62,13 @@ enum DiagramaTipo {
   FIJO_SEMANA
 }
 
+enum CambioDiagramaEstado {
+  PENDIENTE
+  EN_REVISION
+  APROBADA
+  RECHAZADA
+}
+
 enum ContratoTipo {
   PRUEBA
   INDEFINIDO
@@ -282,6 +289,8 @@ model Diagrama {
 
   empresa      Empresa            @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   asignaciones UsuarioDiagrama[]
+  cambiosDesdeDiagrama SolicitudCambioDiagrama[] @relation("cambio_diagrama_actual")
+  cambiosHaciaDiagrama SolicitudCambioDiagrama[] @relation("cambio_diagrama_nuevo")
 
   @@map("diagramas")
 }
@@ -320,6 +329,7 @@ model FlujoAprobacion {
   planillas    Planilla[]
   vacaciones   Vacacion[]
   ausencias    Ausencia[]
+  cambiosDiagrama SolicitudCambioDiagrama[]
 
   @@map("flujos_aprobacion")
 }
@@ -428,6 +438,10 @@ model Usuario {
   respuestasMensaje  MensajeRespuesta[]   @relation("respuestasMensaje")
   sesionesOrganizadas     SesionCapacitacion[]     @relation("sesiones_organizadas")
   invitacionesCapacitacion InvitacionCapacitacion[] @relation("invitaciones_capacitacion")
+  cambiosDiagramaSolicitados  SolicitudCambioDiagrama[]  @relation("cambio_diagrama_solicitante")
+  cambiosDiagramaAfectados    SolicitudCambioDiagrama[]  @relation("cambio_diagrama_usuario")
+  cambiosDiagramaAprobados    SolicitudCambioDiagrama[]  @relation("cambio_diagrama_aprobador")
+  cambioDiagramaHistorial     CambioDiagramaHistorial[]
 
   @@map("usuarios")
 }
@@ -969,4 +983,52 @@ model InvitacionCapacitacion {
 
   @@unique([sesionId, usuarioId])
   @@map("invitaciones_capacitacion")
+}
+
+// ═══════════════════════════════════════════════════════
+// SOLICITUDES DE CAMBIO DE DIAGRAMA
+// ═══════════════════════════════════════════════════════
+
+model SolicitudCambioDiagrama {
+  id                String                @id @default(uuid())
+  solicitanteId     String                @map("solicitante_id")
+  usuarioId         String                @map("usuario_id")
+  diagramaActualId  String?               @map("diagrama_actual_id")
+  diagramaNuevoId   String                @map("diagrama_nuevo_id")
+  flujoId           String?               @map("flujo_id")
+  estado            CambioDiagramaEstado  @default(PENDIENTE)
+  pasoActual        Int                   @default(1) @map("paso_actual")
+  motivo            String?
+  obsRechazo        String?               @map("obs_rechazo")
+  aprobadaPorId     String?               @map("aprobada_por_id")
+  aprobadaAt        DateTime?             @map("aprobada_at")
+  fechaEfectiva     DateTime?             @map("fecha_efectiva")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  solicitante      Usuario          @relation("cambio_diagrama_solicitante", fields: [solicitanteId], references: [id])
+  usuario          Usuario          @relation("cambio_diagrama_usuario", fields: [usuarioId], references: [id])
+  diagramaActual   Diagrama?        @relation("cambio_diagrama_actual", fields: [diagramaActualId], references: [id])
+  diagramaNuevo    Diagrama         @relation("cambio_diagrama_nuevo", fields: [diagramaNuevoId], references: [id])
+  flujo            FlujoAprobacion? @relation(fields: [flujoId], references: [id])
+  aprobadaPor      Usuario?         @relation("cambio_diagrama_aprobador", fields: [aprobadaPorId], references: [id])
+  historial        CambioDiagramaHistorial[]
+
+  @@map("solicitudes_cambio_diagrama")
+}
+
+model CambioDiagramaHistorial {
+  id             String                @id @default(uuid())
+  solicitudId    String                @map("solicitud_id")
+  usuarioId      String                @map("usuario_id")
+  estadoAnterior CambioDiagramaEstado? @map("estado_anterior")
+  estadoNuevo    CambioDiagramaEstado  @map("estado_nuevo")
+  pasoFlujo      Int?                  @map("paso_flujo")
+  comentario     String?
+  createdAt      DateTime              @default(now()) @map("created_at")
+
+  solicitud SolicitudCambioDiagrama @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  usuario   Usuario                 @relation(fields: [usuarioId], references: [id])
+
+  @@map("cambios_diagrama_historial")
 }
