@@ -59,6 +59,7 @@ export default function EquipoPage() {
 
   const isWellTesting = user?.sectorNombre?.toLowerCase().includes('testing');
   const canEditDiagrama = isWellTesting && user?.rol === 'COORDINADOR';
+  const canSeeRoleInfo = (user?.rolNivel ?? 0) >= 50; // SUPERVISOR+
 
   const { data: empleados = [], isLoading } = useQuery<Empleado[]>({
     queryKey: ['equipo'],
@@ -144,9 +145,11 @@ export default function EquipoPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-1 flex-wrap justify-end">
-                  <span className={cn('px-2 py-0.5 rounded-full text-[10px] font-medium', ROL_COLORS[emp.rol])}>
-                    {emp.rol}
-                  </span>
+                  {canSeeRoleInfo && (
+                    <span className={cn('px-2 py-0.5 rounded-full text-[10px] font-medium', ROL_COLORS[emp.rol])}>
+                      {emp.rol}
+                    </span>
+                  )}
                   {isWellTesting && emp.diagramaColor && !canEditDiagrama && (
                     <span className={cn('px-2 py-0.5 rounded-full text-[10px] font-semibold border', DIAGRAMA_BADGE[emp.diagramaColor])}>
                       {DIAGRAMA_LABEL[emp.diagramaColor] ?? emp.diagramaColor}
@@ -164,7 +167,7 @@ export default function EquipoPage() {
                     <Briefcase className="h-3 w-3" /> {emp.sector.nombre}
                   </p>
                 )}
-                {emp.categoria && (
+                {canSeeRoleInfo && emp.categoria && (
                   <p className="flex items-center gap-1.5">
                     <Briefcase className="h-3 w-3" /> {emp.categoria.nombre}
                   </p>

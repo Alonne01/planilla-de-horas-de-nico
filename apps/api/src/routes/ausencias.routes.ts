@@ -352,6 +352,15 @@ router.post('/compensatorio', async (req: AuthRequest, res: Response): Promise<v
       },
     });
 
+    let flujoIdComp = flujoAsignacion?.flujoId ?? null;
+    if (!flujoIdComp) {
+      const fallbackFlow = await prisma.flujoAprobacion.findFirst({
+        where: { empresaId, tipoDocumento: 'COMPENSATORIO', activo: true, asignaciones: { some: { activo: true } } },
+        select: { id: true },
+      });
+      flujoIdComp = fallbackFlow?.id ?? null;
+    }
+
     const ausencia = await prisma.ausencia.create({
       data: {
         usuarioId: userId,
@@ -366,7 +375,7 @@ router.post('/compensatorio', async (req: AuthRequest, res: Response): Promise<v
         descuentaSueldo: false,
         requiereAprobacion: true,
         aprobada: false,
-        flujoId: flujoAsignacion?.flujoId ?? null,
+        flujoId: flujoIdComp,
       },
     });
 

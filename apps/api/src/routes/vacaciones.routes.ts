@@ -394,6 +394,16 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
       },
     });
 
+    // Fallback: if no sector-specific assignment, use any active VACACION flow for this company
+    let flujoId = flujoAsignacion?.flujoId ?? null;
+    if (!flujoId) {
+      const fallbackFlow = await prisma.flujoAprobacion.findFirst({
+        where: { empresaId, tipoDocumento: 'VACACION', activo: true, asignaciones: { some: { activo: true } } },
+        select: { id: true },
+      });
+      flujoId = fallbackFlow?.id ?? null;
+    }
+
     const vacacion = await prisma.vacacion.create({
       data: {
         usuarioId: userId,
@@ -402,7 +412,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
         diasHabiles: parsed.data.diasHabiles,
         diasTotales,
         motivo: parsed.data.motivo ?? null,
-        flujoId: flujoAsignacion?.flujoId ?? null,
+        flujoId,
         estado: 'PENDIENTE',
         pasoActual: 1,
       },

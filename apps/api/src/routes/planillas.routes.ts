@@ -187,12 +187,21 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
       },
     });
 
+    let flujoId = flujoAsignacion?.flujoId ?? null;
+    if (!flujoId) {
+      const fallbackFlow = await prisma.flujoAprobacion.findFirst({
+        where: { empresaId, tipoDocumento: 'PLANILLA', activo: true, asignaciones: { some: { activo: true } } },
+        select: { id: true },
+      });
+      flujoId = fallbackFlow?.id ?? null;
+    }
+
     const planilla = await prisma.planilla.create({
       data: {
         usuarioId: userId,
         periodoInicio,
         periodoFin,
-        flujoId: flujoAsignacion?.flujoId ?? null,
+        flujoId,
       },
       include: {
         usuario: { select: { id: true, nombre: true, apellido: true } },
