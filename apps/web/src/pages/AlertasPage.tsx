@@ -3,6 +3,7 @@ import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import { Loader2, Bell, Plus, Trash2, Power, Pencil, X, Save } from 'lucide-react';
+import { useDialogStore } from '@/stores/dialogStore';
 
 interface AlertaConfig {
   id: string;
@@ -30,6 +31,7 @@ const ROLES = ['OPERADOR', 'SUPERVISOR', 'COORDINADOR', 'GERENTE', 'RRHH', 'ADMI
 
 export default function AlertasPage() {
   const qc = useQueryClient();
+  const dialog = useDialogStore();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -291,7 +293,7 @@ export default function AlertasPage() {
                     <Pencil className="h-4 w-4" />
                   </button>
                   <button
-                    onClick={() => { if (confirm('¿Eliminar esta alerta?')) deleteMut.mutate(a.id); }}
+                    onClick={async () => { if (await dialog.confirm({ message: '¿Eliminar esta alerta?', variant: 'danger' })) deleteMut.mutate(a.id); }}
                     className="p-2 rounded-lg text-red-400 hover:bg-red-500/15 transition-colors"
                     title="Eliminar"
                   >

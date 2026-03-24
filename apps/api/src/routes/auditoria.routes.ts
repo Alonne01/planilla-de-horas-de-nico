@@ -148,6 +148,34 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       })));
     }
 
+    // AuditoriaLog (admin changes: salary, conceptos, etc.)
+    if (!tipo || tipo === 'admin') {
+      const adminLogs = await prisma.auditoriaLog.findMany({
+        where: {
+          usuario: { empresaId },
+          ...(usuarioId ? { usuarioId: usuarioId as string } : {}),
+          ...dateFilter('createdAt'),
+        },
+        include: {
+          usuario: { select: { id: true, nombre: true, apellido: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: maxRows,
+      });
+      results.push(...adminLogs.map((l) => ({
+        id: l.id,
+        tipo: 'ADMIN',
+        entidadId: l.entidadId,
+        entidadLabel: l.descripcion ?? `${l.entidad} ${l.entidadId}`,
+        estadoAnterior: l.valorAnterior,
+        estadoNuevo: l.accion + (l.valorNuevo ? `: ${l.valorNuevo}` : ''),
+        paso: null,
+        comentario: l.campo ? `Campo: ${l.campo}` : null,
+        usuario: l.usuario,
+        createdAt: l.createdAt,
+      })));
+    }
+
     // Sort all results by date desc
     results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -166,7 +194,7 @@ router.get('/stats', async (req: AuthRequest, res: Response): Promise<void> => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const [planillas, vacaciones, ausencias, recibos] = await Promise.all([
+    const [planillas, vacaciones, ausencias, recibos, adminChanges] = await Promise.all([
       prisma.planillaHistorial.count({
         where: { planilla: { usuario: { empresaId } }, createdAt: { gte: thirtyDaysAgo } },
       }),
@@ -179,10 +207,13 @@ router.get('/stats', async (req: AuthRequest, res: Response): Promise<void> => {
       prisma.reciboSueldo.count({
         where: { usuario: { empresaId }, firmadoEmpleadoAt: { gte: thirtyDaysAgo } },
       }),
+      prisma.auditoriaLog.count({
+        where: { usuario: { empresaId }, createdAt: { gte: thirtyDaysAgo } },
+      }),
     ]);
 
     res.json({
-      ultimos30Dias: { planillas, vacaciones, ausencias, recibos, total: planillas + vacaciones + ausencias + recibos },
+      ultimos30Dias: { planillas, vacaciones, ausencias, recibos, admin: adminChanges, total: planillas + vacaciones + ausencias + recibos + adminChanges },
     });
   } catch (err) {
     console.error('Error fetching audit stats:', err);

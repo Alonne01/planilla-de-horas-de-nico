@@ -6,6 +6,7 @@ import {
   DollarSign, Plus, Trash2, Loader2, X,
   ChevronRight, Percent, Hash
 } from 'lucide-react';
+import { useDialogStore } from '@/stores/dialogStore';
 
 interface ConceptoValor {
   id: string;
@@ -49,6 +50,7 @@ const TIPO_STYLES: Record<string, string> = {
 
 export default function ConceptosPage() {
   const queryClient = useQueryClient();
+  const dialog = useDialogStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [filterConvenio, setFilterConvenio] = useState('');
@@ -171,7 +173,7 @@ export default function ConceptosPage() {
                   <p className="text-sm text-muted-foreground mt-1">{selected.convenio.nombre}</p>
                 </div>
                 <button
-                  onClick={() => { if (confirm('¿Eliminar concepto?')) deleteMutation.mutate(selected.id); }}
+                  onClick={async () => { if (await dialog.confirm({ message: '¿Eliminar concepto?', variant: 'danger' })) deleteMutation.mutate(selected.id); }}
                   className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                 >
                   <Trash2 className="h-4 w-4" />

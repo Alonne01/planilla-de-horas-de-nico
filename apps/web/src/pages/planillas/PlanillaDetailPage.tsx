@@ -17,6 +17,7 @@ import {
 import SuccessOverlay from '@/components/planilla/SuccessOverlay';
 import DrumTimePicker from '@/components/planilla/DrumTimePicker';
 import MiniCard from '@/components/planilla/MiniCard';
+import { useDialogStore } from '@/stores/dialogStore';
 
 interface Registro {
   id: string;
@@ -74,6 +75,7 @@ export default function PlanillaDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const dialog = useDialogStore();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [motivoRechazo, setMotivoRechazo] = useState('');
   const [showRechazo, setShowRechazo] = useState(false);
@@ -1116,7 +1118,7 @@ export default function PlanillaDetailPage() {
                   </button>
                   {registroMap[selectedDate] && (
                     <button
-                      onClick={() => { if (confirm('¿Eliminar este registro?')) deleteRegistroMutation.mutate(registroMap[selectedDate].id); }}
+                      onClick={async () => { if (await dialog.confirm({ message: '¿Eliminar este registro?', variant: 'danger' })) deleteRegistroMutation.mutate(registroMap[selectedDate].id); }}
                       className="px-4 py-2 rounded-lg border border-cal-red/30 text-cal-red text-sm font-medium hover:bg-red-500/10 transition-colors">
                       Eliminar
                     </button>

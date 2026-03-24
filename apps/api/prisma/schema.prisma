@@ -442,6 +442,7 @@ model Usuario {
   cambiosDiagramaAfectados    SolicitudCambioDiagrama[]  @relation("cambio_diagrama_usuario")
   cambiosDiagramaAprobados    SolicitudCambioDiagrama[]  @relation("cambio_diagrama_aprobador")
   cambioDiagramaHistorial     CambioDiagramaHistorial[]
+  auditoriaLogs               AuditoriaLog[]             @relation("auditoria_usuario")
 
   @@map("usuarios")
 }
@@ -1031,4 +1032,25 @@ model CambioDiagramaHistorial {
   usuario   Usuario                 @relation(fields: [usuarioId], references: [id])
 
   @@map("cambios_diagrama_historial")
+}
+
+// ─── Auditoría ────────────────────────────────────
+
+model AuditoriaLog {
+  id             String   @id @default(uuid())
+  entidad        String   // e.g. "Usuario", "ConceptoValor", "ConceptoSalarial"
+  entidadId      String   @map("entidad_id")
+  accion         String   // "CREAR", "EDITAR", "ELIMINAR"
+  campo          String?  // field name that changed (null for create/delete)
+  valorAnterior  String?  @map("valor_anterior")
+  valorNuevo     String?  @map("valor_nuevo")
+  descripcion    String?  // human-readable summary
+  usuarioId      String   @map("usuario_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  usuario Usuario @relation("auditoria_usuario", fields: [usuarioId], references: [id])
+
+  @@index([entidad, entidadId])
+  @@index([usuarioId])
+  @@map("auditoria_log")
 }

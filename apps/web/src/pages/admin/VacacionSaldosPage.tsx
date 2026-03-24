@@ -6,6 +6,7 @@ import {
   Palmtree, RefreshCw, Loader2, ChevronLeft, ChevronRight,
   Edit3, Check, X, Users, Search, Building2
 } from 'lucide-react';
+import { useDialogStore } from '@/stores/dialogStore';
 
 interface SaldoRow {
   id: string;
@@ -37,6 +38,7 @@ interface Sector {
 
 export default function VacacionSaldosPage() {
   const qc = useQueryClient();
+  const dialog = useDialogStore();
   const currentYear = new Date().getFullYear();
   const [anio, setAnio] = useState(currentYear);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -61,7 +63,7 @@ export default function VacacionSaldosPage() {
     mutationFn: () => api.post('/vacacion-saldos/generar', { anio }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['vacacion-saldos', anio] });
-      alert(`Generados: ${res.data.created} nuevos, ${res.data.skipped} ya existían`);
+      dialog.alert({ title: 'Saldos generados', message: `Generados: ${res.data.created} nuevos, ${res.data.skipped} ya existían` });
     },
   });
 

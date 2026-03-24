@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { Plus, Pencil, Trash2, Loader2, X, Calendar } from 'lucide-react';
+import { useDialogStore } from '@/stores/dialogStore';
 
 interface Diagrama {
   id: string;
@@ -25,6 +26,7 @@ function formatDiagrama(d: Diagrama): string {
 
 export default function DiagramasPage() {
   const queryClient = useQueryClient();
+  const dialog = useDialogStore();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Diagrama | null>(null);
 
@@ -36,12 +38,6 @@ export default function DiagramasPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/admin/diagramas/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['diagramas'] }),
-    onError: (err: unknown) => {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        alert(axiosErr.response?.data?.error ?? 'Error al eliminar');
-      }
-    },
   });
 
   return (
@@ -86,8 +82,8 @@ export default function DiagramasPage() {
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
                   <button
-                    onClick={() => {
-                      if (confirm(`¿Eliminar diagrama "${d.nombre}"?`)) deleteMutation.mutate(d.id);
+                    onClick={async () => {
+                      if (await dialog.confirm({ message: `¿Eliminar diagrama "${d.nombre}"?`, variant: 'danger' })) deleteMutation.mutate(d.id);
                     }}
                     className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                   >

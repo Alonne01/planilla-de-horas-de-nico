@@ -38,6 +38,7 @@ import { Loader2 } from 'lucide-react';
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { toast } from '@/stores/toastStore';
 import Toaster from '@/components/ui/Toaster';
+import GlobalDialog from '@/components/ui/GlobalDialog';
 
 const queryClient = new QueryClient({
   mutationCache: new MutationCache({
@@ -170,6 +171,7 @@ export default function App() {
       </BrowserRouter>
       </AuthInitializer>
       <Toaster />
+      <GlobalDialog />
     </QueryClientProvider>
   );
 }

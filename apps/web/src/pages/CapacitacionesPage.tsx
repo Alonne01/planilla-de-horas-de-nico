@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import ScopeToggle from '@/components/layout/ScopeToggle';
 import { toast } from '@/stores/toastStore';
+import { useDialogStore } from '@/stores/dialogStore';
 
 interface TipoCapacitacion {
   id: string;
@@ -116,6 +117,7 @@ const SESION_STYLES: Record<string, { bg: string; text: string; label: string }>
 
 export default function CapacitacionesPage() {
   const qc = useQueryClient();
+  const dialog = useDialogStore();
   const user = useAuthStore((s) => s.user);
   const userNivel = user?.rolNivel ?? 0;
   const isManager = userNivel >= 70; // COORDINADOR+
@@ -268,11 +270,11 @@ export default function CapacitacionesPage() {
       sesionForm.lugar !== '' || sesionForm.vacantes !== '3';
   }, [sesionForm]);
 
-  const closeSesionForm = useCallback(() => {
-    if (isSesionFormDirty() && !confirm('¿Descartar la sesión sin guardar?')) return;
+  const closeSesionForm = useCallback(async () => {
+    if (isSesionFormDirty() && !(await dialog.confirm({ message: '¿Descartar la sesión sin guardar?' }))) return;
     setShowSesionForm(false);
     setSesionForm(emptySesionForm);
-  }, [isSesionFormDirty]);
+  }, [isSesionFormDirty, dialog]);
 
   const sesionMut = useMutation({
     mutationFn: (body: any) => api.post('/sesiones-capacitacion', body),
@@ -568,7 +570,7 @@ export default function CapacitacionesPage() {
                     </span>
                     {isRRHH && (
                       <button
-                        onClick={() => { if (confirm('¿Eliminar este registro?')) deleteRegMut.mutate(r.id); }}
+                        onClick={async () => { if (await dialog.confirm({ message: '¿Eliminar este registro?', variant: 'danger' })) deleteRegMut.mutate(r.id); }}
                         className="p-2 rounded-lg text-red-400 hover:bg-red-500/15 transition-colors"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -628,8 +630,9 @@ export default function CapacitacionesPage() {
                           <Check className="h-4 w-4" /> Aceptar
                         </button>
                         <button
-                          onClick={() => {
-                            const motivo = prompt('Motivo del rechazo (opcional):');
+                          onClick={async () => {
+                            const motivo = await dialog.prompt({ message: 'Motivo del rechazo (opcional):', placeholder: 'Motivo...' });
+                            if (motivo === null) return;
                             responderMut.mutate({ invId: inv.id, aceptar: false, motivoRechazo: motivo || undefined });
                           }}
                           disabled={responderMut.isPending}
@@ -834,7 +837,7 @@ export default function CapacitacionesPage() {
                       )}
                       {s.estado !== 'FINALIZADA' && s.estado !== 'CANCELADA' && (
                         <button
-                          onClick={() => { if (confirm('¿Cancelar esta sesión? Se notificará a los invitados.')) cancelarSesionMut.mutate(s.id); }}
+                          onClick={async () => { if (await dialog.confirm({ message: '¿Cancelar esta sesión? Se notificará a los invitados.', variant: 'danger' })) cancelarSesionMut.mutate(s.id); }}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600/20 text-red-400 text-xs font-medium hover:bg-red-600/30"
                         >
                           <XCircle className="h-3.5 w-3.5" /> Cancelar
@@ -1082,7 +1085,7 @@ export default function CapacitacionesPage() {
                     <Pencil className="h-4 w-4 text-muted-foreground" />
                   </button>
                   <button
-                    onClick={() => { if (confirm('¿Desactivar este tipo?')) deleteTipoMut.mutate(t.id); }}
+                    onClick={async () => { if (await dialog.confirm({ message: '¿Desactivar este tipo?', variant: 'danger' })) deleteTipoMut.mutate(t.id); }}
                     className="p-2 rounded-lg text-red-400 hover:bg-red-500/15"
                   >
                     <Trash2 className="h-4 w-4" />

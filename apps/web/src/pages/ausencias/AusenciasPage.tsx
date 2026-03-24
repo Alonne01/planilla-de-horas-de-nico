@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 import ScopeToggle from '@/components/layout/ScopeToggle';
+import { useDialogStore } from '@/stores/dialogStore';
 
 interface Ausencia {
   id: string;
@@ -83,6 +84,7 @@ const ESTADO_LABELS: Record<string, string> = {
 
 export default function AusenciasPage() {
   const queryClient = useQueryClient();
+  const dialog = useDialogStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('tab') === 'vacaciones') ? 'vacaciones' : 'ausencias';
   const setActiveTab = (tab: 'ausencias' | 'vacaciones') => {
@@ -349,8 +351,8 @@ export default function AusenciasPage() {
                 <div className="flex gap-2 shrink-0">
                   {canRevocar(a) && (
                     <button
-                      onClick={() => {
-                        if (confirm('¿Estás seguro de revocar este franco compensatorio? Los días volverán a tu saldo.'))
+                      onClick={async () => {
+                        if (await dialog.confirm({ message: '¿Estás seguro de revocar este franco compensatorio? Los días volverán a tu saldo.', variant: 'danger' }))
                           revocarMutation.mutate(a.id);
                       }}
                       disabled={revocarMutation.isPending}
@@ -372,7 +374,7 @@ export default function AusenciasPage() {
                   )}
                   {a.estado === 'BORRADOR' && (
                     <button
-                      onClick={() => { if (confirm('¿Eliminar esta ausencia?')) deleteMutation.mutate(a.id); }}
+                      onClick={async () => { if (await dialog.confirm({ message: '¿Eliminar esta ausencia?', variant: 'danger' })) deleteMutation.mutate(a.id); }}
                       className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                       title="Eliminar"
                     >

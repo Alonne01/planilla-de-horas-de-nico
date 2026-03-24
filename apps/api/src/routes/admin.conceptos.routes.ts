@@ -3,6 +3,7 @@ import { PrismaClient, ConceptoTipo } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { logAuditoria } from '../lib/auditoria.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -87,6 +88,15 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
       data: parsed.data,
       include: { convenio: { select: { nombre: true } } },
     });
+
+    await logAuditoria({
+      entidad: 'ConceptoSalarial',
+      entidadId: concepto.id,
+      accion: 'CREAR',
+      descripcion: `Concepto ${concepto.codigo} — ${concepto.nombre}`,
+      usuarioId: req.user!.userId,
+    });
+
     res.status(201).json(concepto);
   } catch (error) {
     console.error('Error creating concepto:', error);
@@ -133,11 +143,26 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       return;
     }
 
+    const updateParsed = createConceptoSchema.partial().safeParse(req.body);
+    if (!updateParsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: updateParsed.error.flatten() });
+      return;
+    }
+
     const concepto = await prisma.conceptoSalarial.update({
       where: { id },
-      data: req.body,
+      data: updateParsed.data,
       include: { convenio: { select: { nombre: true } } },
     });
+
+    await logAuditoria({
+      entidad: 'ConceptoSalarial',
+      entidadId: concepto.id,
+      accion: 'EDITAR',
+      descripcion: `Concepto ${concepto.codigo} — ${concepto.nombre}`,
+      usuarioId: req.user!.userId,
+    });
+
     res.json(concepto);
   } catch (error) {
     console.error('Error updating concepto:', error);
@@ -159,6 +184,15 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
       return;
     }
     await prisma.conceptoSalarial.delete({ where: { id } });
+
+    await logAuditoria({
+      entidad: 'ConceptoSalarial',
+      entidadId: id,
+      accion: 'ELIMINAR',
+      descripcion: `Concepto ${existing.codigo} — ${existing.nombre} eliminado`,
+      usuarioId: req.user!.userId,
+    });
+
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting concepto:', error);
@@ -188,6 +222,16 @@ router.post('/:id/valores', async (req: AuthRequest, res: Response): Promise<voi
       },
       include: { categoria: { select: { codigo: true, nombre: true } } },
     });
+
+    await logAuditoria({
+      entidad: 'ConceptoValor',
+      entidadId: valor.id,
+      accion: 'CREAR',
+      valorNuevo: parsed.data.monto != null ? `$${parsed.data.monto}` : parsed.data.porcentaje != null ? `${parsed.data.porcentaje}%` : null,
+      descripcion: `Valor para concepto ${conceptoId}${valor.categoria ? ` cat. ${valor.categoria.codigo}` : ' (general)'}`,
+      usuarioId: req.user!.userId,
+    });
+
     res.status(201).json(valor);
   } catch (error) {
     console.error('Error creating valor:', error);
@@ -199,7 +243,27 @@ router.post('/:id/valores', async (req: AuthRequest, res: Response): Promise<voi
 
 router.delete('/valores/:vid', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    await prisma.conceptoValor.delete({ where: { id: req.params.vid as string } });
+    const vid = req.params.vid as string;
+    const existing = await prisma.conceptoValor.findUnique({
+      where: { id: vid },
+      include: { categoria: { select: { codigo: true } } },
+    });
+    if (!existing) {
+      res.status(404).json({ error: 'Valor no encontrado' });
+      return;
+    }
+
+    await prisma.conceptoValor.delete({ where: { id: vid } });
+
+    await logAuditoria({
+      entidad: 'ConceptoValor',
+      entidadId: vid,
+      accion: 'ELIMINAR',
+      valorAnterior: existing.monto ? `$${existing.monto}` : existing.porcentaje ? `${existing.porcentaje}%` : null,
+      descripcion: `Valor eliminado — concepto ${existing.conceptoId}${existing.categoria ? ` cat. ${existing.categoria.codigo}` : ' (general)'}`,
+      usuarioId: req.user!.userId,
+    });
+
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting valor:', error);

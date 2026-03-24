@@ -8,6 +8,7 @@ import {
   DollarSign, Download, Eye, FileSpreadsheet,
   AlertTriangle, Users, Filter, RotateCcw, ShieldAlert
 } from 'lucide-react';
+import { toast } from '@/stores/toastStore';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 
 interface Sector {
@@ -203,7 +204,7 @@ export default function CierrePage() {
       setCerrarTarget(null);
       setCerrarConfirmed(false);
     } catch (err: any) {
-      alert(err.response?.data?.error ?? 'Error al cerrar planilla');
+      toast({ title: 'Error', description: err.response?.data?.error ?? 'Error al cerrar planilla', variant: 'destructive' });
     } finally {
       setCerrarLoading(false);
     }
@@ -218,7 +219,7 @@ export default function CierrePage() {
       setReabrirTarget(null);
       setReabrirMotivo('');
     } catch (err: any) {
-      alert(err.response?.data?.error ?? 'Error al reabrir planilla');
+      toast({ title: 'Error', description: err.response?.data?.error ?? 'Error al reabrir planilla', variant: 'destructive' });
     } finally {
       setReabrirLoading(false);
     }

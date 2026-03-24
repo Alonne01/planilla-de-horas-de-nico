@@ -4,12 +4,12 @@ import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import {
   Loader2, Shield, FileText, Palmtree, AlertTriangle, PenLine,
-  Filter, ChevronDown, Clock,
+  Filter, ChevronDown, Clock, Settings,
 } from 'lucide-react';
 
 interface AuditEntry {
   id: string;
-  tipo: 'PLANILLA' | 'VACACION' | 'AUSENCIA' | 'RECIBO_FIRMA';
+  tipo: 'PLANILLA' | 'VACACION' | 'AUSENCIA' | 'RECIBO_FIRMA' | 'ADMIN';
   entidadId: string;
   entidadLabel: string;
   estadoAnterior: string | null;
@@ -21,7 +21,7 @@ interface AuditEntry {
 }
 
 interface AuditStats {
-  ultimos30Dias: { planillas: number; vacaciones: number; ausencias: number; recibos: number; total: number };
+  ultimos30Dias: { planillas: number; vacaciones: number; ausencias: number; recibos: number; admin: number; total: number };
 }
 
 const TIPO_ICONS: Record<string, React.ElementType> = {
@@ -29,6 +29,7 @@ const TIPO_ICONS: Record<string, React.ElementType> = {
   VACACION: Palmtree,
   AUSENCIA: AlertTriangle,
   RECIBO_FIRMA: PenLine,
+  ADMIN: Settings,
 };
 
 const TIPO_COLORS: Record<string, string> = {
@@ -36,6 +37,7 @@ const TIPO_COLORS: Record<string, string> = {
   VACACION: 'bg-emerald-500/15 text-emerald-400',
   AUSENCIA: 'bg-amber-500/15 text-amber-400',
   RECIBO_FIRMA: 'bg-purple-500/15 text-purple-400',
+  ADMIN: 'bg-rose-500/15 text-rose-400',
 };
 
 export default function AuditoriaPage() {
@@ -73,6 +75,7 @@ export default function AuditoriaPage() {
             { label: 'Vacaciones', value: stats.ultimos30Dias.vacaciones, color: 'text-emerald-400' },
             { label: 'Ausencias', value: stats.ultimos30Dias.ausencias, color: 'text-amber-400' },
             { label: 'Recibos', value: stats.ultimos30Dias.recibos, color: 'text-purple-400' },
+            { label: 'Admin', value: stats.ultimos30Dias.admin, color: 'text-rose-400' },
           ].map((k) => (
             <div key={k.label} className="rounded-xl border border-border bg-card p-4 text-center">
               <p className={cn('text-2xl font-bold', k.color)}>{k.value}</p>
@@ -95,6 +98,7 @@ export default function AuditoriaPage() {
           <option value="vacacion">Vacaciones</option>
           <option value="ausencia">Ausencias</option>
           <option value="recibo">Recibos</option>
+          <option value="admin">Admin (Sueldos/Conceptos)</option>
         </select>
       </div>
 

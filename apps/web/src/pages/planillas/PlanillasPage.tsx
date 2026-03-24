@@ -9,6 +9,7 @@ import {
   Search, Users, Building2,
 } from 'lucide-react';
 import { ESTADO_STYLES, ESTADO_LABELS } from '@/constants/planillaConstants';
+import { toast } from '@/stores/toastStore';
 
 interface Planilla {
   id: string;
@@ -184,7 +185,7 @@ export default function PlanillasPage() {
         if (axiosErr.response?.data?.planillaId) {
           navigate(`/planillas/${axiosErr.response.data.planillaId}`);
         } else {
-          alert(axiosErr.response?.data?.error ?? 'Error al crear planilla');
+          toast({ title: 'Error', description: axiosErr.response?.data?.error ?? 'Error al crear planilla', variant: 'destructive' });
         }
       }
     },

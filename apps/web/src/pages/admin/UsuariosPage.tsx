@@ -7,6 +7,7 @@ import {
   Loader2, X, ChevronDown, ChevronUp, KeyRound, Copy, Check
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import { useDialogStore } from '@/stores/dialogStore';
 
 interface User {
   id: string;
@@ -20,6 +21,7 @@ interface User {
   fechaIngreso: string;
   primerLogin: boolean;
   diagramaColor: string | null;
+  sueldoBasicoOverride: string | null;
   sector: { id: string; nombre: string } | null;
   categoria: { id: string; codigo: string; nombre: string } | null;
   convenio: { id: string; nombre: string } | null;
@@ -52,6 +54,7 @@ const ROL_COLORS: Record<string, string> = {
 export default function UsuariosPage() {
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
+  const dialog = useDialogStore();
   const [search, setSearch] = useState('');
   const [filterRol, setFilterRol] = useState('');
   const [filterSector, setFilterSector] = useState('');
@@ -125,10 +128,6 @@ export default function UsuariosPage() {
         nombre: `${data.usuario.nombre} ${data.usuario.apellido}`,
         tempPassword: data.tempPassword,
       });
-    },
-    onError: (err: unknown) => {
-      const axiosErr = err as { response?: { data?: { error?: string } } };
-      alert(axiosErr.response?.data?.error ?? 'Error al restablecer la contraseña');
     },
   });
 
@@ -296,9 +295,9 @@ export default function UsuariosPage() {
                       </button>
                       {u.id !== currentUser?.id && u.activo && (
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            if (confirm(`¿Desactivar a ${u.nombre} ${u.apellido}?`)) {
+                            if (await dialog.confirm({ message: `¿Desactivar a ${u.nombre} ${u.apellido}?`, variant: 'danger' })) {
                               deleteMutation.mutate(u.id);
                             }
                           }}
@@ -310,9 +309,9 @@ export default function UsuariosPage() {
                       )}
                       {u.id !== currentUser?.id && u.activo && (
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            if (confirm(`¿Restablecer la contraseña de ${u.nombre} ${u.apellido}? Se generará una contraseña temporal.`)) {
+                            if (await dialog.confirm({ message: `¿Restablecer la contraseña de ${u.nombre} ${u.apellido}? Se generará una contraseña temporal.` })) {
                               resetPasswordMutation.mutate(u.id);
                             }
                           }}
@@ -427,6 +426,7 @@ function UserFormModal({
     legajo: user?.legajo ?? '',
     tipoContrato: user?.tipoContrato ?? 'INDEFINIDO',
     fechaIngreso: user?.fechaIngreso ? new Date(user.fechaIngreso).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+    sueldoBasicoOverride: user?.sueldoBasicoOverride ?? '',
     diagramaColor: user?.diagramaColor ?? '',
   });
 
@@ -447,6 +447,7 @@ function UserFormModal({
         legajo: form.legajo || null,
         tipoContrato: form.tipoContrato,
         fechaIngreso: new Date(form.fechaIngreso).toISOString(),
+        sueldoBasicoOverride: form.sueldoBasicoOverride !== '' ? parseFloat(String(form.sueldoBasicoOverride)) : null,
         diagramaColor: form.diagramaColor || null,
       };
 
@@ -585,6 +586,20 @@ function UserFormModal({
           <div>
             <label className="text-xs font-medium text-muted-foreground">Fecha ingreso *</label>
             <input type="date" className={inputClass} value={form.fechaIngreso} onChange={(e) => setForm({ ...form, fechaIngreso: e.target.value })} required />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Sueldo básico (override)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className={inputClass}
+              value={form.sueldoBasicoOverride}
+              onChange={(e) => setForm({ ...form, sueldoBasicoOverride: e.target.value })}
+              placeholder="Usa valor del convenio si está vacío"
+            />
+            <p className="text-[10px] text-muted-foreground mt-0.5">Dejar vacío para usar escala salarial del convenio</p>
           </div>
 
           {/* ── Diagrama de trabajo ─────────── */}

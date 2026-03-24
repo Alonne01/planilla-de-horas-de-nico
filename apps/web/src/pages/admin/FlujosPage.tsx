@@ -7,6 +7,7 @@ import {
   Users, FileText, Pencil, ChevronUp, ChevronDown,
   Link2,
 } from 'lucide-react';
+import { useDialogStore } from '@/stores/dialogStore';
 
 interface FlujoPaso {
   id: string;
@@ -477,6 +478,7 @@ function EditFlujoModal({
 
 export default function FlujosPage() {
   const queryClient = useQueryClient();
+  const dialog = useDialogStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingFlujo, setEditingFlujo] = useState<Flujo | null>(null);
@@ -623,8 +625,8 @@ export default function FlujosPage() {
                     </button>
                     {/* Delete button */}
                     <button
-                      onClick={() => {
-                        if (confirm('¿Eliminar este flujo?')) deleteMutation.mutate(selected.id);
+                      onClick={async () => {
+                        if (await dialog.confirm({ message: '¿Eliminar este flujo?', variant: 'danger' })) deleteMutation.mutate(selected.id);
                       }}
                       className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                     >
@@ -780,7 +782,7 @@ export default function FlujosPage() {
                               )}
                             </div>
                             <button
-                              onClick={() => { if (confirm('¿Eliminar esta asignación?')) deleteAsignMut.mutate(a.id); }}
+                              onClick={async () => { if (await dialog.confirm({ message: '¿Eliminar esta asignación?', variant: 'danger' })) deleteAsignMut.mutate(a.id); }}
                               className="p-1 rounded text-muted-foreground hover:text-destructive"
                             >
                               <Trash2 className="h-3.5 w-3.5" />

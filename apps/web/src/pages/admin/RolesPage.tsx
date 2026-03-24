@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { Shield, Plus, Pencil, Trash2, X, Loader2 } from 'lucide-react';
+import { useDialogStore } from '@/stores/dialogStore';
 
 interface RolConfig {
   id: string;
@@ -16,6 +17,7 @@ interface RolConfig {
 
 export default function RolesPage() {
   const queryClient = useQueryClient();
+  const dialog = useDialogStore();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<RolConfig | null>(null);
 
@@ -27,12 +29,6 @@ export default function RolesPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/admin/roles/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['roles'] }),
-    onError: (err: unknown) => {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        alert(axiosErr.response?.data?.error ?? 'Error al eliminar');
-      }
-    },
   });
 
   return (
@@ -83,7 +79,7 @@ export default function RolesPage() {
                   </button>
                   {!r.esSistema && (
                     <button
-                      onClick={() => { if (confirm(`¿Eliminar rol "${r.nombre}"?`)) deleteMutation.mutate(r.id); }}
+                      onClick={async () => { if (await dialog.confirm({ message: `¿Eliminar rol "${r.nombre}"?`, variant: 'danger' })) deleteMutation.mutate(r.id); }}
                       className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
                     >
                       <Trash2 className="h-3.5 w-3.5" />

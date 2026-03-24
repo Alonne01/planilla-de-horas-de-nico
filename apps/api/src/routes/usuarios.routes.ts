@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_ADMIN, LEVEL_RRHH, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
 import { revokeAllRefreshTokensForUser } from '../utils/jwt.utils.js';
+import { logAuditoria, logFieldChanges } from '../lib/auditoria.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -251,6 +252,10 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
 
     const d = parsed.data;
 
+    // Track salary field for audit
+    const oldSueldo = existing.sueldoBasicoOverride ? Number(existing.sueldoBasicoOverride) : null;
+    const newSueldo = d.sueldoBasicoOverride !== undefined ? (d.sueldoBasicoOverride ?? null) : undefined;
+
     const usuario = await prisma.usuario.update({
       where: { id: req.params.id as string },
       data: {
@@ -269,6 +274,7 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
         ...(d.activo !== undefined && { activo: d.activo }),
         ...(d.coordinadorId !== undefined && { coordinadorId: d.coordinadorId }),
         ...(d.supervisorId !== undefined && { supervisorId: d.supervisorId }),
+        ...(d.sueldoBasicoOverride !== undefined && { sueldoBasicoOverride: d.sueldoBasicoOverride }),
         ...(d.fechaIngreso && { fechaIngreso: new Date(d.fechaIngreso) }),
         ...(d.fechaNacimiento && { fechaNacimiento: new Date(d.fechaNacimiento) }),
         ...(d.fechaFinPrueba !== undefined && d.fechaFinPrueba !== null && { fechaFinPrueba: new Date(d.fechaFinPrueba) }),
@@ -276,6 +282,20 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
         ...(d.diagramaColor !== undefined && { diagramaColor: d.diagramaColor }),
       },
     });
+
+    // Audit: log salary change
+    if (newSueldo !== undefined && String(oldSueldo) !== String(newSueldo)) {
+      await logAuditoria({
+        entidad: 'Usuario',
+        entidadId: usuario.id,
+        accion: 'EDITAR',
+        campo: 'sueldoBasicoOverride',
+        valorAnterior: oldSueldo != null ? String(oldSueldo) : null,
+        valorNuevo: newSueldo != null ? String(newSueldo) : null,
+        descripcion: `Sueldo básico de ${existing.apellido}, ${existing.nombre}`,
+        usuarioId: req.user!.userId,
+      });
+    }
 
     res.json(usuario);
   } catch (error) {
