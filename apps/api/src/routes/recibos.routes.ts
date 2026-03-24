@@ -130,7 +130,7 @@ router.get('/preview/:planillaId', requireLevel(LEVEL_RRHH), async (req: AuthReq
         usuario: {
           include: {
             categoria: true,
-            convenio: { include: { conceptos: { where: { activo: true }, include: { valores: true }, orderBy: { orden: 'asc' } } } },
+            convenio: { include: { conceptos: { where: { activo: true }, include: { valores: { orderBy: { vigenteDesde: 'desc' } } }, orderBy: { orden: 'asc' } } } },
           },
         },
         registros: true,
@@ -144,8 +144,33 @@ router.get('/preview/:planillaId', requireLevel(LEVEL_RRHH), async (req: AuthReq
 
     const u = planilla.usuario;
     const cat = u.categoria;
-    // sueldoBasicoOverride on user or default to 0 (RRHH should configure it)
-    const sueldoBasico = u.sueldoBasicoOverride ? Number(u.sueldoBasicoOverride) : 0;
+    const cctConceptos = u.convenio?.conceptos ?? [];
+    const now = new Date();
+
+    // Helper: find latest active ConceptoValor, preferring category-specific.
+    // Valores are pre-sorted by vigenteDesde DESC, so .find() picks the most recent.
+    const findActiveValor = (valores: typeof cctConceptos[0]['valores']) => {
+      const catVal = valores.find((v) =>
+        v.categoriaId === u.categoriaId && new Date(v.vigenteDesde) <= now
+      );
+      const genVal = valores.find((v) =>
+        !v.categoriaId && new Date(v.vigenteDesde) <= now
+      );
+      return catVal ?? genVal;
+    };
+
+    // Determine sueldo básico: override → CCT BASICO_PP/BASICO_PJ valor → 0
+    let sueldoBasico = u.sueldoBasicoOverride ? Number(u.sueldoBasicoOverride) : 0;
+    let basicoNombre = 'Sueldo Básico';
+
+    if (!sueldoBasico) {
+      const conceptoBasico = cctConceptos.find((c) => c.codigo.startsWith('BASICO_'));
+      if (conceptoBasico) {
+        const activeVal = findActiveValor(conceptoBasico.valores);
+        sueldoBasico = activeVal?.monto ? Number(activeVal.monto) : (conceptoBasico.montoFijo ? Number(conceptoBasico.montoFijo) : 0);
+        basicoNombre = conceptoBasico.nombre;
+      }
+    }
 
     // Hour totals
     const horasNormales = Number(planilla.totalHorasNormales);
@@ -168,8 +193,8 @@ router.get('/preview/:planillaId', requireLevel(LEVEL_RRHH), async (req: AuthReq
       esRemunerativo: boolean;
     }[] = [];
 
-    // Always include basic salary
-    conceptos.push({ codigo: 'BASICO', nombre: 'Sueldo Básico', tipo: 'REMUNERATIVO', monto: sueldoBasico, esRemunerativo: true });
+    // Basic salary (unified: override or CCT)
+    conceptos.push({ codigo: 'BASICO', nombre: basicoNombre, tipo: 'REMUNERATIVO', monto: sueldoBasico, esRemunerativo: true });
 
     // Antigüedad
     const fechaIngreso = new Date(u.fechaIngreso);
@@ -190,19 +215,15 @@ router.get('/preview/:planillaId', requireLevel(LEVEL_RRHH), async (req: AuthReq
       conceptos.push({ codigo: 'VIAJE', nombre: 'Horas de Viaje', tipo: 'REMUNERATIVO', monto: valorHora * horasViaje, esRemunerativo: true });
     }
 
-    // Apply configured conceptos from the convenio
-    const cctConceptos = u.convenio?.conceptos ?? [];
-    for (const cc of cctConceptos) {
-      if (['BASICO', 'HE50', 'HE100', 'VIAJE', 'ANTIG'].includes(cc.codigo)) continue;
+    // Skip codes already handled above
+    const SKIP_CODIGOS = ['BASICO', 'HE50', 'HE100', 'VIAJE', 'ANTIG'];
 
-      // Find current value (or use default)
-      const catVal = cc.valores.find((v) =>
-        v.categoriaId === u.categoriaId && new Date(v.vigenteDesde) <= new Date()
-      );
-      const genVal = cc.valores.find((v) =>
-        !v.categoriaId && new Date(v.vigenteDesde) <= new Date()
-      );
-      const activeVal = catVal ?? genVal;
+    // Apply configured conceptos from the convenio
+    for (const cc of cctConceptos) {
+      if (SKIP_CODIGOS.includes(cc.codigo) || cc.codigo.startsWith('BASICO_')) continue;
+
+      // Find current value using shared helper
+      const activeVal = findActiveValor(cc.valores);
 
       let monto = 0;
       if (cc.esPorcentual) {
