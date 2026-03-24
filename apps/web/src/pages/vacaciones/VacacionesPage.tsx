@@ -4,9 +4,12 @@ import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import { useCanApprove } from '@/hooks/useCanApprove';
+import ApprovalProgressBar, { enriquecerPasos } from '@/components/ui/ApprovalProgressBar';
+import type { PasoAprobacion } from '@/components/ui/ApprovalProgressBar';
 import {
   Palmtree, Plus, Send, XCircle,
-  Loader2, X, Calendar, ChevronLeft, ChevronRight, Filter, UserCheck, Clock
+  Loader2, X, Calendar, ChevronLeft, ChevronRight, Filter, UserCheck, Clock,
+  ChevronDown, ChevronUp, User,
 } from 'lucide-react';
 import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
 import ScopeToggle from '@/components/layout/ScopeToggle';
@@ -46,6 +49,158 @@ const ESTADO_STYLES: Record<string, string> = {
   APROBADA: 'bg-emerald-500/20 text-emerald-400',
   RECHAZADA: 'bg-red-500/20 text-red-400',
 };
+
+interface VacacionDetail {
+  pasoActual: number;
+  flujo?: {
+    nombre: string;
+    pasos: Array<{ orden: number; nombrePaso: string; rolAprobador: string }>;
+  } | null;
+  historial: Array<{
+    pasoFlujo: number | null;
+    estadoNuevo: string;
+    comentario: string | null;
+    createdAt: string;
+    usuario: { nombre: string; apellido: string };
+  }>;
+}
+
+function VacacionCard({
+  v,
+  onEnviar,
+  enviando,
+}: {
+  v: Vacacion;
+  onEnviar: (id: string) => void;
+  enviando: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const { data: detail, isLoading: loadingDetail, isError } = useQuery<VacacionDetail>({
+    queryKey: ['vacacion-detail', v.id],
+    queryFn: async () => (await api.get(`/vacaciones/${v.id}`)).data,
+    enabled: expanded,
+    staleTime: 60_000,
+  });
+
+  const pasos: PasoAprobacion[] =
+    detail?.flujo?.pasos
+      ? enriquecerPasos(detail.flujo.pasos, detail.pasoActual, detail.historial)
+      : [];
+
+  const hasBorrador = v.estado === 'BORRADOR';
+  const hasFlow = v.estado !== 'BORRADOR';
+
+  return (
+    <div
+      className={cn(
+        'rounded-xl border p-4 transition-colors',
+        v.estado === 'RECHAZADA'
+          ? 'border-red-500/30 bg-red-500/5'
+          : v.estado === 'APROBADA'
+            ? 'border-emerald-500/30 bg-emerald-500/5'
+            : 'border-border bg-card',
+        hasFlow && 'cursor-pointer hover:border-primary/30',
+      )}
+      onClick={() => hasFlow && setExpanded(!expanded)}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[v.estado])}>
+              {v.estado === 'EN_REVISION' ? 'En Revisión' : v.estado.charAt(0) + v.estado.slice(1).toLowerCase()}
+            </span>
+            <span className="font-medium text-sm flex items-center gap-1">
+              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+              {new Date(v.fechaInicio).toLocaleDateString('es-AR')} — {new Date(v.fechaFin).toLocaleDateString('es-AR')}
+            </span>
+            <span className="text-xs text-muted-foreground">{v.diasHabiles} háb. / {v.diasTotales} corrido{v.diasTotales !== 1 ? 's' : ''}</span>
+            {hasFlow && (
+              expanded
+                ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground ml-auto" />
+                : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground ml-auto" />
+            )}
+          </div>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+            <span className="flex items-center gap-1">
+              <UserCheck className="h-3 w-3" />
+              {v.usuario.apellido}, {v.usuario.nombre}
+            </span>
+            {v.usuario.legajo && (
+              <span className="font-mono text-[11px]">Leg. {v.usuario.legajo}</span>
+            )}
+            {v.usuario.sector?.nombre && (
+              <span>{v.usuario.sector.nombre}</span>
+            )}
+            <span className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              Solicitada {new Date(v.createdAt).toLocaleDateString('es-AR')}
+            </span>
+          </div>
+          {v.motivo && <p className="text-xs text-muted-foreground mt-1">{v.motivo}</p>}
+          {v.obsRechazo && <p className="text-xs text-red-400 flex items-center gap-1 mt-1"><XCircle className="h-3 w-3" /> {v.obsRechazo}</p>}
+        </div>
+        <div className="flex gap-2 shrink-0">
+          {hasBorrador && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onEnviar(v.id); }}
+              disabled={enviando}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              <Send className="h-3 w-3" /> Enviar
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Expanded: approval progress */}
+      {expanded && (
+        <div className="mt-3 border-t border-border pt-3">
+          {loadingDetail ? (
+            <div className="flex items-center justify-center py-3">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : isError ? (
+            <p className="text-xs text-red-400 text-center py-2">No se pudo cargar el flujo de aprobación</p>
+          ) : pasos.length > 0 ? (
+            <>
+              <ApprovalProgressBar pasos={pasos} estado={v.estado} />
+              {/* Detail historial */}
+              {pasos.some((p) => p.aprobadoPor || p.comentario) && (
+                <div className="space-y-1.5 pl-2 border-l-2 border-border mt-3">
+                  {pasos
+                    .filter((p) => p.aprobadoPor || p.comentario)
+                    .map((paso) => (
+                      <div key={paso.orden} className="text-[10px]">
+                        <div className="flex items-center gap-1">
+                          <User className="h-2.5 w-2.5 text-muted-foreground" />
+                          <span className="font-medium">
+                            {paso.aprobadoPor
+                              ? `${paso.aprobadoPor.nombre} ${paso.aprobadoPor.apellido}`
+                              : paso.nombrePaso}
+                          </span>
+                          {paso.fecha && (
+                            <span className="text-muted-foreground">
+                              {new Date(paso.fecha).toLocaleDateString('es-AR')}
+                            </span>
+                          )}
+                        </div>
+                        {paso.comentario && (
+                          <p className="text-muted-foreground ml-3.5 italic">"{paso.comentario}"</p>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground text-center py-2">Sin flujo de aprobación asignado</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface VacacionesPageProps {
   embedded?: boolean;
@@ -175,50 +330,12 @@ export default function VacacionesPage({ embedded = false }: VacacionesPageProps
       ) : (
         <div className="space-y-2">
           {filteredVacaciones.map((v) => (
-            <div key={v.id} className="rounded-xl border border-border bg-card p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[v.estado])}>
-                      {v.estado === 'EN_REVISION' ? 'En Revisión' : v.estado.charAt(0) + v.estado.slice(1).toLowerCase()}
-                    </span>
-                    <span className="font-medium text-sm flex items-center gap-1">
-                      <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                      {new Date(v.fechaInicio).toLocaleDateString('es-AR')} — {new Date(v.fechaFin).toLocaleDateString('es-AR')}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{v.diasHabiles} háb. / {v.diasTotales} corrido{v.diasTotales !== 1 ? 's' : ''}</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                    <span className="flex items-center gap-1">
-                      <UserCheck className="h-3 w-3" />
-                      {v.usuario.apellido}, {v.usuario.nombre}
-                    </span>
-                    {v.usuario.legajo && (
-                      <span className="font-mono text-[11px]">Leg. {v.usuario.legajo}</span>
-                    )}
-                    {v.usuario.sector?.nombre && (
-                      <span>{v.usuario.sector.nombre}</span>
-                    )}
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      Solicitada {new Date(v.createdAt).toLocaleDateString('es-AR')}
-                    </span>
-                  </div>
-                  {v.motivo && <p className="text-xs text-muted-foreground mt-1">{v.motivo}</p>}
-                  {v.obsRechazo && <p className="text-xs text-red-400 flex items-center gap-1 mt-1"><XCircle className="h-3 w-3" /> {v.obsRechazo}</p>}
-                </div>
-                <div className="flex gap-2">
-                  {v.estado === 'BORRADOR' && (
-                    <button
-                      onClick={() => enviarMutation.mutate(v.id)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors"
-                    >
-                      <Send className="h-3 w-3" /> Enviar
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
+            <VacacionCard
+              key={v.id}
+              v={v}
+              onEnviar={(id) => enviarMutation.mutate(id)}
+              enviando={enviarMutation.isPending}
+            />
           ))}
         </div>
       )}

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
+import ApprovalProgressBar from '@/components/ui/ApprovalProgressBar';
+import type { PasoAprobacion } from '@/components/ui/ApprovalProgressBar';
 import {
   ClipboardList,
   Palmtree,
@@ -17,16 +19,7 @@ import {
   User,
 } from 'lucide-react';
 
-interface Paso {
-  orden: number;
-  nombrePaso: string;
-  rolAprobador: string;
-  completado: boolean;
-  actual: boolean;
-  aprobadoPor?: { nombre: string; apellido: string } | null;
-  fecha?: string | null;
-  comentario?: string | null;
-}
+interface Paso extends PasoAprobacion {}
 
 interface Solicitud {
   id: string;
@@ -71,79 +64,6 @@ const FILTER_OPTIONS = [
   { value: 'AUSENCIA', label: 'Ausencias' },
   { value: 'CAMBIO_DIAGRAMA', label: 'Cambios Diagrama' },
 ];
-
-function ProgressBar({ pasos, estado }: { pasos: Paso[]; estado: string }) {
-  if (!pasos.length) return null;
-
-  const isRejected = estado === 'RECHAZADA';
-  const isApproved = estado === 'APROBADA';
-
-  return (
-    <div className="mt-3 space-y-2">
-      {/* Visual progress bar */}
-      <div className="flex items-center gap-0.5">
-        {pasos.map((paso, i) => {
-          const isComplete = paso.completado || isApproved;
-          const isCurrent = paso.actual && !isApproved;
-          const isFailed = isCurrent && isRejected;
-
-          return (
-            <div key={paso.orden} className="flex-1 flex items-center">
-              <div className="flex-1 relative">
-                <div
-                  className={cn(
-                    'h-2 rounded-full transition-all',
-                    isComplete
-                      ? 'bg-emerald-500'
-                      : isFailed
-                        ? 'bg-red-500'
-                        : isCurrent
-                          ? 'bg-amber-500 animate-pulse'
-                          : 'bg-muted',
-                  )}
-                />
-              </div>
-              {i < pasos.length - 1 && <div className="w-0.5" />}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Step labels */}
-      <div className="flex">
-        {pasos.map((paso) => {
-          const isComplete = paso.completado || isApproved;
-          const isCurrent = paso.actual && !isApproved;
-          const isFailed = isCurrent && isRejected;
-
-          return (
-            <div key={paso.orden} className="flex-1 min-w-0 px-0.5">
-              <p
-                className={cn(
-                  'text-[9px] font-medium truncate text-center',
-                  isComplete
-                    ? 'text-emerald-400'
-                    : isFailed
-                      ? 'text-red-400'
-                      : isCurrent
-                        ? 'text-amber-400'
-                        : 'text-muted-foreground',
-                )}
-              >
-                {paso.nombrePaso}
-              </p>
-              {paso.aprobadoPor && (
-                <p className="text-[8px] text-muted-foreground text-center truncate">
-                  {paso.aprobadoPor.nombre} {paso.aprobadoPor.apellido.charAt(0)}.
-                </p>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 function SolicitudCard({ solicitud }: { solicitud: Solicitud }) {
   const [expanded, setExpanded] = useState(false);
@@ -204,7 +124,7 @@ function SolicitudCard({ solicitud }: { solicitud: Solicitud }) {
 
       {/* Progress bar */}
       {solicitud.pasos.length > 0 && (
-        <ProgressBar pasos={solicitud.pasos} estado={solicitud.estado} />
+        <ApprovalProgressBar pasos={solicitud.pasos} estado={solicitud.estado} />
       )}
 
       {/* Expandable historial */}

@@ -445,10 +445,14 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const vacId = req.params.id as string;
+    const userId = req.user!.userId;
+    const empresaId = req.user!.empresaId;
+    const userNivel = req.user!.rolNivel ?? 0;
+
     const vacacion = await prisma.vacacion.findUnique({
       where: { id: vacId },
       include: {
-        usuario: { select: { id: true, nombre: true, apellido: true, sector: { select: { nombre: true } } } },
+        usuario: { select: { id: true, nombre: true, apellido: true, empresaId: true, sector: { select: { nombre: true } } } },
         flujo: { select: { nombre: true, pasos: { orderBy: { orden: 'asc' } } } },
         historial: {
           include: { usuario: { select: { nombre: true, apellido: true, rol: true } } },
@@ -458,6 +462,14 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
     });
     if (!vacacion) {
       res.status(404).json({ error: 'Vacación no encontrada' });
+      return;
+    }
+    // Authorization: owner, same-company supervisor+, or RRHH/ADMIN
+    const isOwner = vacacion.usuario.id === userId;
+    const isSameCompany = vacacion.usuario.empresaId === empresaId;
+    const isSuperiorOrRRHH = userNivel >= 60;
+    if (!isOwner && !(isSameCompany && isSuperiorOrRRHH)) {
+      res.status(403).json({ error: 'No autorizado' });
       return;
     }
     res.json(vacacion);
