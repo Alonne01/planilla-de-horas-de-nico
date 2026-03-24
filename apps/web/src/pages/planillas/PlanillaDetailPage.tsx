@@ -106,9 +106,10 @@ export default function PlanillaDetailPage() {
 
   const LAST_DEFAULTS_KEY = 'planilla-last-defaults';
 
-  const { data: planilla, isLoading } = useQuery<PlanillaDetalle>({
+  const { data: planilla, isLoading, isError, error } = useQuery<PlanillaDetalle>({
     queryKey: ['planilla', id],
     queryFn: async () => (await api.get(`/planillas/${id}`)).data,
+    retry: 1,
   });
 
   // Load owner's diagram assignment for cycle calculation
@@ -200,7 +201,7 @@ export default function PlanillaDetailPage() {
     return buildWeeks(days);
   }, [planilla]);
 
-  if (isLoading || !planilla) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -208,10 +209,28 @@ export default function PlanillaDetailPage() {
     );
   }
 
+  if (isError || !planilla) {
+    const status = (error as any)?.response?.status;
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <AlertCircle className="h-8 w-8 text-red-400" />
+        <p className="text-sm text-muted-foreground">
+          {status === 403 ? 'No tenés permisos para ver esta planilla' :
+           status === 404 ? 'Planilla no encontrada' :
+           'Error al cargar la planilla'}
+        </p>
+        <button onClick={() => navigate(-1)} className="text-sm text-primary hover:underline">
+          ← Volver
+        </button>
+      </div>
+    );
+  }
+
   const isOwner = planilla.usuario.id === user?.id;
   const canEdit = isOwner && (planilla.estado === 'BORRADOR' || planilla.estado === 'RECHAZADA');
   const canSend = canEdit && planilla.registros.length > 0;
-  const canApprove = ['COORDINADOR', 'RRHH', 'ADMIN'].includes(user?.rol ?? '') &&
+  const canApprove = ['SUPERVISOR', 'COORDINADOR', 'GERENTE', 'RRHH', 'ADMIN'].includes(user?.rol ?? '') &&
+    !isOwner &&
     (planilla.estado === 'ENVIADA' || planilla.estado === 'EN_REVISION');
   const totalHoras = Number(planilla.totalHorasNormales) + Number(planilla.totalHorasExtra50) + Number(planilla.totalHorasExtra100);
 
@@ -223,21 +242,40 @@ export default function PlanillaDetailPage() {
 
   /**
    * Apply diagram to all days in the planilla period:
-   * - Days that are 'work' days: skip (no auto-create, user fills them in)
-   * - Days that already have a registro AND are franco: mark esFrancoTrabajado = true
-   * - Days that are franco and have no registro: no action (we don't create empty franco records)
-   * When user loads a day that is classified as franco, esFrancoTrabajado is pre-checked.
+   * - Work days without registro: create with saved defaults + observaciones
+   * - Franco days with existing registro: mark esFrancoTrabajado = true
+   * - Holidays and blocked days: skip
    */
   async function handleApplyDiagram() {
     if (!diagramaActual || !fechaInicioDiagrama || !planilla) return;
     setApplyingDiagram(true);
     try {
+      // Load last saved defaults for creating work day registros
+      let lastEntry = '07:00';
+      let lastExit = '15:00';
+      let lastLugar = 'CAMPO';
+      let lastPernocte = 'NO';
+      try {
+        const saved = JSON.parse(localStorage.getItem(LAST_DEFAULTS_KEY) || '{}');
+        if (saved.entrada) lastEntry = saved.entrada;
+        if (saved.salida) lastExit = saved.salida;
+        if (saved.lugarTrabajo) lastLugar = saved.lugarTrabajo;
+        if (saved.pernocte) lastPernocte = saved.pernocte;
+      } catch { /* ignore */ }
+
+      const diagramaLabel = diagramaActual.nombre
+        ? `Diagrama ${diagramaActual.nombre}`
+        : diagramaActual.tipo === 'ROTATIVO'
+          ? `Diagrama ${diagramaActual.diasTrabajo}×${diagramaActual.diasDescanso}`
+          : 'Diagrama fijo semanal';
       const days = buildCalendarDays(planilla.periodoInicio, planilla.periodoFin);
       const promises: Promise<unknown>[] = [];
+
       for (const day of days) {
         const key = dateKey(day);
         const reg = registroMap[key];
         const franco = isFranco(day);
+
         if (franco && reg && !reg.esFrancoTrabajado) {
           // Existing registro on a franco day → mark as franco trabajado
           promises.push(api.put(`/planillas/${id}/registros/${reg.id}`, {
@@ -254,7 +292,32 @@ export default function PlanillaDetailPage() {
             esFrancoCompensatorio: reg.esFrancoCompensatorio,
             esFrancoTrabajado: true,
             distanciaViaje: reg.distanciaViaje ?? null,
-            observaciones: reg.observaciones ?? null,
+            observaciones: reg.observaciones || `Franco trabajado — ${diagramaLabel}`,
+          }));
+        } else if (!franco && !reg) {
+          // Work day without registro → create with defaults
+          const y = day.getFullYear();
+          const holidays = buildArgHolidays(y);
+          if (holidays.has(key)) continue;
+
+          const [h1, m1] = lastEntry.split(':').map(Number);
+          const [h2, m2] = lastExit.split(':').map(Number);
+
+          promises.push(api.post(`/planillas/${id}/registros`, {
+            fecha: new Date(y, day.getMonth(), day.getDate(), 12, 0, 0).toISOString(),
+            entradaTurno1: new Date(y, day.getMonth(), day.getDate(), h1, m1, 0).toISOString(),
+            salidaTurno1: new Date(y, day.getMonth(), day.getDate(), h2, m2, 0).toISOString(),
+            entradaTurno2: null,
+            salidaTurno2: null,
+            lugarTrabajo: lastLugar,
+            pernocte: lastPernocte,
+            maneja: false,
+            horasViajeInput: 0,
+            distanciaViaje: null,
+            esFeriado: false,
+            esFrancoTrabajado: false,
+            esFrancoCompensatorio: false,
+            observaciones: `Jornada normal — ${diagramaLabel}`,
           }));
         }
       }
@@ -319,7 +382,7 @@ export default function PlanillaDetailPage() {
           esFeriado: false,
           esFrancoTrabajado: false,
           esFrancoCompensatorio: false,
-          observaciones: null,
+          observaciones: 'Jornada normal',
         }));
       }
       await Promise.all(promises);

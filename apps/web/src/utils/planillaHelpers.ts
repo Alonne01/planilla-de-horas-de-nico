@@ -55,6 +55,7 @@ export function buildDiasNoLaborables(year: number): Set<string> {
 
 export interface DiagramaInfo {
   id: string;
+  nombre?: string;
   tipo: string;
   diasTrabajo: number | null;
   diasDescanso: number | null;
