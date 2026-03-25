@@ -30,23 +30,54 @@ if exist "%TEMP_DIR%" rmdir /s /q "%TEMP_DIR%"
 mkdir "%TEMP_DIR%"
 
 :: ------------------------------------------------
-:: Step 1: Start API server
+:: Step 1: Check PostgreSQL
 :: ------------------------------------------------
-echo [1/3] Iniciando API server (puerto 4000)...
-start "API-Server" /D "%API_DIR%" cmd /c "npm run dev"
-timeout /t 5 /nobreak >nul
+echo [1/6] Verificando PostgreSQL...
+sc query "postgresql-x64-16" >nul 2>&1
+if errorlevel 1 (
+    echo   PostgreSQL no esta corriendo. Iniciando...
+    net start postgresql-x64-16
+    timeout /t 3 /nobreak >nul
+) else (
+    echo   PostgreSQL corriendo OK
+)
 
 :: ------------------------------------------------
-:: Step 2: Start frontend (Vite proxy routes /api to localhost:4000)
+:: Step 2: Run Prisma migrations
 :: ------------------------------------------------
-echo [2/3] Iniciando Frontend (puerto 3000, proxy API)...
-start "Frontend-Server" /D "%WEB_DIR%" cmd /c "npm run dev"
-timeout /t 5 /nobreak >nul
+echo [2/6] Ejecutando migraciones Prisma...
+cd /d "%API_DIR%"
+call npx prisma migrate deploy 2>nul || (
+    echo   Migraciones ya aplicadas
+)
 
 :: ------------------------------------------------
-:: Step 3: Single tunnel for everything (Vite proxy handles API)
+:: Step 3: Run seed (idempotent)
 :: ------------------------------------------------
-echo [3/3] Creando tunel Cloudflare...
+echo [3/6] Verificando datos de seed...
+call npx tsx prisma/seed.ts 2>nul || (
+    echo   Seeds ya ejecutados o error
+)
+cd /d "%ROOT%"
+
+:: ------------------------------------------------
+:: Step 4: Start API server
+:: ------------------------------------------------
+echo [4/6] Iniciando API server (puerto 4000)...
+start "API-Server" /D "%API_DIR%" cmd /c "set DEBUG_APPROVALS=1 && npm run dev"
+timeout /t 6 /nobreak >nul
+
+:: ------------------------------------------------
+:: Step 5: Start frontend (HMR disabled for tunnel)
+:: ------------------------------------------------
+echo [5/6] Iniciando Frontend (puerto 3000, proxy API, HMR off)...
+start "Frontend-Server" /D "%WEB_DIR%" cmd /c "set VITE_DISABLE_HMR=1 && npm run dev"
+timeout /t 6 /nobreak >nul
+
+:: ------------------------------------------------
+:: Step 6: Single tunnel for everything (Vite proxy handles API)
+:: ------------------------------------------------
+echo [6/6] Creando tunel Cloudflare...
 start "Cloudflare-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:3000 >%TEMP_DIR%\tunnel.txt 2>&1"
 echo       Esperando URL del tunel...
 
@@ -98,7 +129,7 @@ echo      API:      http://localhost:4000
 echo      Frontend: http://localhost:3000 (proxy /api)
 echo.
 echo    Un solo tunel — Vite proxy enruta /api al backend.
-echo    Cookies same-origin, sin problemas de SameSite.
+echo    HMR desactivado para evitar errores WebSocket.
 echo.
 echo ========================================================
 echo.
@@ -109,7 +140,6 @@ pause >nul
 :cleanup
 echo.
 echo Deteniendo servicios...
-pause
 taskkill /FI "WINDOWTITLE eq API-Server*" /F >nul 2>&1
 taskkill /FI "WINDOWTITLE eq Frontend-Server*" /F >nul 2>&1
 taskkill /FI "WINDOWTITLE eq Cloudflare-Tunnel*" /F >nul 2>&1

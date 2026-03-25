@@ -14,9 +14,7 @@ export default defineConfig({
     port: 3000,
     host: true,
     allowedHosts: true,
-    hmr: {
-      host: 'localhost',
-    },
+    hmr: process.env.VITE_DISABLE_HMR === '1' ? false : { host: 'localhost' },
     proxy: {
       '/api': 'http://localhost:4000',
       '/uploads': 'http://localhost:4000',
