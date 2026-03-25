@@ -4,7 +4,7 @@ import api from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import {
   FileText, CheckCircle2, Clock, Loader2, Eye, PenLine,
-  AlertCircle, Search, ThumbsUp, ThumbsDown, X,
+  AlertCircle, Search, ThumbsUp, ThumbsDown, X, Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import SignaturePad from '@/components/SignaturePad';
@@ -120,6 +120,197 @@ export default function RecibosPage() {
     setFirmaStep('choice');
     setFirmaConforme(null);
     setFirmaObservacion('');
+  }
+
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  function generateReciboPDF(snap: ReciboPreview, recibo: Recibo) {
+    import('jspdf').then(({ jsPDF }) => {
+      import('jspdf-autotable').then(({ default: autoTable }) => {
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const pageWidth = doc.internal.pageSize.getWidth();
+
+        // Header
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text('RECIBO DE SUELDO', pageWidth / 2, 18, { align: 'center' });
+
+        doc.setDrawColor(45, 95, 138);
+        doc.setLineWidth(0.5);
+        doc.line(14, 22, pageWidth - 14, 22);
+
+        // Employee info
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Empleado:', 14, 30);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`${snap.usuario.apellido}, ${snap.usuario.nombre}`, 42, 30);
+
+        doc.setFont('helvetica', 'bold');
+        doc.text('Legajo:', 14, 36);
+        doc.setFont('helvetica', 'normal');
+        doc.text(snap.usuario.legajo || '—', 32, 36);
+
+        doc.setFont('helvetica', 'bold');
+        doc.text('Categoría:', 80, 30);
+        doc.setFont('helvetica', 'normal');
+        doc.text(snap.usuario.categoria || '—', 104, 30);
+
+        doc.setFont('helvetica', 'bold');
+        doc.text('Convenio:', 80, 36);
+        doc.setFont('helvetica', 'normal');
+        doc.text(snap.usuario.convenio || '—', 102, 36);
+
+        // Period
+        const periodoStr = `${new Date(snap.periodo.inicio).toLocaleDateString('es-AR')} — ${new Date(snap.periodo.fin).toLocaleDateString('es-AR')}`;
+        doc.setFont('helvetica', 'bold');
+        doc.text('Período:', 14, 43);
+        doc.setFont('helvetica', 'normal');
+        doc.text(periodoStr, 35, 43);
+
+        doc.setDrawColor(200);
+        doc.line(14, 47, pageWidth - 14, 47);
+
+        // Conceptos / Haberes table
+        const conceptosBody = snap.conceptos.map((c) => [
+          c.codigo,
+          c.nombre,
+          c.esRemunerativo ? 'REM' : 'NO REM',
+          fmtMoney(c.monto),
+        ]);
+
+        autoTable(doc, {
+          startY: 50,
+          head: [['Código', 'Concepto', 'Tipo', 'Monto']],
+          body: conceptosBody,
+          theme: 'striped',
+          styles: { fontSize: 9, cellPadding: 2 },
+          headStyles: { fillColor: [45, 95, 138], textColor: 255, fontStyle: 'bold' },
+          columnStyles: {
+            0: { cellWidth: 25 },
+            3: { halign: 'right', cellWidth: 35 },
+          },
+          margin: { left: 14, right: 14 },
+        });
+
+        let nextY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY ?? 100;
+        nextY += 4;
+
+        // Retenciones table
+        if (snap.retenciones && snap.retenciones.length > 0) {
+          const retencionesBody = snap.retenciones.map((r) => [
+            r.codigo,
+            r.nombre,
+            `-${fmtMoney(r.monto)}`,
+          ]);
+
+          autoTable(doc, {
+            startY: nextY,
+            head: [['Código', 'Retención', 'Monto']],
+            body: retencionesBody,
+            theme: 'striped',
+            styles: { fontSize: 9, cellPadding: 2 },
+            headStyles: { fillColor: [160, 50, 50], textColor: 255, fontStyle: 'bold' },
+            columnStyles: {
+              0: { cellWidth: 25 },
+              2: { halign: 'right', cellWidth: 35 },
+            },
+            margin: { left: 14, right: 14 },
+          });
+
+          nextY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY ?? nextY + 30;
+          nextY += 6;
+        }
+
+        // Totals section
+        if (snap.totales) {
+          doc.setFillColor(240, 240, 240);
+          doc.rect(14, nextY, pageWidth - 28, 36, 'F');
+          doc.setDrawColor(45, 95, 138);
+          doc.setLineWidth(0.3);
+          doc.rect(14, nextY, pageWidth - 28, 36, 'S');
+
+          const leftCol = 20;
+          const rightCol = pageWidth - 20;
+          let ty = nextY + 7;
+
+          doc.setFontSize(9);
+          doc.setFont('helvetica', 'normal');
+          doc.text('Remunerativo:', leftCol, ty);
+          doc.text(fmtMoney(snap.totales.remunerativo), rightCol, ty, { align: 'right' });
+          ty += 6;
+
+          doc.text('No Remunerativo:', leftCol, ty);
+          doc.text(fmtMoney(snap.totales.noRemunerativo), rightCol, ty, { align: 'right' });
+          ty += 6;
+
+          doc.text('Retenciones:', leftCol, ty);
+          doc.setTextColor(180, 40, 40);
+          doc.text(`-${fmtMoney(snap.totales.retenciones)}`, rightCol, ty, { align: 'right' });
+          doc.setTextColor(0);
+          ty += 2;
+
+          doc.setDrawColor(100);
+          doc.line(leftCol, ty, rightCol, ty);
+          ty += 6;
+
+          doc.setFontSize(12);
+          doc.setFont('helvetica', 'bold');
+          doc.text('NETO:', leftCol, ty);
+          doc.text(fmtMoney(snap.totales.neto), rightCol, ty, { align: 'right' });
+
+          nextY += 42;
+        }
+
+        // Signature status
+        if (recibo.firmadoEmpleadoAt) {
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'italic');
+          const sigText = recibo.conforme === true ? 'Firmado — Conforme'
+            : recibo.conforme === false ? 'Firmado — Disconforme'
+            : 'Firmado';
+          doc.text(`${sigText} el ${new Date(recibo.firmadoEmpleadoAt).toLocaleString('es-AR')}`, 14, nextY);
+          if (recibo.conforme === false && recibo.observacionFirma) {
+            nextY += 5;
+            doc.text(`Motivo: ${recibo.observacionFirma}`, 14, nextY);
+          }
+          nextY += 8;
+        }
+
+        // Generated date
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(130);
+        doc.text(`Generado: ${new Date(recibo.createdAt).toLocaleString('es-AR')} — Descargado: ${new Date().toLocaleString('es-AR')}`, 14, nextY);
+        doc.setTextColor(0);
+
+        // File name
+        const apellido = (snap.usuario.apellido || 'empleado').replace(/\s+/g, '_');
+        const legajo = snap.usuario.legajo || 'sin_legajo';
+        const pInicio = new Date(snap.periodo.inicio).toISOString().slice(0, 10);
+        doc.save(`recibo_${apellido}_${legajo}_${pInicio}.pdf`);
+      });
+    });
+  }
+
+  async function handleDownloadFromList(recibo: Recibo) {
+    const snap = recibo.planilla.snapshotCalculo as unknown as ReciboPreview | null;
+    if (snap?.conceptos) {
+      generateReciboPDF(snap, recibo);
+      return;
+    }
+    // Fetch detail to get snapshotCalculo
+    setDownloadingId(recibo.id);
+    try {
+      const res = await api.get(`/recibos/detalle/${recibo.id}`);
+      const detail = res.data as Recibo;
+      const detailSnap = detail.planilla.snapshotCalculo as unknown as ReciboPreview | null;
+      if (detailSnap?.conceptos) {
+        generateReciboPDF(detailSnap, detail);
+      }
+    } finally {
+      setDownloadingId(null);
+    }
   }
 
   // RRHH: Fetch planillas for generating recibos
@@ -246,6 +437,14 @@ export default function RecibosPage() {
                       <AlertCircle className="h-3 w-3" /> Pendiente
                     </span>
                   )}
+                  <button
+                    onClick={() => handleDownloadFromList(r)}
+                    disabled={downloadingId === r.id}
+                    className="p-2 rounded-lg hover:bg-accent text-muted-foreground"
+                    title="Descargar PDF"
+                  >
+                    {downloadingId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  </button>
                   <button
                     onClick={() => setViewingRecibo(r.id)}
                     className="p-2 rounded-lg hover:bg-accent text-muted-foreground"
@@ -521,6 +720,20 @@ export default function RecibosPage() {
                   </>
                 )}
               </div>
+
+              {/* Download PDF button */}
+              {reciboDetail.planilla.snapshotCalculo && (() => {
+                const snap = reciboDetail.planilla.snapshotCalculo as unknown as ReciboPreview;
+                if (!snap.conceptos) return null;
+                return (
+                  <button
+                    onClick={() => generateReciboPDF(snap, reciboDetail)}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-primary/30 bg-primary/5 text-primary text-sm font-medium hover:bg-primary/15 transition-colors"
+                  >
+                    <Download className="h-4 w-4" /> Descargar PDF
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>

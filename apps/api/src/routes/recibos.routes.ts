@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { crearNotificacion } from '../utils/notificacion.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -325,6 +326,18 @@ router.post('/generar/:planillaId', requireLevel(LEVEL_RRHH), async (req: AuthRe
         planillaId,
         usuarioId: planilla.usuario.id,
       },
+    });
+
+    // Notify the employee about the new recibo
+    const d1 = new Date(planilla.periodoInicio);
+    const d2 = new Date(planilla.periodoFin);
+    const fmtPeriodo = `${d1.getDate()}/${d1.getMonth() + 1} — ${d2.getDate()}/${d2.getMonth() + 1}/${d2.getFullYear()}`;
+    await crearNotificacion({
+      usuarioId: planilla.usuario.id,
+      tipo: 'RECIBO',
+      titulo: '📄 Nuevo recibo de sueldo',
+      cuerpo: `Tu recibo de sueldo del período ${fmtPeriodo} está disponible para revisión y firma.`,
+      link: '/recibos',
     });
 
     res.status(201).json(recibo);
