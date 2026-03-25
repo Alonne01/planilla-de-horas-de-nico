@@ -29,7 +29,7 @@ app.use(cors({
     // Allow no-origin requests (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
 
-    // En desarrollo, permitir IPs privadas RFC-1918 y localhost
+    // En desarrollo, permitir IPs privadas RFC-1918, localhost y túneles
     if (process.env.NODE_ENV === 'development') {
       try {
         const host = new URL(origin).hostname;
@@ -38,7 +38,9 @@ app.use(cors({
           /^192\.168\.\d{1,3}\.\d{1,3}$/.test(host) ||
           /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
           /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host);
-        if (isPrivate) return callback(null, true);
+        const isTunnel =
+          host.endsWith('.trycloudflare.com') || host.includes('ngrok');
+        if (isPrivate || isTunnel) return callback(null, true);
       } catch {
         // origin inválido, cae al check normal
       }
