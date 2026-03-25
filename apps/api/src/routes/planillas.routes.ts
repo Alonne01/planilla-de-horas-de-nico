@@ -1082,13 +1082,52 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
       res.status(404).json({ error: 'Planilla no encontrada' });
       return;
     }
-    if (planilla.estado !== 'BORRADOR') {
-      res.status(400).json({ error: 'Solo se puede eliminar una planilla en BORRADOR' });
+
+    // Allow delete for BORRADOR or ENVIADA (before any approval step)
+    if (planilla.estado === 'BORRADOR' || planilla.estado === 'RECHAZADA') {
+      await prisma.planilla.delete({ where: { id: planillaId } });
+      res.status(204).send();
       return;
     }
 
-    await prisma.planilla.delete({ where: { id: planillaId } });
-    res.status(204).send();
+    if (planilla.estado === 'ENVIADA') {
+      // Atomic check+delete: prevent race with concurrent approval
+      const deleted = await prisma.$transaction(async (tx) => {
+        const approvalEntry = await tx.planillaHistorial.findFirst({
+          where: {
+            planillaId,
+            estadoNuevo: { in: ['EN_REVISION', 'APROBADA'] },
+          },
+        });
+        if (approvalEntry) return false;
+
+        // Re-check state hasn't changed since outer read
+        const current = await tx.planilla.findUnique({ where: { id: planillaId }, select: { estado: true } });
+        if (!current || current.estado !== 'ENVIADA') return false;
+
+        await tx.planilla.delete({ where: { id: planillaId } });
+        return true;
+      });
+
+      if (!deleted) {
+        res.status(400).json({
+          error: 'No se puede eliminar esta planilla porque ya fue revisada por un aprobador. Podés solicitar que sea rechazada para corregirla.',
+        });
+        return;
+      }
+      res.status(204).send();
+      return;
+    }
+
+    // EN_REVISION, APROBADA, CERRADA — cannot delete
+    const mensajes: Record<string, string> = {
+      EN_REVISION: 'No se puede eliminar esta planilla porque está en proceso de aprobación. Un aprobador ya revisó al menos un paso.',
+      APROBADA: 'No se puede eliminar esta planilla porque ya fue aprobada.',
+      CERRADA: 'No se puede eliminar esta planilla porque ya fue cerrada.',
+    };
+    res.status(400).json({
+      error: mensajes[planilla.estado] ?? 'No se puede eliminar esta planilla en su estado actual.',
+    });
   } catch (error) {
     console.error('Error deleting planilla:', error);
     res.status(500).json({ error: 'Error interno' });

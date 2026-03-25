@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/stores/toastStore';
 import {
   ArrowLeft, Send, CheckCircle2, XCircle, Loader2,
-  Clock, MapPin, Car, Moon, AlertCircle, AlertTriangle, X, Download, CalendarClock, Lock, Zap, Printer
+  Clock, MapPin, Car, Moon, AlertCircle, AlertTriangle, X, Download, CalendarClock, Lock, Zap, Printer, Trash2
 } from 'lucide-react';
 import { ESTADO_STYLES, ESTADO_LABELS } from '@/constants/planillaConstants';
 import {
@@ -174,6 +174,40 @@ export default function PlanillaDetailPage() {
     },
   });
 
+  const deletePlanillaMutation = useMutation({
+    mutationFn: () => api.delete(`/planillas/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['planillas'] });
+      toast({ title: 'Planilla eliminada', description: 'La planilla fue eliminada correctamente.' });
+      navigate('/planillas');
+    },
+    onError: (err: any) => {
+      toast({ title: 'No se puede eliminar', description: err.response?.data?.error ?? 'Error al eliminar planilla', variant: 'destructive' });
+    },
+  });
+
+  const handleDeletePlanilla = async () => {
+    const first = await dialog.confirm({
+      title: '¿Eliminar planilla?',
+      message: `Vas a eliminar la planilla del período ${planilla ? new Date(planilla.periodoInicio).toLocaleDateString('es-AR') + ' — ' + new Date(planilla.periodoFin).toLocaleDateString('es-AR') : ''}. Se perderán todos los registros de horas cargados.`,
+      confirmLabel: 'Continuar',
+      cancelLabel: 'Cancelar',
+      variant: 'danger',
+    });
+    if (!first) return;
+
+    const second = await dialog.confirm({
+      title: '¿Estás seguro?',
+      message: 'Esta acción no se puede deshacer.',
+      confirmLabel: 'Eliminar definitivamente',
+      cancelLabel: 'Cancelar',
+      variant: 'danger',
+    });
+    if (!second) return;
+
+    deletePlanillaMutation.mutate();
+  };
+
   const saveRegistroMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
       const existingReg = registroMap[selectedDate!];
@@ -243,6 +277,7 @@ export default function PlanillaDetailPage() {
   const isOwner = planilla.usuario.id === user?.id;
   const canEdit = isOwner && (planilla.estado === 'BORRADOR' || planilla.estado === 'RECHAZADA');
   const canSend = canEdit && planilla.registros.length > 0;
+  const canDelete = isOwner && ['BORRADOR', 'RECHAZADA', 'ENVIADA'].includes(planilla.estado);
   // canApprove: true only if this user's role matches the current approval step,
   // or RRHH/ADMIN (nivel >= 90) who can approve any step
   const currentStep = planilla.flujo?.pasos.find(p => p.orden === planilla.pasoActual);
@@ -726,6 +761,13 @@ export default function PlanillaDetailPage() {
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted/30 transition-colors">
           <Printer className="h-4 w-4" /> PDF
         </button>
+        {canDelete && (
+          <button onClick={handleDeletePlanilla} disabled={deletePlanillaMutation.isPending}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-500/40 text-red-500 bg-red-500/5 text-sm font-medium hover:bg-red-500/10 disabled:opacity-50 transition-colors">
+            {deletePlanillaMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Eliminar
+          </button>
+        )}
       </div>
 
       {/* ══════════════════════════════════════════════ */}
