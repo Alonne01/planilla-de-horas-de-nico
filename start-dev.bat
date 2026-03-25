@@ -42,7 +42,10 @@ echo     rrhh@demo.com        / Admin1234!
 echo     operador@demo.com    / Admin1234!
 echo.
 
-start "API" cmd /c "cd /d "%~dp0apps\api" && npm run dev"
+REM Habilitar debug de aprobaciones
+set DEBUG_APPROVALS=1
+
+start "API" cmd /c "cd /d "%~dp0apps\api" && set DEBUG_APPROVALS=1 && npm run dev"
 start "Web" cmd /c "cd /d "%~dp0apps\web" && npm run dev"
 
 echo ==========================================
