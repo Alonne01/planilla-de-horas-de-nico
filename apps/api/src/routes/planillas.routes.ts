@@ -179,27 +179,39 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     const usuario = await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } });
 
-    const flujoAsignacion = await prisma.flujoAsignacion.findFirst({
+    // Priority-based flujo lookup: user-specific → sector → company-wide default
+    let flujo = await prisma.flujoAprobacion.findFirst({
       where: {
-        tipoDocumento: 'PLANILLA',
-        activo: true,
-        flujo: { empresaId },
-        OR: [
-          { usuarioId: userId },
-          { sectorId: usuario?.sectorId ?? undefined },
-          { sectorId: null, usuarioId: null },
-        ],
+        empresaId, tipoDocumento: 'PLANILLA', activo: true,
+        asignaciones: { some: { usuarioId: userId, activo: true, tipoDocumento: 'PLANILLA' } },
       },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
     });
 
-    let flujoId = flujoAsignacion?.flujoId ?? null;
-    if (!flujoId) {
-      const fallbackFlow = await prisma.flujoAprobacion.findFirst({
-        where: { empresaId, tipoDocumento: 'PLANILLA', activo: true, asignaciones: { some: { activo: true } } },
+    if (!flujo && usuario?.sectorId) {
+      flujo = await prisma.flujoAprobacion.findFirst({
+        where: {
+          empresaId, tipoDocumento: 'PLANILLA', activo: true,
+          asignaciones: { some: { sectorId: usuario.sectorId, activo: true, tipoDocumento: 'PLANILLA' } },
+        },
+        orderBy: { createdAt: 'desc' },
         select: { id: true },
       });
-      flujoId = fallbackFlow?.id ?? null;
     }
+
+    if (!flujo) {
+      flujo = await prisma.flujoAprobacion.findFirst({
+        where: {
+          empresaId, tipoDocumento: 'PLANILLA', activo: true,
+          asignaciones: { some: { sectorId: null, usuarioId: null, activo: true, tipoDocumento: 'PLANILLA' } },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+    }
+
+    const flujoId = flujo?.id ?? null;
 
     const planilla = await prisma.planilla.create({
       data: {

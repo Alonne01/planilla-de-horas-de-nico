@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { getFlowVisibleUserIds } from '../utils/visibility.utils.js';
+import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -72,12 +73,12 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       };
     }
 
-    // Helper: returns true if the item's current approval step matches the user's role
-    const matchesCurrentStep = (item: { flujoId?: string | null; pasoActual: number; flujo?: { pasos: { orden: number; rolAprobador: string }[] } | null }) => {
-      if (!item.flujo || !item.flujoId) return false; // no flujo → not approvable
+    // Helper: returns true if the item's current approval step matches the user AND they're the responsible approver
+    const matchesCurrentStep = (item: { flujoId?: string | null; pasoActual: number; flujo?: { pasos: { orden: number; rolAprobador: string }[] } | null; usuario: { supervisorId?: string | null; coordinadorId?: string | null } }) => {
+      if (!item.flujo || !item.flujoId) return false;
       const paso = item.flujo.pasos.find(p => p.orden === item.pasoActual);
-      if (!paso) return false; // missing step config → fail closed
-      return paso.rolAprobador === userRol;
+      if (!paso) return false;
+      return isResponsibleApprover(paso.rolAprobador, item.usuario as { supervisorId: string | null; coordinadorId: string | null }, userId, userRol, userNivel);
     };
 
     const flujoInclude = { flujo: { include: { pasos: { orderBy: { orden: 'asc' as const } } } } };
@@ -93,6 +94,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         usuario: {
           select: {
             id: true, nombre: true, apellido: true, legajo: true, rol: true,
+            supervisorId: true, coordinadorId: true,
             sector: { select: { nombre: true } },
           },
         },
@@ -113,6 +115,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         usuario: {
           select: {
             id: true, nombre: true, apellido: true, legajo: true, rol: true,
+            supervisorId: true, coordinadorId: true,
             sector: { select: { nombre: true } },
           },
         },
@@ -133,6 +136,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         usuario: {
           select: {
             id: true, nombre: true, apellido: true, legajo: true, rol: true,
+            supervisorId: true, coordinadorId: true,
             sector: { select: { nombre: true } },
           },
         },
@@ -163,6 +167,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
             usuario: {
               select: {
                 id: true, nombre: true, apellido: true, legajo: true, rol: true,
+                supervisorId: true, coordinadorId: true,
                 sector: { select: { nombre: true } },
               },
             },

@@ -382,28 +382,39 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const diasTotales = Math.ceil((fechaFin.getTime() - fechaInicio.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
     // Find applicable flow
-    const flujoAsignacion = await prisma.flujoAsignacion.findFirst({
+    // Priority-based flujo lookup: user-specific → sector → company-wide default
+    let flujo = await prisma.flujoAprobacion.findFirst({
       where: {
-        tipoDocumento: 'VACACION',
-        activo: true,
-        flujo: { empresaId },
-        OR: [
-          { usuarioId: userId },
-          { sectorId: usuario?.sectorId ?? undefined },
-          { sectorId: null, usuarioId: null },
-        ],
+        empresaId, tipoDocumento: 'VACACION', activo: true,
+        asignaciones: { some: { usuarioId: userId, activo: true, tipoDocumento: 'VACACION' } },
       },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
     });
 
-    // Fallback: if no sector-specific assignment, use any active VACACION flow for this company
-    let flujoId = flujoAsignacion?.flujoId ?? null;
-    if (!flujoId) {
-      const fallbackFlow = await prisma.flujoAprobacion.findFirst({
-        where: { empresaId, tipoDocumento: 'VACACION', activo: true, asignaciones: { some: { activo: true } } },
+    if (!flujo && usuario?.sectorId) {
+      flujo = await prisma.flujoAprobacion.findFirst({
+        where: {
+          empresaId, tipoDocumento: 'VACACION', activo: true,
+          asignaciones: { some: { sectorId: usuario.sectorId, activo: true, tipoDocumento: 'VACACION' } },
+        },
+        orderBy: { createdAt: 'desc' },
         select: { id: true },
       });
-      flujoId = fallbackFlow?.id ?? null;
     }
+
+    if (!flujo) {
+      flujo = await prisma.flujoAprobacion.findFirst({
+        where: {
+          empresaId, tipoDocumento: 'VACACION', activo: true,
+          asignaciones: { some: { sectorId: null, usuarioId: null, activo: true, tipoDocumento: 'VACACION' } },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+    }
+
+    const flujoId = flujo?.id ?? null;
 
     const vacacion = await prisma.vacacion.create({
       data: {
