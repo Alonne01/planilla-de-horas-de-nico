@@ -4,7 +4,7 @@ import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import {
   DollarSign, Plus, Trash2, Loader2, X,
-  ChevronRight, Percent, Hash
+  ChevronRight, Percent, Hash, Pencil
 } from 'lucide-react';
 import { useDialogStore } from '@/stores/dialogStore';
 
@@ -18,6 +18,7 @@ interface ConceptoValor {
 
 interface Concepto {
   id: string;
+  convenioId: string;
   codigo: string;
   nombre: string;
   tipo: string;
@@ -53,6 +54,7 @@ export default function ConceptosPage() {
   const dialog = useDialogStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<Concepto | null>(null);
   const [filterConvenio, setFilterConvenio] = useState('');
 
   const { data: conceptos = [], isLoading } = useQuery<Concepto[]>({
@@ -172,12 +174,20 @@ export default function ConceptosPage() {
                   </h2>
                   <p className="text-sm text-muted-foreground mt-1">{selected.convenio.nombre}</p>
                 </div>
-                <button
-                  onClick={async () => { if (await dialog.confirm({ message: '¿Eliminar concepto?', variant: 'danger' })) deleteMutation.mutate(selected.id); }}
-                  className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setEditing(selected)}
+                    className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={async () => { if (await dialog.confirm({ message: '¿Eliminar concepto?', variant: 'danger' })) deleteMutation.mutate(selected.id); }}
+                    className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
 
               {selected.descripcion && <p className="text-sm text-muted-foreground">{selected.descripcion}</p>}
@@ -234,6 +244,19 @@ export default function ConceptosPage() {
           }}
         />
       )}
+
+      {/* Edit Modal */}
+      {editing && (
+        <ConceptoFormModal
+          convenios={convenios}
+          editingConcept={editing}
+          onClose={() => setEditing(null)}
+          onSuccess={() => {
+            setEditing(null);
+            queryClient.invalidateQueries({ queryKey: ['admin-conceptos'] });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -247,19 +270,20 @@ function InfoCell({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ConceptoFormModal({ convenios, onClose, onSuccess }: { convenios: Convenio[]; onClose: () => void; onSuccess: () => void }) {
+function ConceptoFormModal({ convenios, editingConcept, onClose, onSuccess }: { convenios: Convenio[]; editingConcept?: Concepto; onClose: () => void; onSuccess: () => void }) {
+  const isEdit = !!editingConcept;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({
-    convenioId: convenios[0]?.id ?? '',
-    codigo: '',
-    nombre: '',
-    tipo: 'REMUNERATIVO',
-    descripcion: '',
-    esPorcentual: false,
-    porcentajeBase: '',
-    montoFijo: '',
-    esRemunerativo: true,
+    convenioId: editingConcept?.convenioId ?? convenios[0]?.id ?? '',
+    codigo: editingConcept?.codigo ?? '',
+    nombre: editingConcept?.nombre ?? '',
+    tipo: editingConcept?.tipo ?? 'REMUNERATIVO',
+    descripcion: editingConcept?.descripcion ?? '',
+    esPorcentual: editingConcept?.esPorcentual ?? false,
+    porcentajeBase: editingConcept?.porcentajeBase ?? '',
+    montoFijo: editingConcept?.montoFijo ?? '',
+    esRemunerativo: editingConcept?.esRemunerativo ?? true,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -267,15 +291,20 @@ function ConceptoFormModal({ convenios, onClose, onSuccess }: { convenios: Conve
     setLoading(true);
     setError('');
     try {
-      await api.post('/admin/conceptos', {
+      const payload = {
         ...form,
-        porcentajeBase: form.esPorcentual ? parseFloat(form.porcentajeBase) : undefined,
-        montoFijo: !form.esPorcentual ? parseFloat(form.montoFijo) : undefined,
+        porcentajeBase: form.esPorcentual ? parseFloat(String(form.porcentajeBase)) : undefined,
+        montoFijo: !form.esPorcentual ? parseFloat(String(form.montoFijo)) : undefined,
         descripcion: form.descripcion || undefined,
-      });
+      };
+      if (isEdit) {
+        await api.put(`/admin/conceptos/${editingConcept.id}`, payload);
+      } else {
+        await api.post('/admin/conceptos', payload);
+      }
       onSuccess();
     } catch {
-      setError('Error al crear concepto');
+      setError(isEdit ? 'Error al guardar cambios' : 'Error al crear concepto');
     } finally {
       setLoading(false);
     }
@@ -287,7 +316,7 @@ function ConceptoFormModal({ convenios, onClose, onSuccess }: { convenios: Conve
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-border">
-          <h2 className="text-lg font-semibold">Nuevo Concepto Salarial</h2>
+          <h2 className="text-lg font-semibold">{isEdit ? 'Editar Concepto Salarial' : 'Nuevo Concepto Salarial'}</h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-accent"><X className="h-5 w-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-3">
@@ -347,7 +376,7 @@ function ConceptoFormModal({ convenios, onClose, onSuccess }: { convenios: Conve
             <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent">Cancelar</button>
             <button type="submit" disabled={loading}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50">
-              {loading && <Loader2 className="h-4 w-4 animate-spin" />} Crear concepto
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />} {isEdit ? 'Guardar cambios' : 'Crear concepto'}
             </button>
           </div>
         </form>

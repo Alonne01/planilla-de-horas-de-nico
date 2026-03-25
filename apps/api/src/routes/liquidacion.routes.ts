@@ -13,7 +13,7 @@ router.use(requireLevel(LEVEL_RRHH));
 
 router.post('/tango', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { periodoInicio, periodoFin, sectorId } = req.body;
+    const { periodoInicio, periodoFin, sectorId, usuarioId } = req.body;
     if (!periodoInicio || !periodoFin) {
       res.status(400).json({ error: 'Período requerido' });
       return;
@@ -27,6 +27,7 @@ router.post('/tango', async (req: AuthRequest, res: Response): Promise<void> => 
       estado: { in: ['APROBADA', 'CERRADA'] },
     };
     if (sectorId) where.usuario.sectorId = sectorId;
+    if (usuarioId) where.usuarioId = usuarioId;
 
     const planillas = await prisma.planilla.findMany({
       where,
@@ -88,7 +89,7 @@ router.post('/tango', async (req: AuthRequest, res: Response): Promise<void> => 
 
 router.post('/bejerman', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { periodoInicio, periodoFin, sectorId } = req.body;
+    const { periodoInicio, periodoFin, sectorId, usuarioId } = req.body;
     if (!periodoInicio || !periodoFin) {
       res.status(400).json({ error: 'Período requerido' });
       return;
@@ -102,6 +103,7 @@ router.post('/bejerman', async (req: AuthRequest, res: Response): Promise<void> 
       estado: { in: ['APROBADA', 'CERRADA'] },
     };
     if (sectorId) where.usuario.sectorId = sectorId;
+    if (usuarioId) where.usuarioId = usuarioId;
 
     const planillas = await prisma.planilla.findMany({
       where,
@@ -155,7 +157,7 @@ router.post('/bejerman', async (req: AuthRequest, res: Response): Promise<void> 
 
 router.post('/general', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { periodoInicio, periodoFin, sectorId } = req.body;
+    const { periodoInicio, periodoFin, sectorId, usuarioId } = req.body;
     if (!periodoInicio || !periodoFin) {
       res.status(400).json({ error: 'Período requerido' });
       return;
@@ -169,6 +171,7 @@ router.post('/general', async (req: AuthRequest, res: Response): Promise<void> =
       estado: { in: ['APROBADA', 'CERRADA'] },
     };
     if (sectorId) where.usuario.sectorId = sectorId;
+    if (usuarioId) where.usuarioId = usuarioId;
 
     const planillas = await prisma.planilla.findMany({
       where,

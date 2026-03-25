@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Download, Loader2, FileSpreadsheet } from 'lucide-react';
 
 interface Sector { id: string; nombre: string }
+interface Usuario { id: string; nombre: string; apellido: string; legajo: string | null; sector: { id: string; nombre: string } | null }
 
 const FORMATOS = [
   { id: 'tango', label: 'Tango', desc: 'Archivo TXT delimitado por pipes (|)', ext: '.txt' },
@@ -17,6 +18,7 @@ export default function LiquidacionPage() {
   const [periodoInicio, setPeriodoInicio] = useState('');
   const [periodoFin, setPeriodoFin] = useState('');
   const [sectorId, setSectorId] = useState('');
+  const [usuarioId, setUsuarioId] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState('');
 
@@ -24,6 +26,15 @@ export default function LiquidacionPage() {
     queryKey: ['sectores-liq'],
     queryFn: () => api.get('/admin/sectores').then((r) => r.data),
   });
+
+  const { data: usuarios } = useQuery<Usuario[]>({
+    queryKey: ['usuarios-liq'],
+    queryFn: () => api.get('/usuarios?activo=true').then((r) => r.data),
+  });
+
+  const filteredUsuarios = (usuarios ?? []).filter(
+    (u) => !sectorId || u.sector?.id === sectorId
+  );
 
   const handleExport = async () => {
     if (!periodoInicio || !periodoFin) {
@@ -37,6 +48,7 @@ export default function LiquidacionPage() {
         periodoInicio,
         periodoFin,
         ...(sectorId ? { sectorId } : {}),
+        ...(usuarioId ? { usuarioId } : {}),
       }, { responseType: 'blob' });
 
       // Download
@@ -116,12 +128,29 @@ export default function LiquidacionPage() {
           <label className="text-xs font-medium text-muted-foreground mb-1 block">Sector (opcional)</label>
           <select
             value={sectorId}
-            onChange={(e) => setSectorId(e.target.value)}
+            onChange={(e) => { setSectorId(e.target.value); setUsuarioId(''); }}
             className="rounded-lg border border-border bg-background px-3 py-2 text-sm w-full sm:w-auto"
           >
             <option value="">Todos los sectores</option>
             {(sectores ?? []).map((s) => (
               <option key={s.id} value={s.id}>{s.nombre}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Employee filter */}
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">Empleado (opcional)</label>
+          <select
+            value={usuarioId}
+            onChange={(e) => setUsuarioId(e.target.value)}
+            className="rounded-lg border border-border bg-background px-3 py-2 text-sm w-full sm:w-auto"
+          >
+            <option value="">Todos los empleados</option>
+            {filteredUsuarios.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.apellido} {u.nombre}{u.legajo ? ` (${u.legajo})` : ''}
+              </option>
             ))}
           </select>
         </div>
