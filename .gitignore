@@ -32,6 +32,12 @@ lerna-debug.log*
 **/uploads/*.jpeg
 **/uploads/*.png
 
+# Build artifacts
+*.tsbuildinfo
+
+# Debug screenshots
+debug */
+
 # OS and editors
 .DS_Store
 .idea/
