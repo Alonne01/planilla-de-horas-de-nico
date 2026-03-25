@@ -15,8 +15,8 @@ router.use(authMiddleware);
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit as string) || 20, 50));
     const offset = (page - 1) * limit;
 
     const [destinatarios, total] = await Promise.all([

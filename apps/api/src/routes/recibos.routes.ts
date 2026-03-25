@@ -162,6 +162,10 @@ router.get('/detalle/:id', async (req: AuthRequest, res: Response): Promise<void
       },
     });
     if (!recibo) { res.status(404).json({ error: 'Recibo no encontrado' }); return; }
+    // Verify same empresa
+    if (recibo.usuario.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Recibo no encontrado' }); return;
+    }
     // Allow own recibo or RRHH+
     if (recibo.usuarioId !== req.user!.userId && (req.user!.rolNivel ?? 0) < 90) {
       res.status(403).json({ error: 'Sin permisos' }); return;

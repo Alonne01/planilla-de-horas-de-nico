@@ -95,6 +95,7 @@ export default function AppShell() {
   const [pullDistance, setPullDistance] = useState(0);
   const pullStartY = useRef(0);
   const isPulling = useRef(false);
+  const pullDistanceRef = useRef(0);
 
   const handleRefresh = useCallback(async () => {
     if (isRefreshing) return;
@@ -115,17 +116,20 @@ export default function AppShell() {
     if (!isPulling.current) return;
     const distance = e.touches[0].clientY - pullStartY.current;
     if (distance > 0) {
-      setPullDistance(Math.min(distance, PULL_THRESHOLD * 1.5));
+      const clamped = Math.min(distance, PULL_THRESHOLD * 1.5);
+      setPullDistance(clamped);
+      pullDistanceRef.current = clamped;
     }
   }, []);
 
   const handleTouchEnd = useCallback(() => {
-    if (isPulling.current && pullDistance >= PULL_THRESHOLD) {
+    if (isPulling.current && pullDistanceRef.current >= PULL_THRESHOLD) {
       handleRefresh();
     }
     setPullDistance(0);
+    pullDistanceRef.current = 0;
     isPulling.current = false;
-  }, [pullDistance, handleRefresh]);
+  }, [handleRefresh]);
 
   useEffect(() => {
     document.addEventListener('touchstart', handleTouchStart, { passive: true });

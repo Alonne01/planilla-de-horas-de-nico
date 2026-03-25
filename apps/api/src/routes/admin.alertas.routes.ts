@@ -67,6 +67,11 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
 router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const existing = await prisma.alertaConfig.findFirst({
+      where: { id: req.params.id, empresaId: req.user!.empresaId },
+    });
+    if (!existing) { res.status(404).json({ error: 'Alerta no encontrada' }); return; }
+
     const data = alertaSchema.partial().parse(req.body);
     const alerta = await prisma.alertaConfig.update({
       where: { id: req.params.id },
@@ -94,7 +99,9 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
 
 router.patch('/:id/toggle', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const existing = await prisma.alertaConfig.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.alertaConfig.findFirst({
+      where: { id: req.params.id, empresaId: req.user!.empresaId },
+    });
     if (!existing) { res.status(404).json({ error: 'No encontrada' }); return; }
 
     const alerta = await prisma.alertaConfig.update({
@@ -112,6 +119,11 @@ router.patch('/:id/toggle', async (req: AuthRequest, res: Response): Promise<voi
 
 router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const existing = await prisma.alertaConfig.findFirst({
+      where: { id: req.params.id, empresaId: req.user!.empresaId },
+    });
+    if (!existing) { res.status(404).json({ error: 'No encontrada' }); return; }
+
     await prisma.alertaConfig.delete({ where: { id: req.params.id } });
     res.json({ ok: true });
   } catch (err: any) {

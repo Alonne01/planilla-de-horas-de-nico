@@ -88,6 +88,17 @@ router.post('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respons
       res.status(400).json({ error: 'Datos inválidos' });
       return;
     }
+
+    // Validate target user belongs to same empresa
+    const targetUser = await prisma.usuario.findFirst({
+      where: { id: parsed.data.usuarioId, empresaId: req.user!.empresaId },
+      select: { id: true },
+    });
+    if (!targetUser) {
+      res.status(400).json({ error: 'Usuario no encontrado' });
+      return;
+    }
+
     const notif = await prisma.notificacion.create({
       data: {
         usuarioId: parsed.data.usuarioId,

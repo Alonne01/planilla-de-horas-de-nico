@@ -1,8 +1,18 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
-const JWT_SECRET = process.env.JWT_SECRET ?? 'fallback-dev-secret';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET ?? 'fallback-refresh-secret';
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
+
+if (!JWT_SECRET || !JWT_REFRESH_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET and JWT_REFRESH_SECRET environment variables are required in production');
+  }
+  console.warn('⚠️  JWT_SECRET or JWT_REFRESH_SECRET not set — using insecure dev defaults');
+}
+
+const SECRET = JWT_SECRET ?? 'fallback-dev-secret';
+const REFRESH_SECRET = JWT_REFRESH_SECRET ?? 'fallback-refresh-secret';
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
@@ -18,7 +28,7 @@ interface TokenPayload {
 const refreshTokenStore = new Map<string, { userId: string; expiresAt: number }>();
 
 export function signAccessToken(payload: TokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
+  return jwt.sign(payload, SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
 }
 
 export function signRefreshToken(userId: string): string {
@@ -29,7 +39,7 @@ export function signRefreshToken(userId: string): string {
 }
 
 export function verifyAccessToken(token: string): TokenPayload {
-  return jwt.verify(token, JWT_SECRET) as TokenPayload;
+  return jwt.verify(token, SECRET) as TokenPayload;
 }
 
 export function verifyRefreshToken(token: string): string | null {

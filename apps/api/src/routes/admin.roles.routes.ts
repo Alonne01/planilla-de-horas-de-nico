@@ -84,6 +84,14 @@ router.put('/:id', requireLevel(LEVEL_ADMIN), async (req: AuthRequest, res: Resp
       return;
     }
 
+    const existing = await prisma.rolConfig.findFirst({
+      where: { id: req.params.id, empresaId: req.user!.empresaId },
+    });
+    if (!existing) {
+      res.status(404).json({ error: 'Rol no encontrado' });
+      return;
+    }
+
     const rol = await prisma.rolConfig.update({
       where: { id: req.params.id },
       data: parsed.data,
@@ -98,7 +106,9 @@ router.put('/:id', requireLevel(LEVEL_ADMIN), async (req: AuthRequest, res: Resp
 // DELETE /roles/:id — delete a custom role (ADMIN only, cannot delete system roles)
 router.delete('/:id', requireLevel(LEVEL_ADMIN), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const rol = await prisma.rolConfig.findUnique({ where: { id: req.params.id } });
+    const rol = await prisma.rolConfig.findFirst({
+      where: { id: req.params.id, empresaId: req.user!.empresaId },
+    });
     if (!rol) {
       res.status(404).json({ error: 'Rol no encontrado' });
       return;

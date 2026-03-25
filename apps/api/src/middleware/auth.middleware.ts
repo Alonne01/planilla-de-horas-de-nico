@@ -23,6 +23,10 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
 
   try {
     const payload = verifyAccessToken(token);
+    if (!payload.userId || !payload.empresaId || !payload.rol || typeof payload.rolNivel !== 'number') {
+      res.status(401).json({ error: 'Token inválido: claims incompletos' });
+      return;
+    }
     req.user = payload;
     next();
   } catch {
