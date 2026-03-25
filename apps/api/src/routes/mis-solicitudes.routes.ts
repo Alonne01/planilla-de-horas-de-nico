@@ -28,7 +28,7 @@ interface PasoUnificado {
 
 interface SolicitudUnificada {
   id: string;
-  tipo: 'VACACION' | 'AUSENCIA' | 'CAMBIO_DIAGRAMA';
+  tipo: 'VACACION' | 'AUSENCIA' | 'CAMBIO_DIAGRAMA' | 'PLANILLA';
   estado: string;
   pasoActual: number;
   totalPasos: number;
@@ -83,8 +83,20 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       include: { pasos: { orderBy: { orden: 'asc' as const } } },
     };
 
-    // Fetch all 3 types in parallel
-    const [vacaciones, ausencias, cambiosDiagrama] = await Promise.all([
+    // Fetch all 4 types in parallel
+    const [planillas, vacaciones, ausencias, cambiosDiagrama] = await Promise.all([
+      prisma.planilla.findMany({
+        where: {
+          usuarioId: userId,
+          estado: { notIn: ['BORRADOR'] },
+        },
+        include: {
+          flujo: flujoInclude,
+          historial: historialInclude,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+
       prisma.vacacion.findMany({
         where: {
           usuarioId: userId,
@@ -124,6 +136,25 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     ]);
 
     const combined: SolicitudUnificada[] = [];
+
+    // Map planillas
+    for (const p of planillas) {
+      const pasos = p.flujo?.pasos ?? [];
+      const inicio = fmtDate(p.periodoInicio);
+      const fin = fmtDate(p.periodoFin);
+      const totalHoras = Number(p.totalHorasNormales) + Number(p.totalHorasExtra50) + Number(p.totalHorasExtra100);
+      combined.push({
+        id: p.id,
+        tipo: 'PLANILLA',
+        estado: p.estado,
+        pasoActual: p.pasoActual,
+        totalPasos: pasos.length,
+        createdAt: p.createdAt.toISOString(),
+        detalle: `Planilla ${inicio} — ${fin}${totalHoras > 0 ? ` · ${totalHoras.toFixed(1)}hs` : ''}`,
+        pasos: enriquecerPasos(pasos, p.pasoActual, p.historial as any),
+        obsRechazo: p.obsRechazo,
+      });
+    }
 
     // Map vacaciones
     for (const v of vacaciones) {

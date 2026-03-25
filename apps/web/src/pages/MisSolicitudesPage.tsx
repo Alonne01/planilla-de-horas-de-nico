@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import ApprovalProgressBar from '@/components/ui/ApprovalProgressBar';
@@ -9,6 +10,7 @@ import {
   Palmtree,
   FileX,
   ArrowLeftRight,
+  FileSpreadsheet,
   CheckCircle2,
   XCircle,
   Clock,
@@ -23,7 +25,7 @@ interface Paso extends PasoAprobacion {}
 
 interface Solicitud {
   id: string;
-  tipo: 'VACACION' | 'AUSENCIA' | 'CAMBIO_DIAGRAMA';
+  tipo: 'VACACION' | 'AUSENCIA' | 'CAMBIO_DIAGRAMA' | 'PLANILLA';
   estado: string;
   pasoActual: number;
   totalPasos: number;
@@ -34,18 +36,21 @@ interface Solicitud {
 }
 
 const TIPO_ICON: Record<string, React.ElementType> = {
+  PLANILLA: FileSpreadsheet,
   VACACION: Palmtree,
   AUSENCIA: FileX,
   CAMBIO_DIAGRAMA: ArrowLeftRight,
 };
 
 const TIPO_LABEL: Record<string, string> = {
+  PLANILLA: 'Planilla de Horas',
   VACACION: 'Vacaciones',
   AUSENCIA: 'Ausencia',
   CAMBIO_DIAGRAMA: 'Cambio Diagrama',
 };
 
 const TIPO_COLOR: Record<string, string> = {
+  PLANILLA: 'text-primary',
   VACACION: 'text-emerald-400',
   AUSENCIA: 'text-amber-400',
   CAMBIO_DIAGRAMA: 'text-blue-400',
@@ -53,19 +58,22 @@ const TIPO_COLOR: Record<string, string> = {
 
 const ESTADO_BADGE: Record<string, { bg: string; icon: React.ElementType }> = {
   PENDIENTE: { bg: 'bg-blue-500/20 text-blue-400', icon: Clock },
+  ENVIADA: { bg: 'bg-blue-500/20 text-blue-400', icon: Clock },
   EN_REVISION: { bg: 'bg-amber-500/20 text-amber-400', icon: Clock },
   APROBADA: { bg: 'bg-emerald-500/20 text-emerald-400', icon: CheckCircle2 },
   RECHAZADA: { bg: 'bg-red-500/20 text-red-400', icon: XCircle },
+  CERRADA: { bg: 'bg-zinc-500/20 text-zinc-400', icon: CheckCircle2 },
 };
 
 const FILTER_OPTIONS = [
   { value: '', label: 'Todas' },
+  { value: 'PLANILLA', label: 'Planillas' },
   { value: 'VACACION', label: 'Vacaciones' },
   { value: 'AUSENCIA', label: 'Ausencias' },
   { value: 'CAMBIO_DIAGRAMA', label: 'Cambios Diagrama' },
 ];
 
-function SolicitudCard({ solicitud }: { solicitud: Solicitud }) {
+function SolicitudCard({ solicitud, onNavigate }: { solicitud: Solicitud; onNavigate?: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const Icon = TIPO_ICON[solicitud.tipo] ?? ClipboardList;
   const estadoBadge = ESTADO_BADGE[solicitud.estado] ?? ESTADO_BADGE.PENDIENTE;
@@ -127,6 +135,16 @@ function SolicitudCard({ solicitud }: { solicitud: Solicitud }) {
         <ApprovalProgressBar pasos={solicitud.pasos} estado={solicitud.estado} />
       )}
 
+      {/* Navigate to detail for planillas */}
+      {solicitud.tipo === 'PLANILLA' && onNavigate && (
+        <button
+          onClick={() => onNavigate(solicitud.id)}
+          className="text-[11px] text-primary hover:underline font-medium"
+        >
+          Ver planilla →
+        </button>
+      )}
+
       {/* Expandable historial */}
       {solicitud.pasos.some((p) => p.aprobadoPor || p.comentario) && (
         <button
@@ -170,6 +188,7 @@ function SolicitudCard({ solicitud }: { solicitud: Solicitud }) {
 
 export default function MisSolicitudesPage() {
   const [tipoFilter, setTipoFilter] = useState('');
+  const navigate = useNavigate();
 
   const { data: solicitudes = [], isLoading, isError } = useQuery<Solicitud[]>({
     queryKey: ['mis-solicitudes'],
@@ -183,10 +202,10 @@ export default function MisSolicitudesPage() {
     : solicitudes;
 
   const pendientes = filtered.filter(
-    (s) => s.estado === 'PENDIENTE' || s.estado === 'EN_REVISION',
+    (s) => ['PENDIENTE', 'EN_REVISION', 'ENVIADA'].includes(s.estado),
   );
   const resueltas = filtered.filter(
-    (s) => s.estado === 'APROBADA' || s.estado === 'RECHAZADA',
+    (s) => ['APROBADA', 'RECHAZADA', 'CERRADA'].includes(s.estado),
   );
 
   return (
@@ -247,7 +266,7 @@ export default function MisSolicitudesPage() {
                 En curso ({pendientes.length})
               </h2>
               {pendientes.map((s) => (
-                <SolicitudCard key={s.id} solicitud={s} />
+                <SolicitudCard key={s.id} solicitud={s} onNavigate={(id) => navigate(`/planillas/${id}`)} />
               ))}
             </section>
           )}
@@ -259,7 +278,7 @@ export default function MisSolicitudesPage() {
                 Resueltas ({resueltas.length})
               </h2>
               {resueltas.map((s) => (
-                <SolicitudCard key={s.id} solicitud={s} />
+                <SolicitudCard key={s.id} solicitud={s} onNavigate={(id) => navigate(`/planillas/${id}`)} />
               ))}
             </section>
           )}
