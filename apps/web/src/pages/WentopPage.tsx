@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
@@ -19,6 +19,9 @@ import {
   CheckCircle2,
   Clock,
   ImageIcon,
+  Filter,
+  MapPin,
+  SlidersHorizontal,
 } from 'lucide-react';
 import api, { getUploadUrl } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -97,6 +100,23 @@ interface Usuario {
   legajo: string | null;
 }
 
+interface DraftData {
+  fechaReporte: string;
+  tipoTarjeta: string;
+  sectorObservacionId: string;
+  sectorTercero: boolean;
+  cliente: string;
+  lugarPozoLocacion: string;
+  descripcion: string;
+  accionesInmediatas: string;
+  recomendaciones: string;
+  justificacionAbierta: string;
+  calidad: string[];
+  medioambiente: string[];
+  seguridadSalud: string[];
+  savedAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -170,6 +190,9 @@ const inputClass =
 const selectClass =
   'h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
+const DRAFT_KEY_NEW = 'wentop-draft';
+const draftKeyEdit = (id: string) => `wentop-edit-draft-${id}`;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -182,6 +205,48 @@ function formatDate(iso: string | null | undefined): string {
 
 function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) + '…' : text;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function saveDraft(key: string, data: Omit<DraftData, 'savedAt'>) {
+  try {
+    const draft: DraftData = { ...data, savedAt: new Date().toISOString() };
+    localStorage.setItem(key, JSON.stringify(draft));
+  } catch { /* quota exceeded — ignore */ }
+}
+
+function loadDraft(key: string): DraftData | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as DraftData;
+  } catch {
+    return null;
+  }
+}
+
+function clearDraft(key: string) {
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+}
+
+function hasFormData(d: Omit<DraftData, 'savedAt'>): boolean {
+  return !!(
+    d.tipoTarjeta ||
+    d.descripcion.trim() ||
+    d.cliente.trim() ||
+    d.lugarPozoLocacion.trim() ||
+    d.accionesInmediatas.trim() ||
+    d.recomendaciones.trim() ||
+    d.justificacionAbierta.trim() ||
+    d.calidad.length > 0 ||
+    d.medioambiente.length > 0 ||
+    d.seguridadSalud.length > 0
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -374,7 +439,7 @@ export default function WentopPage() {
 
       {activeTab === 'analytics' && <AnalyticsTab />}
       {activeTab === 'gestores' && canManageGestores && (
-        <GestoresTab gestores={gestores} sectores={sectores} />
+        <GestoresTab sectores={sectores} />
       )}
 
       {/* Detail modal */}
@@ -432,7 +497,7 @@ export default function WentopPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Tab: Tarjetas
+// Tab: Tarjetas (with collapsible filters, FAB, improved cards & empty state)
 // ---------------------------------------------------------------------------
 
 function TarjetasTab({
@@ -470,87 +535,145 @@ function TarjetasTab({
   onSelect: (t: WentopTarjeta) => void;
   onNew: () => void;
 }) {
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const activeFilterCount = [filterEstado, filterTipo, filterSector, filterDesde, filterHasta].filter(Boolean).length;
+
+  const clearAllFilters = () => {
+    setFilterEstado('');
+    setFilterTipo('');
+    setFilterSector('');
+    setFilterDesde('');
+    setFilterHasta('');
+  };
+
   return (
     <div className="space-y-4">
-      {/* Filter bar */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Estado</label>
-          <select
-            className={selectClass}
-            value={filterEstado}
-            onChange={(e) => setFilterEstado(e.target.value)}
+      {/* Filter bar — collapsible on mobile */}
+      <div className="space-y-3">
+        {/* Mobile: toggle + Nueva Tarjeta */}
+        <div className="flex items-center gap-2 md:hidden">
+          <button
+            onClick={() => setFiltersOpen(!filtersOpen)}
+            className={cn(
+              'relative flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition-colors',
+              activeFilterCount > 0
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border bg-muted/30 text-muted-foreground',
+            )}
           >
-            <option value="">Todos</option>
-            {Object.entries(ESTADO_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
+            <SlidersHorizontal className="h-4 w-4" />
+            Filtros
+            {activeFilterCount > 0 && (
+              <span className="ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            )}
+            {filtersOpen ? <ChevronUp className="h-3.5 w-3.5 ml-1" /> : <ChevronDown className="h-3.5 w-3.5 ml-1" />}
+          </button>
+
+          {activeFilterCount > 0 && (
+            <button
+              onClick={clearAllFilters}
+              className="h-10 rounded-lg border border-border px-3 text-sm text-muted-foreground hover:bg-accent transition-colors"
+            >
+              Limpiar filtros
+            </button>
+          )}
         </div>
 
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Tipo</label>
-          <select
-            className={selectClass}
-            value={filterTipo}
-            onChange={(e) => setFilterTipo(e.target.value)}
-          >
-            <option value="">Todos</option>
-            {TIPO_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {canManageGestores && (
-          <div>
-            <label className="mb-1 block text-xs text-muted-foreground">Sector</label>
+        {/* Filter controls — always visible on md+, collapsible on mobile */}
+        <div className={cn('flex-wrap items-end gap-3', filtersOpen ? 'flex' : 'hidden md:flex')}>
+          <div className="w-full sm:w-auto">
+            <label className="mb-1 block text-xs text-muted-foreground">Estado</label>
             <select
-              className={selectClass}
-              value={filterSector}
-              onChange={(e) => setFilterSector(e.target.value)}
+              className={cn(selectClass, 'w-full sm:w-auto min-h-[44px] md:min-h-0')}
+              value={filterEstado}
+              onChange={(e) => setFilterEstado(e.target.value)}
             >
               <option value="">Todos</option>
-              {sectores.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.nombre}
+              {Object.entries(ESTADO_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
                 </option>
               ))}
             </select>
           </div>
-        )}
 
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Desde</label>
-          <input
-            type="date"
-            className={inputClass}
-            value={filterDesde}
-            onChange={(e) => setFilterDesde(e.target.value)}
-          />
+          <div className="w-full sm:w-auto">
+            <label className="mb-1 block text-xs text-muted-foreground">Tipo</label>
+            <select
+              className={cn(selectClass, 'w-full sm:w-auto min-h-[44px] md:min-h-0')}
+              value={filterTipo}
+              onChange={(e) => setFilterTipo(e.target.value)}
+            >
+              <option value="">Todos</option>
+              {TIPO_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {canManageGestores && (
+            <div className="w-full sm:w-auto">
+              <label className="mb-1 block text-xs text-muted-foreground">Sector</label>
+              <select
+                className={cn(selectClass, 'w-full sm:w-auto min-h-[44px] md:min-h-0')}
+                value={filterSector}
+                onChange={(e) => setFilterSector(e.target.value)}
+              >
+                <option value="">Todos</option>
+                {sectores.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="w-full sm:w-auto">
+            <label className="mb-1 block text-xs text-muted-foreground">Desde</label>
+            <input
+              type="date"
+              className={cn(inputClass, 'min-h-[44px] md:min-h-0')}
+              value={filterDesde}
+              onChange={(e) => setFilterDesde(e.target.value)}
+            />
+          </div>
+
+          <div className="w-full sm:w-auto">
+            <label className="mb-1 block text-xs text-muted-foreground">Hasta</label>
+            <input
+              type="date"
+              className={cn(inputClass, 'min-h-[44px] md:min-h-0')}
+              value={filterHasta}
+              onChange={(e) => setFilterHasta(e.target.value)}
+            />
+          </div>
+
+          {/* Desktop: inline nueva tarjeta + limpiar filtros */}
+          <div className="hidden md:flex items-end gap-2">
+            <button
+              onClick={onNew}
+              className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              Nueva Tarjeta
+            </button>
+            {activeFilterCount > 0 && (
+              <button
+                onClick={clearAllFilters}
+                className="flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm text-muted-foreground hover:bg-accent transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+                Limpiar
+              </button>
+            )}
+          </div>
         </div>
-
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Hasta</label>
-          <input
-            type="date"
-            className={inputClass}
-            value={filterHasta}
-            onChange={(e) => setFilterHasta(e.target.value)}
-          />
-        </div>
-
-        <button
-          onClick={onNew}
-          className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Nueva Tarjeta
-        </button>
       </div>
 
       {/* Card grid */}
@@ -559,23 +682,36 @@ function TarjetasTab({
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : tarjetas.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <FileText className="h-10 w-10 mb-2 opacity-40" />
-          <p className="text-sm">No se encontraron tarjetas</p>
+        /* Enhanced empty state */
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+          <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted/50">
+            <FileText className="h-10 w-10 opacity-40" />
+          </div>
+          <p className="mb-1 text-base font-medium text-foreground">Sin tarjetas</p>
+          <p className="mb-6 text-sm text-center max-w-xs">
+            No se encontraron tarjetas con los filtros seleccionados. Creá una nueva tarjeta de observación.
+          </p>
+          <button
+            onClick={onNew}
+            className="flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Nueva Tarjeta
+          </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:gap-4 md:grid-cols-2 lg:grid-cols-3">
           {tarjetas.map((t) => (
             <button
               key={t.id}
               onClick={() => onSelect(t)}
-              className="rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-accent/50"
+              className="rounded-xl border border-border bg-card p-3 md:p-4 text-left transition-colors hover:bg-accent/50"
             >
               {/* Badges */}
-              <div className="mb-3 flex flex-wrap items-center gap-2">
+              <div className="mb-2 md:mb-3 flex flex-wrap items-center gap-1.5 md:gap-2">
                 <span
                   className={cn(
-                    'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
+                    'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] md:text-xs font-medium',
                     TIPO_COLORS[t.tipoTarjeta] ?? 'bg-muted text-muted-foreground',
                   )}
                 >
@@ -583,7 +719,7 @@ function TarjetasTab({
                 </span>
                 <span
                   className={cn(
-                    'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                    'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] md:text-xs font-medium',
                     ESTADO_COLORS[t.estado] ?? 'bg-muted text-muted-foreground',
                   )}
                 >
@@ -606,11 +742,19 @@ function TarjetasTab({
                 </p>
               )}
 
+              {/* Location — shown when available */}
+              {t.lugarPozoLocacion && (
+                <p className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                  <MapPin className="h-3 w-3 shrink-0" />
+                  {truncate(t.lugarPozoLocacion, 40)}
+                </p>
+              )}
+
               {/* Date */}
               <p className="text-xs text-muted-foreground mt-1">{formatDate(t.fechaReporte)}</p>
 
               {/* Description */}
-              <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+              <p className="mt-2 text-sm text-muted-foreground leading-relaxed line-clamp-2 md:line-clamp-3">
                 {truncate(t.descripcion, 120)}
               </p>
 
@@ -626,6 +770,15 @@ function TarjetasTab({
           ))}
         </div>
       )}
+
+      {/* Mobile FAB */}
+      <button
+        onClick={onNew}
+        className="fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 active:scale-95 transition-all md:hidden"
+        aria-label="Nueva Tarjeta"
+      >
+        <Plus className="h-6 w-6" />
+      </button>
     </div>
   );
 }
@@ -801,15 +954,23 @@ function CategoryBreakdown({
 }
 
 // ---------------------------------------------------------------------------
-// Tab: Gestores
+// Tab: Gestores (fetches own data internally)
 // ---------------------------------------------------------------------------
 
-function GestoresTab({ gestores, sectores }: { gestores: WentopGestor[]; sectores: Sector[] }) {
+function GestoresTab({ sectores }: { sectores: Sector[] }) {
   const queryClient = useQueryClient();
   const dialog = useDialogStore();
 
   const [nuevoUsuarioId, setNuevoUsuarioId] = useState('');
   const [nuevoSectorId, setNuevoSectorId] = useState('');
+
+  const { data: gestores = [] } = useQuery<WentopGestor[]>({
+    queryKey: ['wentop', 'gestores'],
+    queryFn: async () => {
+      const { data } = await api.get('/wentop/gestores');
+      return data;
+    },
+  });
 
   const { data: usuarios = [] } = useQuery<Usuario[]>({
     queryKey: ['usuarios'],
@@ -952,7 +1113,7 @@ function GestoresTab({ gestores, sectores }: { gestores: WentopGestor[]; sectore
 }
 
 // ---------------------------------------------------------------------------
-// Modal: Tarjeta Detail
+// Modal: Tarjeta Detail (full-screen on mobile)
 // ---------------------------------------------------------------------------
 
 function TarjetaDetailModal({
@@ -981,15 +1142,15 @@ function TarjetaDetailModal({
   const canDelete = isCreator && tarjeta.estado === 'ABIERTA';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 overflow-y-auto">
-      <div className="my-4 w-full max-w-3xl rounded-xl border border-border bg-card shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border p-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-lg font-semibold text-foreground">Detalle de Tarjeta</h2>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 md:p-4 md:overflow-y-auto">
+      <div className="flex flex-col h-full w-full md:my-4 md:h-auto md:max-w-3xl md:rounded-xl border border-border bg-card md:shadow-2xl">
+        {/* Sticky header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card p-3 md:p-4 md:rounded-t-xl">
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap min-w-0">
+            <h2 className="text-base md:text-lg font-semibold text-foreground shrink-0">Detalle</h2>
             <span
               className={cn(
-                'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
+                'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] md:text-xs font-medium',
                 TIPO_COLORS[tarjeta.tipoTarjeta] ?? 'bg-muted text-muted-foreground',
               )}
             >
@@ -997,20 +1158,20 @@ function TarjetaDetailModal({
             </span>
             <span
               className={cn(
-                'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] md:text-xs font-medium',
                 ESTADO_COLORS[tarjeta.estado] ?? 'bg-muted text-muted-foreground',
               )}
             >
               {ESTADO_LABELS[tarjeta.estado] ?? tarjeta.estado}
             </span>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1 hover:bg-accent transition-colors">
+          <button onClick={onClose} className="rounded-lg p-2 hover:bg-accent transition-colors shrink-0">
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="space-y-5 p-4">
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-5">
           {/* General info */}
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Creador">
@@ -1122,13 +1283,13 @@ function TarjetaDetailModal({
             <Field label="Fecha de Cierre">{formatDate(tarjeta.fechaCierre)}</Field>
           )}
 
-          {/* Photos */}
+          {/* Photos — 2 cols on mobile, 3 on sm+ */}
           {tarjeta.fotos.length > 0 && (
             <div>
               <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Evidencia fotográfica
               </p>
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                 {tarjeta.fotos.map((f) => (
                   <div key={f.id} className="group relative aspect-square rounded-lg overflow-hidden border border-border bg-muted">
                     <img
@@ -1189,8 +1350,8 @@ function TarjetaDetailModal({
           )}
         </div>
 
-        {/* Footer actions */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border p-4">
+        {/* Sticky footer actions */}
+        <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card p-3 md:p-4 md:rounded-b-xl">
           <div className="flex flex-wrap gap-2">
             {canManage && tarjeta.estado === 'ABIERTA' && (
               <button
@@ -1268,7 +1429,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // ---------------------------------------------------------------------------
-// Modal: Create / Edit Tarjeta
+// Modal: Create / Edit Tarjeta (with draft auto-save, full-screen on mobile)
 // ---------------------------------------------------------------------------
 
 function TarjetaFormModal({
@@ -1282,6 +1443,7 @@ function TarjetaFormModal({
 }) {
   const queryClient = useQueryClient();
   const isEdit = !!tarjeta;
+  const draftKey = isEdit ? draftKeyEdit(tarjeta.id) : DRAFT_KEY_NEW;
 
   // Form state
   const [fechaReporte, setFechaReporte] = useState(
@@ -1308,6 +1470,88 @@ function TarjetaFormModal({
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
+  // Draft system
+  const [showDraftBanner, setShowDraftBanner] = useState(false);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // On mount: check for existing draft
+  useEffect(() => {
+    const existing = loadDraft(draftKey);
+    if (existing && !tarjeta) {
+      setShowDraftBanner(true);
+    } else if (existing && tarjeta) {
+      // For edits, silently check if there's a draft newer than the tarjeta
+      const draftTime = new Date(existing.savedAt).getTime();
+      const tarjetaTime = new Date(tarjeta.updatedAt).getTime();
+      if (draftTime > tarjetaTime) {
+        setShowDraftBanner(true);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const restoreDraft = () => {
+    const draft = loadDraft(draftKey);
+    if (!draft) return;
+    setFechaReporte(draft.fechaReporte);
+    setTipoTarjeta(draft.tipoTarjeta);
+    setSectorObservacionId(draft.sectorObservacionId);
+    setSectorTercero(draft.sectorTercero);
+    setCliente(draft.cliente);
+    setLugarPozoLocacion(draft.lugarPozoLocacion);
+    setDescripcion(draft.descripcion);
+    setAccionesInmediatas(draft.accionesInmediatas);
+    setRecomendaciones(draft.recomendaciones);
+    setJustificacionAbierta(draft.justificacionAbierta);
+    setCalidad(draft.calidad);
+    setMedioambiente(draft.medioambiente);
+    setSeguridadSalud(draft.seguridadSalud);
+    setShowDraftBanner(false);
+    setDraftLoaded(true);
+    toast({ title: 'Borrador restaurado', variant: 'success' });
+  };
+
+  const discardDraft = () => {
+    clearDraft(draftKey);
+    setShowDraftBanner(false);
+  };
+
+  // Auto-save draft on field changes (debounced 500ms)
+  useEffect(() => {
+    if (showDraftBanner && !draftLoaded) return; // don't overwrite draft before user decides
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      const data = {
+        fechaReporte,
+        tipoTarjeta,
+        sectorObservacionId,
+        sectorTercero,
+        cliente,
+        lugarPozoLocacion,
+        descripcion,
+        accionesInmediatas,
+        recomendaciones,
+        justificacionAbierta,
+        calidad,
+        medioambiente,
+        seguridadSalud,
+      };
+      if (hasFormData(data)) {
+        saveDraft(draftKey, data);
+      }
+    }, 500);
+    return () => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    fechaReporte, tipoTarjeta, sectorObservacionId, sectorTercero,
+    cliente, lugarPozoLocacion, descripcion, accionesInmediatas,
+    recomendaciones, justificacionAbierta, calidad, medioambiente,
+    seguridadSalud, draftKey, showDraftBanner, draftLoaded,
+  ]);
+
   const toggleOption = (
     list: string[],
     setList: (v: string[]) => void,
@@ -1316,6 +1560,29 @@ function TarjetaFormModal({
     setList(
       list.includes(option) ? list.filter((i) => i !== option) : [...list, option],
     );
+  };
+
+  const handleCancel = () => {
+    const data = {
+      fechaReporte,
+      tipoTarjeta,
+      sectorObservacionId,
+      sectorTercero,
+      cliente,
+      lugarPozoLocacion,
+      descripcion,
+      accionesInmediatas,
+      recomendaciones,
+      justificacionAbierta,
+      calidad,
+      medioambiente,
+      seguridadSalud,
+    };
+    if (hasFormData(data)) {
+      saveDraft(draftKey, data);
+      toast({ title: 'Borrador guardado automáticamente', variant: 'default' });
+    }
+    onClose();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1361,6 +1628,9 @@ function TarjetaFormModal({
         });
       }
 
+      // Clear draft on successful submit
+      clearDraft(draftKey);
+
       queryClient.invalidateQueries({ queryKey: ['wentop'] });
       toast({ title: isEdit ? 'Tarjeta actualizada' : 'Tarjeta creada', variant: 'success' });
       onClose();
@@ -1379,251 +1649,297 @@ function TarjetaFormModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 overflow-y-auto">
-      <div className="my-4 w-full max-w-2xl rounded-xl border border-border bg-card shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border p-4">
-          <h2 className="text-lg font-semibold text-foreground">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 md:p-4 md:overflow-y-auto">
+      <div className="flex flex-col h-full w-full md:my-4 md:h-auto md:max-w-2xl md:rounded-xl border border-border bg-card md:shadow-2xl">
+        {/* Sticky header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card p-3 md:p-4 md:rounded-t-xl">
+          <h2 className="text-base md:text-lg font-semibold text-foreground">
             {isEdit ? 'Editar Tarjeta' : 'Nueva Tarjeta'}
           </h2>
-          <button onClick={onClose} className="rounded-lg p-1 hover:bg-accent transition-colors">
+          <button onClick={handleCancel} className="rounded-lg p-2 hover:bg-accent transition-colors">
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-4 space-y-5">
-          {/* Datos generales */}
-          <FormSection title="Datos Generales">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">
-                  Tipo de Tarjeta <span className="text-red-400">*</span>
-                </label>
-                <select
-                  className={cn(selectClass, 'w-full')}
-                  value={tipoTarjeta}
-                  onChange={(e) => setTipoTarjeta(e.target.value)}
-                  required
-                >
-                  <option value="">Seleccionar…</option>
-                  {TIPO_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Fecha de Reporte</label>
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={fechaReporte}
-                  onChange={(e) => setFechaReporte(e.target.value)}
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">
-                  Sector de Observación
-                </label>
-                <select
-                  className={cn(selectClass, 'w-full')}
-                  value={sectorObservacionId}
-                  onChange={(e) => setSectorObservacionId(e.target.value)}
-                >
-                  <option value="">Sin sector</option>
-                  {sectores.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-end">
-                <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={sectorTercero}
-                    onChange={(e) => setSectorTercero(e.target.checked)}
-                    className="h-4 w-4 rounded border-border"
-                  />
-                  Sector tercero
-                </label>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Cliente</label>
-                <input
-                  className={inputClass}
-                  value={cliente}
-                  onChange={(e) => setCliente(e.target.value)}
-                  placeholder="Nombre del cliente"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">
-                  Lugar / Pozo / Locación
-                </label>
-                <input
-                  className={inputClass}
-                  value={lugarPozoLocacion}
-                  onChange={(e) => setLugarPozoLocacion(e.target.value)}
-                  placeholder="Ubicación"
-                />
-              </div>
-            </div>
-          </FormSection>
+        {/* Draft banner */}
+        {showDraftBanner && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 md:px-4">
+            <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+            <span className="text-sm text-amber-300 flex-1 min-w-0">Tiene un borrador guardado</span>
+            <button
+              onClick={restoreDraft}
+              className="h-7 rounded-md bg-amber-600 px-2.5 text-xs font-medium text-white hover:bg-amber-500 transition-colors"
+            >
+              Continuar editando
+            </button>
+            <button
+              onClick={discardDraft}
+              className="h-7 rounded-md border border-amber-500/30 px-2.5 text-xs font-medium text-amber-300 hover:bg-amber-500/20 transition-colors"
+            >
+              Descartar
+            </button>
+          </div>
+        )}
 
-          {/* Categories */}
-          <FormSection title="Categorías">
-            <CheckboxGroup
-              label="Calidad"
-              options={CALIDAD_OPTIONS}
-              selected={calidad}
-              onToggle={(opt) => toggleOption(calidad, setCalidad, opt)}
-            />
-            <CheckboxGroup
-              label="Medioambiente"
-              options={MEDIOAMBIENTE_OPTIONS}
-              selected={medioambiente}
-              onToggle={(opt) => toggleOption(medioambiente, setMedioambiente, opt)}
-            />
-            <CheckboxGroup
-              label="Seguridad y Salud"
-              options={SEGURIDAD_SALUD_OPTIONS}
-              selected={seguridadSalud}
-              onToggle={(opt) => toggleOption(seguridadSalud, setSeguridadSalud, opt)}
-            />
-          </FormSection>
-
-          {/* Description & Actions */}
-          <FormSection title="Descripción y Acciones">
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">
-                Descripción <span className="text-red-400">*</span>
-              </label>
-              <textarea
-                className={cn(inputClass, 'h-auto min-h-[100px] py-2')}
-                value={descripcion}
-                onChange={(e) => setDescripcion(e.target.value)}
-                placeholder="Describa la observación…"
-                required
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">
-                Acciones Inmediatas
-              </label>
-              <textarea
-                className={cn(inputClass, 'h-auto min-h-[60px] py-2')}
-                value={accionesInmediatas}
-                onChange={(e) => setAccionesInmediatas(e.target.value)}
-                placeholder="Acciones tomadas de forma inmediata…"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Recomendaciones</label>
-              <textarea
-                className={cn(inputClass, 'h-auto min-h-[60px] py-2')}
-                value={recomendaciones}
-                onChange={(e) => setRecomendaciones(e.target.value)}
-                placeholder="Recomendaciones…"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">
-                Justificación (si queda abierta)
-              </label>
-              <textarea
-                className={cn(inputClass, 'h-auto min-h-[60px] py-2')}
-                value={justificacionAbierta}
-                onChange={(e) => setJustificacionAbierta(e.target.value)}
-                placeholder="Justificación…"
-              />
-            </div>
-          </FormSection>
-
-          {/* Photos */}
-          <FormSection title="Evidencia Fotográfica">
-            <div className="space-y-3">
-              <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground hover:bg-muted/50 transition-colors">
-                <Camera className="h-4 w-4" />
-                <span>Seleccionar fotos…</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files) {
-                      setNewFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
-                    }
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-
-              {/* New file previews */}
-              {newFiles.length > 0 && (
-                <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-                  {newFiles.map((file, i) => (
-                    <div
-                      key={`${file.name}-${i}`}
-                      className="group relative aspect-square rounded-lg overflow-hidden border border-border bg-muted"
-                    >
-                      <img
-                        src={URL.createObjectURL(file)}
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeNewFile(i)}
-                        className="absolute top-1 right-1 rounded-md bg-black/60 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600/80"
-                      >
-                        <X className="h-3 w-3 text-white" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Existing photos (edit mode) */}
-              {isEdit && tarjeta.fotos.length > 0 && (
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+          {/* Scrollable form body */}
+          <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-5">
+            {/* Datos generales */}
+            <FormSection title="Datos Generales">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <p className="mb-1 text-xs text-muted-foreground">Fotos existentes</p>
-                  <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-                    {tarjeta.fotos.map((f) => (
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Tipo de Tarjeta <span className="text-red-400">*</span>
+                  </label>
+                  <select
+                    className={cn(selectClass, 'w-full min-h-[44px] md:min-h-0')}
+                    value={tipoTarjeta}
+                    onChange={(e) => setTipoTarjeta(e.target.value)}
+                    required
+                  >
+                    <option value="">Seleccionar…</option>
+                    {TIPO_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Fecha de Reporte</label>
+                  <input
+                    type="date"
+                    className={cn(inputClass, 'min-h-[44px] md:min-h-0')}
+                    value={fechaReporte}
+                    onChange={(e) => setFechaReporte(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Sector de Observación
+                  </label>
+                  <select
+                    className={cn(selectClass, 'w-full min-h-[44px] md:min-h-0')}
+                    value={sectorObservacionId}
+                    onChange={(e) => setSectorObservacionId(e.target.value)}
+                  >
+                    <option value="">Sin sector</option>
+                    {sectores.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-end">
+                  <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer min-h-[44px] md:min-h-0">
+                    <input
+                      type="checkbox"
+                      checked={sectorTercero}
+                      onChange={(e) => setSectorTercero(e.target.checked)}
+                      className="h-4 w-4 rounded border-border"
+                    />
+                    Sector tercero
+                  </label>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Cliente</label>
+                  <input
+                    className={cn(inputClass, 'min-h-[44px] md:min-h-0')}
+                    value={cliente}
+                    onChange={(e) => setCliente(e.target.value)}
+                    placeholder="Nombre del cliente"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Lugar / Pozo / Locación
+                  </label>
+                  <input
+                    className={cn(inputClass, 'min-h-[44px] md:min-h-0')}
+                    value={lugarPozoLocacion}
+                    onChange={(e) => setLugarPozoLocacion(e.target.value)}
+                    placeholder="Ubicación"
+                  />
+                </div>
+              </div>
+            </FormSection>
+
+            {/* Categories */}
+            <FormSection title="Categorías">
+              <CheckboxGroup
+                label="Calidad"
+                options={CALIDAD_OPTIONS}
+                selected={calidad}
+                onToggle={(opt) => toggleOption(calidad, setCalidad, opt)}
+              />
+              <CheckboxGroup
+                label="Medioambiente"
+                options={MEDIOAMBIENTE_OPTIONS}
+                selected={medioambiente}
+                onToggle={(opt) => toggleOption(medioambiente, setMedioambiente, opt)}
+              />
+              <CheckboxGroup
+                label="Seguridad y Salud"
+                options={SEGURIDAD_SALUD_OPTIONS}
+                selected={seguridadSalud}
+                onToggle={(opt) => toggleOption(seguridadSalud, setSeguridadSalud, opt)}
+                twoColumnMobile
+              />
+            </FormSection>
+
+            {/* Description & Actions */}
+            <FormSection title="Descripción y Acciones">
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">
+                  Descripción <span className="text-red-400">*</span>
+                </label>
+                <textarea
+                  className={cn(inputClass, 'h-auto min-h-[100px] py-2')}
+                  value={descripcion}
+                  onChange={(e) => setDescripcion(e.target.value)}
+                  placeholder="Describa la observación…"
+                  required
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">
+                  Acciones Inmediatas
+                </label>
+                <textarea
+                  className={cn(inputClass, 'h-auto min-h-[60px] py-2')}
+                  value={accionesInmediatas}
+                  onChange={(e) => setAccionesInmediatas(e.target.value)}
+                  placeholder="Acciones tomadas de forma inmediata…"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Recomendaciones</label>
+                <textarea
+                  className={cn(inputClass, 'h-auto min-h-[60px] py-2')}
+                  value={recomendaciones}
+                  onChange={(e) => setRecomendaciones(e.target.value)}
+                  placeholder="Recomendaciones…"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">
+                  Justificación (si queda abierta)
+                </label>
+                <textarea
+                  className={cn(inputClass, 'h-auto min-h-[60px] py-2')}
+                  value={justificacionAbierta}
+                  onChange={(e) => setJustificacionAbierta(e.target.value)}
+                  placeholder="Justificación…"
+                />
+              </div>
+            </FormSection>
+
+            {/* Photos */}
+            <FormSection title="Evidencia Fotográfica">
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground hover:bg-muted/50 transition-colors min-w-[200px]">
+                    <ImageIcon className="h-4 w-4" />
+                    <span>Seleccionar fotos…</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files) {
+                          setNewFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {/* Mobile camera button */}
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-4 py-3 text-sm text-primary hover:bg-primary/10 transition-colors md:hidden">
+                    <Camera className="h-4 w-4" />
+                    <span>Tomar Foto</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files) {
+                          setNewFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {/* New file previews — 3 cols on mobile, 6 on sm+ */}
+                {newFiles.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                    {newFiles.map((file, i) => (
                       <div
-                        key={f.id}
-                        className="relative aspect-square rounded-lg overflow-hidden border border-border bg-muted"
+                        key={`${file.name}-${i}`}
+                        className="group relative aspect-square rounded-lg overflow-hidden border border-border bg-muted"
                       >
                         <img
-                          src={getUploadUrl(f.url)}
+                          src={URL.createObjectURL(file)}
                           alt=""
                           className="h-full w-full object-cover"
                         />
+                        <button
+                          type="button"
+                          onClick={() => removeNewFile(i)}
+                          className="absolute top-1 right-1 rounded-md bg-black/60 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600/80"
+                        >
+                          <X className="h-3 w-3 text-white" />
+                        </button>
+                        <span className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5 text-[10px] text-white text-center truncate">
+                          {formatFileSize(file.size)}
+                        </span>
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-            </div>
-          </FormSection>
+                )}
 
-          {/* Submit */}
-          <div className="flex justify-end gap-2 pt-2">
+                {/* Existing photos (edit mode) */}
+                {isEdit && tarjeta.fotos.length > 0 && (
+                  <div>
+                    <p className="mb-1 text-xs text-muted-foreground">Fotos existentes</p>
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                      {tarjeta.fotos.map((f) => (
+                        <div
+                          key={f.id}
+                          className="relative aspect-square rounded-lg overflow-hidden border border-border bg-muted"
+                        >
+                          <img
+                            src={getUploadUrl(f.url)}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </FormSection>
+          </div>
+
+          {/* Sticky footer */}
+          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-card p-3 md:p-4 md:rounded-b-xl">
             <button
               type="button"
-              onClick={onClose}
-              className="h-9 rounded-lg px-4 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
+              onClick={handleCancel}
+              className="h-10 md:h-9 rounded-lg px-4 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+              className="flex h-10 md:h-9 items-center gap-1.5 rounded-lg bg-primary px-5 md:px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
               {isEdit ? 'Guardar Cambios' : 'Crear Tarjeta'}
@@ -1649,16 +1965,21 @@ function CheckboxGroup({
   options,
   selected,
   onToggle,
+  twoColumnMobile,
 }: {
   label: string;
   options: string[];
   selected: string[];
   onToggle: (option: string) => void;
+  twoColumnMobile?: boolean;
 }) {
   return (
     <div>
       <p className="mb-2 text-xs font-medium text-muted-foreground">{label}</p>
-      <div className="flex flex-wrap gap-2">
+      <div className={cn(
+        'flex flex-wrap gap-2',
+        twoColumnMobile && 'grid grid-cols-2 md:flex md:flex-wrap',
+      )}>
         {options.map((opt) => {
           const active = selected.includes(opt);
           return (
@@ -1667,7 +1988,7 @@ function CheckboxGroup({
               type="button"
               onClick={() => onToggle(opt)}
               className={cn(
-                'rounded-lg border px-2.5 py-1 text-xs transition-colors',
+                'rounded-lg border min-h-[40px] py-2 px-3 text-xs transition-colors text-left',
                 active
                   ? 'border-primary bg-primary/10 text-primary font-medium'
                   : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/50',
