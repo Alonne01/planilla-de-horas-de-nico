@@ -254,7 +254,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
         usuario: {
           select: {
             id: true, nombre: true, apellido: true, legajo: true,
-            empresaId: true, supervisorId: true, coordinadorId: true,
+            empresaId: true, sectorId: true, supervisorId: true, coordinadorId: true,
             sector: { select: { nombre: true } },
             categoria: { select: { codigo: true, nombre: true } },
             diagramas: {
@@ -293,7 +293,8 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
         const pasos = planilla.flujo?.pasos ?? [];
         const currentStep = pasos.find(p => p.orden === planilla.pasoActual);
         const isPendingReview = planilla.estado === 'ENVIADA' || planilla.estado === 'EN_REVISION';
-        if (!isPendingReview || !currentStep || !isResponsibleApprover(currentStep.rolAprobador, planilla.usuario, req.user!.userId, req.user!.rol, nivel)) {
+        const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
+        if (!isPendingReview || !currentStep || !isResponsibleApprover(currentStep.rolAprobador, planilla.usuario, req.user!.userId, req.user!.rol, nivel, approverSectorId)) {
           res.status(403).json({ error: 'Sin permisos para ver esta planilla' });
           return;
         }
@@ -452,7 +453,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       where: { id: planillaId },
       include: {
         flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
-        usuario: { select: { empresaId: true, supervisorId: true, coordinadorId: true } },
+        usuario: { select: { id: true, empresaId: true, sectorId: true, supervisorId: true, coordinadorId: true } },
       },
     });
 
@@ -482,7 +483,8 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada en el flujo` });
         return;
       }
-      if (!isResponsibleApprover(pasoConfig.rolAprobador, planilla.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0)) {
+      const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
+      if (!isResponsibleApprover(pasoConfig.rolAprobador, planilla.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0, approverSectorId)) {
         res.status(403).json({ error: `No tenés autorización para aprobar esta planilla en el paso de ${pasoConfig.rolAprobador}` });
         return;
       }
@@ -613,7 +615,7 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       where: { id: planillaId },
       include: {
         flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
-        usuario: { select: { empresaId: true, supervisorId: true, coordinadorId: true } },
+        usuario: { select: { id: true, empresaId: true, sectorId: true, supervisorId: true, coordinadorId: true } },
       },
     });
 
@@ -625,7 +627,8 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
     // Verify the caller is the responsible approver for this step
     const pasos = planilla.flujo?.pasos ?? [];
     const currentStep = pasos.find(p => p.orden === planilla.pasoActual);
-    if (!currentStep || !isResponsibleApprover(currentStep.rolAprobador, planilla.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0)) {
+    const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
+    if (!currentStep || !isResponsibleApprover(currentStep.rolAprobador, planilla.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0, approverSectorId)) {
       res.status(403).json({ error: 'No tenés autorización para rechazar esta planilla' });
       return;
     }

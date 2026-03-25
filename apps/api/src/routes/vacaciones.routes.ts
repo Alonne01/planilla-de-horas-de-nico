@@ -548,7 +548,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       where: { id: vacId },
       include: {
         flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
-        usuario: { select: { id: true, empresaId: true, diasVacacionesUsados: true, supervisorId: true, coordinadorId: true } },
+        usuario: { select: { id: true, empresaId: true, diasVacacionesUsados: true, sectorId: true, supervisorId: true, coordinadorId: true } },
       },
     });
 
@@ -577,7 +577,8 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada en el flujo` });
         return;
       }
-      if (!isResponsibleApprover(pasoConfig.rolAprobador, vacacion.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0)) {
+      const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
+      if (!isResponsibleApprover(pasoConfig.rolAprobador, vacacion.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0, approverSectorId)) {
         res.status(403).json({ error: `No tenés autorización para aprobar esta vacación en el paso de ${pasoConfig.rolAprobador}` });
         return;
       }
@@ -712,7 +713,7 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       where: { id: vacId },
       include: {
         flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
-        usuario: { select: { empresaId: true, supervisorId: true, coordinadorId: true } },
+        usuario: { select: { id: true, empresaId: true, sectorId: true, supervisorId: true, coordinadorId: true } },
       },
     });
 
@@ -724,7 +725,8 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
     // Verify the caller is the responsible approver for this step
     const pasos = vacacion.flujo?.pasos ?? [];
     const currentStep = pasos.find(p => p.orden === vacacion.pasoActual);
-    if (!currentStep || !isResponsibleApprover(currentStep.rolAprobador, vacacion.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0)) {
+    const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
+    if (!currentStep || !isResponsibleApprover(currentStep.rolAprobador, vacacion.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0, approverSectorId)) {
       res.status(403).json({ error: 'No tenés autorización para rechazar esta vacación' });
       return;
     }

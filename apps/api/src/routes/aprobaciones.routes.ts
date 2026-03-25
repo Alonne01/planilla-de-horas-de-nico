@@ -73,12 +73,14 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       };
     }
 
+    const approverSectorId = (await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } }))?.sectorId ?? null;
+
     // Helper: returns true if the item's current approval step matches the user AND they're the responsible approver
-    const matchesCurrentStep = (item: { flujoId?: string | null; pasoActual: number; flujo?: { pasos: { orden: number; rolAprobador: string }[] } | null; usuario: { supervisorId?: string | null; coordinadorId?: string | null } }) => {
+    const matchesCurrentStep = (item: { flujoId?: string | null; pasoActual: number; flujo?: { pasos: { orden: number; rolAprobador: string }[] } | null; usuario: { sectorId?: string | null; supervisorId?: string | null; coordinadorId?: string | null } }) => {
       if (!item.flujo || !item.flujoId) return false;
       const paso = item.flujo.pasos.find(p => p.orden === item.pasoActual);
       if (!paso) return false;
-      return isResponsibleApprover(paso.rolAprobador, item.usuario as { supervisorId: string | null; coordinadorId: string | null }, userId, userRol, userNivel);
+      return isResponsibleApprover(paso.rolAprobador, item.usuario as { supervisorId: string | null; coordinadorId: string | null; sectorId?: string | null }, userId, userRol, userNivel, approverSectorId);
     };
 
     const flujoInclude = { flujo: { include: { pasos: { orderBy: { orden: 'asc' as const } } } } };
@@ -94,7 +96,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         usuario: {
           select: {
             id: true, nombre: true, apellido: true, legajo: true, rol: true,
-            supervisorId: true, coordinadorId: true,
+            sectorId: true, supervisorId: true, coordinadorId: true,
             sector: { select: { nombre: true } },
           },
         },
@@ -115,7 +117,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         usuario: {
           select: {
             id: true, nombre: true, apellido: true, legajo: true, rol: true,
-            supervisorId: true, coordinadorId: true,
+            sectorId: true, supervisorId: true, coordinadorId: true,
             sector: { select: { nombre: true } },
           },
         },
@@ -136,7 +138,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         usuario: {
           select: {
             id: true, nombre: true, apellido: true, legajo: true, rol: true,
-            supervisorId: true, coordinadorId: true,
+            sectorId: true, supervisorId: true, coordinadorId: true,
             sector: { select: { nombre: true } },
           },
         },
@@ -167,7 +169,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
             usuario: {
               select: {
                 id: true, nombre: true, apellido: true, legajo: true, rol: true,
-                supervisorId: true, coordinadorId: true,
+                sectorId: true, supervisorId: true, coordinadorId: true,
                 sector: { select: { nombre: true } },
               },
             },
