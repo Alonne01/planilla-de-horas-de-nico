@@ -213,6 +213,10 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     const flujoId = flujo?.id ?? null;
 
+    if ((process.env.DEBUG_APPROVALS === '1' || process.env.DEBUG_APPROVALS === 'true')) {
+      console.log(`[CREAR PLANILLA] user=${userId.slice(-6)} sector=${usuario?.sectorId?.slice(-6) ?? 'N/A'} → flujo=${flujoId?.slice(-6) ?? 'NONE'}`);
+    }
+
     const planilla = await prisma.planilla.create({
       data: {
         usuarioId: userId,
@@ -418,6 +422,10 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       data: { estado: 'ENVIADA', pasoActual: 1, enviadaAt: new Date(), obsRechazo: null },
     });
 
+    if ((process.env.DEBUG_APPROVALS === '1' || process.env.DEBUG_APPROVALS === 'true')) {
+      console.log(`[ENVIAR PLANILLA] planilla=${planillaId.slice(-6)} flujo=${planilla.flujoId?.slice(-6) ?? 'NONE'} user=${req.user!.userId.slice(-6)} → pasoActual=1`);
+    }
+
     await prisma.planillaHistorial.create({
       data: {
         planillaId: planilla.id,
@@ -484,6 +492,9 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         return;
       }
       const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
+      if ((process.env.DEBUG_APPROVALS === '1' || process.env.DEBUG_APPROVALS === 'true')) {
+        console.log(`[AVANZAR PLANILLA] planilla=${planillaId.slice(-6)} paso=${pasoActual}/${totalPasos} rolPaso=${pasoConfig.rolAprobador} approver=${req.user!.userId.slice(-6)} rol=${req.user!.rol} sector=${approverSectorId?.slice(-6)} ownerSector=${planilla.usuario.sectorId?.slice(-6)}`);
+      }
       if (!isResponsibleApprover(pasoConfig.rolAprobador, planilla.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0, approverSectorId)) {
         res.status(403).json({ error: `No tenés autorización para aprobar esta planilla en el paso de ${pasoConfig.rolAprobador}` });
         return;
@@ -628,6 +639,9 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
     const pasos = planilla.flujo?.pasos ?? [];
     const currentStep = pasos.find(p => p.orden === planilla.pasoActual);
     const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
+    if ((process.env.DEBUG_APPROVALS === '1' || process.env.DEBUG_APPROVALS === 'true')) {
+      console.log(`[RECHAZAR PLANILLA] planilla=${planillaId.slice(-6)} paso=${planilla.pasoActual} rolPaso=${currentStep?.rolAprobador ?? 'N/A'} approver=${req.user!.userId.slice(-6)} rol=${req.user!.rol} sector=${approverSectorId?.slice(-6)}`);
+    }
     if (!currentStep || !isResponsibleApprover(currentStep.rolAprobador, planilla.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0, approverSectorId)) {
       res.status(403).json({ error: 'No tenés autorización para rechazar esta planilla' });
       return;

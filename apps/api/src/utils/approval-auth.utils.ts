@@ -1,3 +1,5 @@
+const DEBUG = process.env.DEBUG_APPROVALS === '1' || process.env.DEBUG_APPROVALS === 'true';
+
 /**
  * Check whether a specific user is authorized to approve/reject a document
  * at its current flow step. Rules:
@@ -13,10 +15,26 @@ export function isResponsibleApprover(
   _approverNivel: number,
   approverSectorId?: string | null,
 ): boolean {
-  // Never self-approve
+  const result = _isResponsibleApprover(rolAprobador, owner, approverId, approverRole, approverSectorId);
+  if (DEBUG) {
+    console.log(`[APPROVAL] isResponsibleApprover → ${result}`, JSON.stringify({
+      paso: rolAprobador,
+      owner: { id: owner.id?.slice(-6), supId: owner.supervisorId?.slice(-6), coordId: owner.coordinadorId?.slice(-6), sector: owner.sectorId?.slice(-6) },
+      approver: { id: approverId.slice(-6), role: approverRole, sector: approverSectorId?.slice(-6) },
+    }));
+  }
+  return result;
+}
+
+function _isResponsibleApprover(
+  rolAprobador: string,
+  owner: { id?: string | null; supervisorId: string | null; coordinadorId: string | null; sectorId?: string | null },
+  approverId: string,
+  approverRole: string,
+  approverSectorId?: string | null,
+): boolean {
   if (owner.id && owner.id === approverId) return false;
 
-  // Sector-restricted roles: SUPERVISOR, COORDINADOR, GERENTE
   if (rolAprobador === 'SUPERVISOR') {
     if (owner.supervisorId) return owner.supervisorId === approverId;
     return approverRole === 'SUPERVISOR'
@@ -37,6 +55,5 @@ export function isResponsibleApprover(
       && owner.sectorId === approverSectorId;
   }
 
-  // RRHH, ADMIN, or future high-level roles: cross-sector but must match the step role
   return rolAprobador === approverRole;
 }

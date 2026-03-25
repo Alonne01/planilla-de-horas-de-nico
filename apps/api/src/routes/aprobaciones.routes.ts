@@ -106,6 +106,15 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     });
     const planillasPendientes = planillasRaw.filter(matchesCurrentStep);
 
+    const DEBUG = process.env.DEBUG_APPROVALS === '1' || process.env.DEBUG_APPROVALS === 'true';
+    if (DEBUG) {
+      console.log(`[APROBACIONES] user=${userId.slice(-6)} rol=${userRol} sector=${approverSectorId?.slice(-6)} | planillasRaw=${planillasRaw.length} → pendientes=${planillasPendientes.length}`);
+      for (const p of planillasRaw) {
+        const paso = p.flujo?.pasos.find(pp => pp.orden === p.pasoActual);
+        console.log(`  planilla=${p.id.slice(-6)} owner=${(p as any).usuario?.id?.slice(-6)} pasoActual=${p.pasoActual} rolPaso=${paso?.rolAprobador ?? 'N/A'} flujo=${p.flujoId ? 'sí' : 'no'} match=${matchesCurrentStep(p)}`);
+      }
+    }
+
     // ── Pending vacaciones ────────────────────────────────────────
     const vacacionesRaw = await prisma.vacacion.findMany({
       where: {
