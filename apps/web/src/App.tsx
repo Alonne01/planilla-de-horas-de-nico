@@ -34,6 +34,7 @@ import LiquidacionPage from '@/pages/LiquidacionPage';
 import EquipoPage from '@/pages/EquipoPage';
 import CambiosDiagramaPage from '@/pages/CambiosDiagramaPage';
 import MisSolicitudesPage from '@/pages/MisSolicitudesPage';
+import WentopPage from '@/pages/WentopPage';
 import { Loader2 } from 'lucide-react';
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { toast } from '@/stores/toastStore';
@@ -147,6 +148,7 @@ export default function App() {
               <Route path="/equipo" element={<EquipoPage />} />
               <Route path="/cambios-diagrama" element={<CambiosDiagramaPage />} />
               <Route path="/mis-solicitudes" element={<MisSolicitudesPage />} />
+              <Route path="/wentop" element={<WentopPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               {/* Admin routes — Phase 2 */}
               <Route path="/admin/usuarios" element={<UsuariosPage />} />

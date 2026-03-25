@@ -27,6 +27,7 @@ import auditoriaRoutes from './auditoria.routes.js';
 import liquidacionRoutes from './liquidacion.routes.js';
 import cambiosDiagramaRoutes from './cambios-diagrama.routes.js';
 import misSolicitudesRoutes from './mis-solicitudes.routes.js';
+import wentopRoutes from './wentop.routes.js';
 
 const router = Router();
 
@@ -87,6 +88,9 @@ router.use('/auditoria', auditoriaRoutes);
 
 // Liquidación (payroll export)
 router.use('/liquidacion', liquidacionRoutes);
+
+// WENTOP (observation cards)
+router.use('/wentop', wentopRoutes);
 
 // Backup
 router.use('/backup', backupRoutes);

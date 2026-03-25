@@ -473,13 +473,14 @@ async function main() {
     { codigo: 'RRHH', nombre: 'Recursos Humanos', descripcion: 'Gestión de personal, recibos, cierre', color: '#8B5CF6', nivel: 90, esSistema: true },
     { codigo: 'GERENTE', nombre: 'Gerente', descripcion: 'Visualización de analytics y reportes', color: '#F59E0B', nivel: 80, esSistema: true },
     { codigo: 'COORDINADOR', nombre: 'Coordinador', descripcion: 'Aprobación de planillas y gestión de equipo', color: '#3B82F6', nivel: 70, esSistema: true },
+    { codigo: 'CMASS', nombre: 'CMASS (Seg. e Higiene)', descripcion: 'Seguridad, higiene y medioambiente — gestión WENTOP cross-sector', color: '#F97316', nivel: 75, esSistema: true },
     { codigo: 'SUPERVISOR', nombre: 'Supervisor', descripcion: 'Supervisión de operaciones en campo', color: '#10B981', nivel: 60, esSistema: true },
     { codigo: 'OPERADOR', nombre: 'Operador', descripcion: 'Carga de horas y solicitudes', color: '#64748B', nivel: 10, esSistema: true },
   ];
   for (const r of rolesData) {
     await prisma.rolConfig.create({ data: { empresaId: empresa.id, ...r } });
   }
-  console.log('✅ 6 roles del sistema creados');
+  console.log('✅ 7 roles del sistema creados');
 
   // ─────────────────────────────────
   // 2. SECTORES

@@ -5,6 +5,7 @@ import { AuthRequest } from './auth.middleware.js';
 export const LEVEL_ADMIN = 100;
 export const LEVEL_RRHH = 90;
 export const LEVEL_GERENTE = 80;
+export const LEVEL_CMASS = 75;
 export const LEVEL_COORDINADOR = 70;
 export const LEVEL_SUPERVISOR = 60;
 export const LEVEL_OPERADOR = 10;
