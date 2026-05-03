@@ -71,10 +71,12 @@ app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 app.use(morgan('dev'));
 
-// Rate limiter for auth endpoints
+// Rate limiter for auth endpoints — disabled in DEBUG_AUTH mode so integration tests can run freely
+const DEBUG_AUTH = process.env.DEBUG_AUTH === 'true' && process.env.NODE_ENV !== 'production';
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,
+  max: DEBUG_AUTH ? 1000 : 10,
   message: { error: 'Demasiados intentos, intente nuevamente en 15 minutos' },
   standardHeaders: true,
   legacyHeaders: false,
