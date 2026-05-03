@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
@@ -385,27 +385,43 @@ router.post('/mis-invitaciones/:invId/responder', async (req: AuthRequest, res: 
       return;
     }
 
-    const nuevoEstado = aceptar ? 'ACEPTADA' : 'RECHAZADA';
-
-    // If accepting, check if there are still vacancies
+    // Accepting: vacancy check + update must be atomic to prevent over-acceptance
+    let updated;
     if (aceptar) {
-      const aceptadas = await prisma.invitacionCapacitacion.count({
-        where: { sesionId: inv.sesionId, estado: 'ACEPTADA' },
-      });
-      if (aceptadas >= inv.sesion.vacantes) {
-        res.status(400).json({ error: 'Ya no hay vacantes disponibles en esta sesión' });
-        return;
+      try {
+        updated = await prisma.$transaction(
+          async (tx) => {
+            const aceptadas = await tx.invitacionCapacitacion.count({
+              where: { sesionId: inv.sesionId, estado: 'ACEPTADA' },
+            });
+            if (aceptadas >= inv.sesion.vacantes) {
+              throw new Error('NO_VACANCIES');
+            }
+            return tx.invitacionCapacitacion.update({
+              where: { id: inv.id },
+              data: { estado: 'ACEPTADA', respondidoAt: new Date(), motivoRechazo: null },
+            });
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+      } catch (err: any) {
+        if (err?.message === 'NO_VACANCIES') {
+          res.status(400).json({ error: 'Ya no hay vacantes disponibles en esta sesión' });
+          return;
+        }
+        // P2034 = serialization failure due to concurrent acceptance — surface as conflict
+        if (err?.code === 'P2034') {
+          res.status(409).json({ error: 'Conflicto al procesar la aceptación, intentá de nuevo' });
+          return;
+        }
+        throw err;
       }
+    } else {
+      updated = await prisma.invitacionCapacitacion.update({
+        where: { id: inv.id },
+        data: { estado: 'RECHAZADA', respondidoAt: new Date(), motivoRechazo: motivoRechazo || null },
+      });
     }
-
-    const updated = await prisma.invitacionCapacitacion.update({
-      where: { id: inv.id },
-      data: {
-        estado: nuevoEstado,
-        respondidoAt: new Date(),
-        motivoRechazo: aceptar ? null : (motivoRechazo || null),
-      },
-    });
 
     const empleadoNombre = `${inv.usuario.nombre} ${inv.usuario.apellido}`;
     const fechaStr = new Date(inv.sesion.fecha).toLocaleDateString('es-AR');

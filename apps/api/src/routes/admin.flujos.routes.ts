@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_ADMIN } from '../middleware/roles.middleware.js';
@@ -260,10 +260,22 @@ router.post('/:id/pasos', async (req: AuthRequest, res: Response): Promise<void>
 router.put('/:id/pasos/:pid', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const pid = req.params.pid as string;
-    const paso = await prisma.flujoPaso.update({
-      where: { id: pid },
-      data: req.body,
+    const empresaId = req.user!.empresaId;
+    const parsed = pasoSchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+    // Tenant check is folded into the WHERE — atomic, no TOCTOU
+    const result = await prisma.flujoPaso.updateMany({
+      where: { id: pid, flujo: { empresaId } },
+      data: parsed.data,
     });
+    if (result.count === 0) {
+      res.status(404).json({ error: 'Paso no encontrado' });
+      return;
+    }
+    const paso = await prisma.flujoPaso.findUnique({ where: { id: pid } });
     res.json(paso);
   } catch (error) {
     console.error('Error updating paso:', error);
@@ -276,7 +288,15 @@ router.put('/:id/pasos/:pid', async (req: AuthRequest, res: Response): Promise<v
 router.delete('/:id/pasos/:pid', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const pid = req.params.pid as string;
-    await prisma.flujoPaso.delete({ where: { id: pid } });
+    const empresaId = req.user!.empresaId;
+    // Tenant check is folded into the WHERE — atomic, no TOCTOU
+    const result = await prisma.flujoPaso.deleteMany({
+      where: { id: pid, flujo: { empresaId } },
+    });
+    if (result.count === 0) {
+      res.status(404).json({ error: 'Paso no encontrado' });
+      return;
+    }
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting paso:', error);

@@ -234,6 +234,7 @@ router.put('/registros/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, 
   try {
     const data = empleadoCapSchema.partial().parse(req.body);
     const updateData: any = {};
+    if (data.tipoId !== undefined) updateData.tipoId = data.tipoId;
     if (data.fechaRealizacion) updateData.fechaRealizacion = new Date(data.fechaRealizacion);
     if (data.fechaVencimiento !== undefined) updateData.fechaVencimiento = data.fechaVencimiento ? new Date(data.fechaVencimiento) : null;
     if (data.institucion !== undefined) updateData.institucion = data.institucion;
