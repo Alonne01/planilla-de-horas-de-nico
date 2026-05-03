@@ -11,11 +11,17 @@ const FORMATOS = [
   { id: 'tango', label: 'Tango', desc: 'Archivo TXT delimitado por pipes (|)', ext: '.txt' },
   { id: 'bejerman', label: 'Bejerman', desc: 'Archivo CSV delimitado por punto y coma (;)', ext: '.csv' },
   { id: 'general', label: 'General CSV', desc: 'CSV completo con todos los datos del período', ext: '.csv' },
-  { id: 'planillas-excel', label: 'Planillas Excel', desc: 'Excel con todas las planillas cerradas, una persona por hoja', ext: '.xlsx' },
+  { id: 'planillas-excel', label: 'Planillas Excel', desc: 'Excel con planillas cerradas: detalle día a día o resumen por período', ext: '.xlsx' },
+];
+
+const MODOS_EXCEL = [
+  { id: 'detalle', label: 'Detalle día a día', desc: 'Una hoja por persona con todos los registros diarios' },
+  { id: 'resumen', label: 'Resumen del período', desc: 'Una sola hoja con todos los empleados y totales del período' },
 ];
 
 export default function LiquidacionPage() {
   const [formato, setFormato] = useState('general');
+  const [modoExcel, setModoExcel] = useState<'detalle' | 'resumen'>('detalle');
   const [periodoInicio, setPeriodoInicio] = useState('');
   const [periodoFin, setPeriodoFin] = useState('');
   const [sectorId, setSectorId] = useState('');
@@ -50,6 +56,7 @@ export default function LiquidacionPage() {
         periodoFin,
         ...(sectorId ? { sectorId } : {}),
         ...(usuarioId ? { usuarioId } : {}),
+        ...(formato === 'planillas-excel' ? { modo: modoExcel } : {}),
       }, { responseType: 'blob' });
 
       // Download
@@ -100,6 +107,28 @@ export default function LiquidacionPage() {
               </button>
             ))}
           </div>
+          {formato === 'planillas-excel' && (
+            <div className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
+              <p className="text-xs font-medium text-foreground mb-2">Modo de exportación Excel</p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                {MODOS_EXCEL.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setModoExcel(m.id as 'detalle' | 'resumen')}
+                    className={cn(
+                      'flex-1 p-3 rounded-lg border text-left transition-all',
+                      modoExcel === m.id
+                        ? 'border-primary bg-primary/10 ring-1 ring-primary/30'
+                        : 'border-border bg-background hover:border-muted-foreground/30'
+                    )}
+                  >
+                    <p className="text-xs font-semibold">{m.label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{m.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Period */}
@@ -203,9 +232,10 @@ export default function LiquidacionPage() {
           <div>
             <p className="text-sm font-medium">Planillas Excel</p>
             <p className="text-xs text-muted-foreground">
-              Excel (.xlsx) con todas las planillas cerradas del período. Una hoja por persona con detalle
-              día a día: horarios, horas trabajadas, horas extra, viajes, lugar de trabajo y observaciones.
-              Incluye totales al pie de cada planilla.
+              <strong>Detalle día a día:</strong> una hoja por persona con todos los registros diarios (horarios, horas
+              trabajadas, extras, viajes, lugar, observaciones) y totales al pie.<br />
+              <strong>Resumen del período:</strong> una sola hoja con todos los empleados, una fila por planilla cerrada
+              y el desglose de totales de horas y días.
             </p>
           </div>
         </div>
