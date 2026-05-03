@@ -108,8 +108,9 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
 router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const concepto = await prisma.conceptoSalarial.findUnique({
-      where: { id: req.params.id as string },
+    // Bug fix: scope by tenant to prevent cross-company salary data reads
+    const concepto = await prisma.conceptoSalarial.findFirst({
+      where: { id: req.params.id as string, convenio: { empresaId: req.user!.empresaId } },
       include: {
         convenio: { select: { nombre: true, tipo: true } },
         valores: {
@@ -211,6 +212,16 @@ router.post('/:id/valores', async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
+    // Bug fix: verify concepto belongs to current empresa before writing
+    const concepto = await prisma.conceptoSalarial.findFirst({
+      where: { id: conceptoId, convenio: { empresaId: req.user!.empresaId } },
+      select: { id: true },
+    });
+    if (!concepto) {
+      res.status(404).json({ error: 'Concepto no encontrado' });
+      return;
+    }
+
     const valor = await prisma.conceptoValor.create({
       data: {
         conceptoId,
@@ -244,8 +255,9 @@ router.post('/:id/valores', async (req: AuthRequest, res: Response): Promise<voi
 router.delete('/valores/:vid', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const vid = req.params.vid as string;
-    const existing = await prisma.conceptoValor.findUnique({
-      where: { id: vid },
+    // Bug fix: scope deletion to current empresa to prevent cross-tenant data deletion
+    const existing = await prisma.conceptoValor.findFirst({
+      where: { id: vid, concepto: { convenio: { empresaId: req.user!.empresaId } } },
       include: { categoria: { select: { codigo: true } } },
     });
     if (!existing) {
@@ -266,6 +278,10 @@ router.delete('/valores/:vid', async (req: AuthRequest, res: Response): Promise<
 
     res.status(204).send();
   } catch (error) {
+    if ((error as { code?: string }).code === 'P2025') {
+      res.status(404).json({ error: 'Valor no encontrado' });
+      return;
+    }
     console.error('Error deleting valor:', error);
     res.status(500).json({ error: 'Error interno' });
   }

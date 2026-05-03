@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { PrismaClient, VacacionEstado } from '@prisma/client';
+import { PrismaClient, Prisma, VacacionEstado } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
@@ -363,25 +363,11 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     });
     if (!usuario) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
-    let saldo = await prisma.vacacionSaldo.findUnique({
-      where: { usuarioId_anio: { usuarioId: userId, anio } },
-    });
-    if (!saldo) {
-      saldo = await prisma.vacacionSaldo.create({
-        data: { usuarioId: userId, anio, diasCorrespondientes: diasPorAntiguedad(usuario.fechaIngreso, anio) },
-      });
-    }
-    const disponible = saldo.diasCorrespondientes + saldo.diasAjuste - saldo.diasUsados - saldo.diasPendientes;
-    if (parsed.data.diasHabiles > disponible) {
-      res.status(400).json({ error: `Saldo insuficiente. Disponible: ${disponible} días` });
-      return;
-    }
-
     const fechaInicio = new Date(parsed.data.fechaInicio);
     const fechaFin = new Date(parsed.data.fechaFin);
     const diasTotales = Math.ceil((fechaFin.getTime() - fechaInicio.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
-    // Find applicable flow
+    // Find applicable flow (read-only, outside transaction)
     // Priority-based flujo lookup: user-specific → sector → company-wide default
     let flujo = await prisma.flujoAprobacion.findFirst({
       where: {
@@ -416,37 +402,63 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     const flujoId = flujo?.id ?? null;
 
-    const vacacion = await prisma.vacacion.create({
-      data: {
-        usuarioId: userId,
-        fechaInicio,
-        fechaFin,
-        diasHabiles: parsed.data.diasHabiles,
-        diasTotales,
-        motivo: parsed.data.motivo ?? null,
-        flujoId,
-        estado: 'PENDIENTE',
-        pasoActual: 1,
-      },
-    });
+    // Critical section: balance check + create atomically to prevent double-spend
+    const vacacion = await prisma.$transaction(async (tx) => {
+      let saldo = await tx.vacacionSaldo.findUnique({
+        where: { usuarioId_anio: { usuarioId: userId, anio } },
+      });
+      if (!saldo) {
+        saldo = await tx.vacacionSaldo.create({
+          data: { usuarioId: userId, anio, diasCorrespondientes: diasPorAntiguedad(usuario.fechaIngreso, anio) },
+        });
+      }
+      const disponible = saldo.diasCorrespondientes + saldo.diasAjuste - saldo.diasUsados - saldo.diasPendientes;
+      // Balance is tracked in calendar days, consistent with diasUsados/diasPendientes on approval
+      if (diasTotales > disponible) {
+        throw Object.assign(new Error('SALDO_INSUFICIENTE'), { disponible });
+      }
 
-    await prisma.vacacionHistorial.create({
-      data: {
-        vacacionId: vacacion.id,
-        usuarioId: userId,
-        estadoNuevo: 'PENDIENTE',
-        comentario: 'Solicitud enviada automáticamente',
-      },
-    });
+      const vac = await tx.vacacion.create({
+        data: {
+          usuarioId: userId,
+          fechaInicio,
+          fechaFin,
+          diasHabiles: parsed.data.diasHabiles,
+          diasTotales,
+          motivo: parsed.data.motivo ?? null,
+          flujoId,
+          estado: 'PENDIENTE',
+          pasoActual: 1,
+        },
+      });
 
-    // Update diasPendientes in VacacionSaldo
-    await prisma.vacacionSaldo.update({
-      where: { usuarioId_anio: { usuarioId: userId, anio } },
-      data: { diasPendientes: { increment: diasTotales } },
-    });
+      await tx.vacacionHistorial.create({
+        data: {
+          vacacionId: vac.id,
+          usuarioId: userId,
+          estadoNuevo: 'PENDIENTE',
+          comentario: 'Solicitud enviada automáticamente',
+        },
+      });
+
+      await tx.vacacionSaldo.update({
+        where: { usuarioId_anio: { usuarioId: userId, anio } },
+        data: { diasPendientes: { increment: diasTotales } },
+      });
+
+      return vac;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     res.status(201).json(vacacion);
   } catch (error) {
+    if (error instanceof Error && error.message === 'SALDO_INSUFICIENTE') {
+      res.status(400).json({ error: `Saldo insuficiente. Disponible: ${(error as Error & { disponible: number }).disponible} días` });
+      return;
+    }
+    if ((error as { code?: string }).code === 'P2034') {
+      res.status(409).json({ error: 'Conflicto de transacción, intente de nuevo' });
+      return;
+    }
     console.error('Error creating vacacion:', error);
     res.status(500).json({ error: 'Error interno' });
   }

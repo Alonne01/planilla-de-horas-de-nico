@@ -905,9 +905,13 @@ router.put('/:id/registros/:rid', async (req: AuthRequest, res: Response): Promi
       return;
     }
 
-    // Check if the registro is locked (ausencia/vacación)
-    const existingReg = await prisma.registroHoras.findUnique({ where: { id: rid } });
-    if (existingReg?.bloqueado) {
+    // Check if the registro exists within this planilla and is not locked
+    const existingReg = await prisma.registroHoras.findFirst({ where: { id: rid, planillaId } });
+    if (!existingReg) {
+      res.status(404).json({ error: 'Registro no encontrado' });
+      return;
+    }
+    if (existingReg.bloqueado) {
       res.status(403).json({ error: `Este día está bloqueado: ${existingReg.motivoBloqueo ?? 'ausencia/vacación'}` });
       return;
     }
@@ -929,7 +933,7 @@ router.put('/:id/registros/:rid', async (req: AuthRequest, res: Response): Promi
     );
 
     const registro = await prisma.registroHoras.update({
-      where: { id: rid },
+      where: { id: rid, planillaId },
       data: {
         fecha: new Date(parsed.data.fecha),
         entradaTurno1: parsed.data.entradaTurno1 ? new Date(parsed.data.entradaTurno1) : null,
@@ -974,14 +978,18 @@ router.delete('/:id/registros/:rid', async (req: AuthRequest, res: Response): Pr
       return;
     }
 
-    // Check if the registro is locked (ausencia/vacación)
-    const regToDelete = await prisma.registroHoras.findUnique({ where: { id: rid } });
-    if (regToDelete?.bloqueado) {
+    // Check if the registro exists within this planilla and is not locked
+    const regToDelete = await prisma.registroHoras.findFirst({ where: { id: rid, planillaId } });
+    if (!regToDelete) {
+      res.status(404).json({ error: 'Registro no encontrado' });
+      return;
+    }
+    if (regToDelete.bloqueado) {
       res.status(403).json({ error: `Este día está bloqueado: ${regToDelete.motivoBloqueo ?? 'ausencia/vacación'}` });
       return;
     }
 
-    await prisma.registroHoras.delete({ where: { id: rid } });
+    await prisma.registroHoras.delete({ where: { id: rid, planillaId } });
     await recalcularTotalesPlanilla(planillaId);
     res.status(204).send();
   } catch (error) {

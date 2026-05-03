@@ -297,6 +297,16 @@ router.get('/sector/:sid', requireLevel(LEVEL_RRHH), async (req: AuthRequest, re
   try {
     const sectorId = req.params.sid as string;
 
+    // Bug fix: verify sector belongs to current empresa before exporting its data
+    const sector = await prisma.sector.findFirst({
+      where: { id: sectorId, empresaId: req.user!.empresaId },
+      select: { id: true },
+    });
+    if (!sector) {
+      res.status(404).json({ error: 'Sector no encontrado' });
+      return;
+    }
+
     const usuarios = await prisma.usuario.findMany({
       where: { sectorId, activo: true },
       select: { id: true, nombre: true, apellido: true, legajo: true },

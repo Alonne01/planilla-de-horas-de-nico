@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { PrismaClient, AusenciaTipo, AusenciaEstado } from '@prisma/client';
+import { PrismaClient, Prisma, AusenciaTipo, AusenciaEstado } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
@@ -304,19 +304,9 @@ router.post('/compensatorio', async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    // Check compensatorio balance
     const anio = new Date().getFullYear();
-    const saldo = await prisma.vacacionSaldo.findUnique({
-      where: { usuarioId_anio: { usuarioId: userId, anio } },
-    });
 
-    const disponible = (saldo?.compensatoriosAcumulados ?? 0) - (saldo?.compensatoriosUsados ?? 0) - (saldo?.compensatoriosPendientes ?? 0);
-    if (parsed.data.diasAusencia > disponible) {
-      res.status(400).json({ error: `Saldo de compensatorios insuficiente. Disponible: ${disponible} días` });
-      return;
-    }
-
-    // Find COMPENSATORIO approval flow
+    // Find COMPENSATORIO approval flow (read-only, outside transaction)
     const usuario = await prisma.usuario.findUnique({
       where: { id: userId },
       select: { sectorId: true },
@@ -344,47 +334,68 @@ router.post('/compensatorio', async (req: AuthRequest, res: Response): Promise<v
       flujoIdComp = fallbackFlow?.id ?? null;
     }
 
-    const ausencia = await prisma.ausencia.create({
-      data: {
-        usuarioId: userId,
-        cargadaPorId: userId,
-        tipo: 'FRANCO_COMPENSATORIO',
-        estado: 'PENDIENTE',
-        pasoActual: 1,
-        fechaInicio: new Date(parsed.data.fechaInicio),
-        fechaFin: new Date(parsed.data.fechaFin),
-        diasAusencia: parsed.data.diasAusencia,
-        descripcion: parsed.data.descripcion ?? null,
-        descuentaSueldo: false,
-        requiereAprobacion: true,
-        aprobada: false,
-        flujoId: flujoIdComp,
-      },
-    });
+    // Critical section: balance check + create atomically to prevent double-spend
+    const ausencia = await prisma.$transaction(async (tx) => {
+      const saldo = await tx.vacacionSaldo.findUnique({
+        where: { usuarioId_anio: { usuarioId: userId, anio } },
+      });
+      const disponible = (saldo?.compensatoriosAcumulados ?? 0) - (saldo?.compensatoriosUsados ?? 0) - (saldo?.compensatoriosPendientes ?? 0);
+      if (parsed.data.diasAusencia > disponible) {
+        throw Object.assign(new Error('SALDO_COMPENSATORIO_INSUFICIENTE'), { disponible });
+      }
 
-    await prisma.ausenciaHistorial.create({
-      data: {
-        ausenciaId: ausencia.id,
-        usuarioId: userId,
-        estadoNuevo: 'PENDIENTE',
-        comentario: 'Solicitud de franco compensatorio',
-      },
-    });
+      const aus = await tx.ausencia.create({
+        data: {
+          usuarioId: userId,
+          cargadaPorId: userId,
+          tipo: 'FRANCO_COMPENSATORIO',
+          estado: 'PENDIENTE',
+          pasoActual: 1,
+          fechaInicio: new Date(parsed.data.fechaInicio),
+          fechaFin: new Date(parsed.data.fechaFin),
+          diasAusencia: parsed.data.diasAusencia,
+          descripcion: parsed.data.descripcion ?? null,
+          descuentaSueldo: false,
+          requiereAprobacion: true,
+          aprobada: false,
+          flujoId: flujoIdComp,
+        },
+      });
 
-    // Update compensatoriosPendientes
-    await prisma.vacacionSaldo.upsert({
-      where: { usuarioId_anio: { usuarioId: userId, anio } },
-      update: { compensatoriosPendientes: { increment: parsed.data.diasAusencia } },
-      create: {
-        usuarioId: userId,
-        anio,
-        diasCorrespondientes: 14,
-        compensatoriosPendientes: parsed.data.diasAusencia,
-      },
-    });
+      await tx.ausenciaHistorial.create({
+        data: {
+          ausenciaId: aus.id,
+          usuarioId: userId,
+          estadoNuevo: 'PENDIENTE',
+          comentario: 'Solicitud de franco compensatorio',
+        },
+      });
+
+      // Update compensatoriosPendientes
+      await tx.vacacionSaldo.upsert({
+        where: { usuarioId_anio: { usuarioId: userId, anio } },
+        update: { compensatoriosPendientes: { increment: parsed.data.diasAusencia } },
+        create: {
+          usuarioId: userId,
+          anio,
+          diasCorrespondientes: 0,
+          compensatoriosPendientes: parsed.data.diasAusencia,
+        },
+      });
+
+      return aus;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     res.status(201).json(ausencia);
   } catch (error) {
+    if (error instanceof Error && error.message === 'SALDO_COMPENSATORIO_INSUFICIENTE') {
+      res.status(400).json({ error: `Saldo de compensatorios insuficiente. Disponible: ${(error as Error & { disponible: number }).disponible} días` });
+      return;
+    }
+    if ((error as { code?: string }).code === 'P2034') {
+      res.status(409).json({ error: 'Conflicto de transacción, intente de nuevo' });
+      return;
+    }
     console.error('Error creating compensatorio request:', error);
     res.status(500).json({ error: 'Error interno' });
   }
@@ -468,8 +479,9 @@ router.post('/', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: R
 router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const ausId = req.params.id as string;
-    const ausencia = await prisma.ausencia.findUnique({
-      where: { id: ausId },
+    // Bug fix: scope by tenant so users cannot read absences from other companies
+    const ausencia = await prisma.ausencia.findFirst({
+      where: { id: ausId, usuario: { empresaId: req.user!.empresaId } },
       include: {
         usuario: { select: { id: true, nombre: true, apellido: true, sector: { select: { nombre: true } } } },
         cargadaPor: { select: { nombre: true, apellido: true } },

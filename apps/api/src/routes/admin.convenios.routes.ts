@@ -78,15 +78,27 @@ router.post('/convenios', async (req: AuthRequest, res: Response): Promise<void>
   }
 });
 
+const updateConvenioSchema = createConvenioSchema.partial();
+
 router.put('/convenios/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const existing = await prisma.convenio.findFirst({
       where: { id: req.params.id, empresaId: req.user!.empresaId },
     });
     if (!existing) { res.status(404).json({ error: 'Convenio no encontrado' }); return; }
+    const parsed = updateConvenioSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
     const convenio = await prisma.convenio.update({
-      where: { id: req.params.id },
-      data: req.body,
+      where: { id: req.params.id, empresaId: req.user!.empresaId },
+      data: {
+        ...(parsed.data.nombre !== undefined && { nombre: parsed.data.nombre }),
+        ...(parsed.data.tipo !== undefined && { tipo: parsed.data.tipo }),
+        ...(parsed.data.vigenteDesde !== undefined && { vigenteDesde: new Date(parsed.data.vigenteDesde) }),
+        ...('vigenteHasta' in parsed.data && { vigenteHasta: parsed.data.vigenteHasta ? new Date(parsed.data.vigenteHasta) : null }),
+      },
     });
     res.json(convenio);
   } catch (error) {
@@ -294,8 +306,17 @@ router.patch('/conceptos/:id/valor', async (req: AuthRequest, res: Response): Pr
 
 router.get('/conceptos/:id/historial', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    // Bug fix: verify concepto belongs to a convenio owned by current empresa
+    const concepto = await prisma.conceptoSalarial.findFirst({
+      where: { id: req.params.id, convenio: { empresaId: req.user!.empresaId } },
+      select: { id: true },
+    });
+    if (!concepto) {
+      res.status(404).json({ error: 'Concepto no encontrado' });
+      return;
+    }
     const valores = await prisma.conceptoValor.findMany({
-      where: { conceptoId: req.params.id },
+      where: { conceptoId: concepto.id },
       include: { categoria: { select: { codigo: true, nombre: true } } },
       orderBy: { vigenteDesde: 'desc' },
     });
