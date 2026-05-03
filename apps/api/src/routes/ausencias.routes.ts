@@ -304,7 +304,8 @@ router.post('/compensatorio', async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    const anio = new Date().getFullYear();
+    // Use fechaInicio's year — consistent with revokar and avanzar paths
+    const anio = new Date(parsed.data.fechaInicio).getFullYear();
 
     // Find COMPENSATORIO approval flow (read-only, outside transaction)
     const usuario = await prisma.usuario.findUnique({
