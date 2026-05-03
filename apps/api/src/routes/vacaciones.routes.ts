@@ -354,6 +354,8 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     const userId = req.user!.userId;
     const empresaId = req.user!.empresaId;
+    // Saldo year is always the year the request is CREATED (current year),
+    // matching the POST logic with rejection/re-send routes that derive year from createdAt.
     const anio = new Date().getFullYear();
 
     // Check saldo from VacacionSaldo
@@ -522,7 +524,8 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
 
     // Re-submitting from RECHAZADA: re-add dias to pending balance (rejection decremented it)
     // Also re-validate available balance — user may have spent days since rejection
-    const anioEnviar = new Date(vacacion.fechaInicio).getFullYear();
+    // Use createdAt year (matches POST creation logic) to avoid mismatch with fechaInicio year
+    const anioEnviar = new Date(vacacion.createdAt).getFullYear();
     let updated;
     try {
       updated = await prisma.$transaction(async (tx) => {
@@ -666,7 +669,8 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
 
         // Balance mutation inside transaction
         if (nuevoEstado === 'APROBADA') {
-          const anioVac = new Date(vacacion.fechaInicio).getFullYear();
+          // Use createdAt year — matches POST creation saldo year, avoids fechaInicio year mismatch
+          const anioVac = new Date(vacacion.createdAt).getFullYear();
           await tx.vacacionSaldo.upsert({
             where: { usuarioId_anio: { usuarioId: vacacion.usuario.id, anio: anioVac } },
             update: {
@@ -778,7 +782,8 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
 
     // Atomically update vacation state and release pending days back to saldo
     // Uses optimistic concurrency (mirrors avanzar) to prevent double-decrement on race
-    const anio = new Date(vacacion.fechaInicio).getFullYear();
+    // Use createdAt year — consistent with POST creation that uses new Date().getFullYear()
+    const anio = new Date(vacacion.createdAt).getFullYear();
     let updated;
     try {
       updated = await prisma.$transaction(async (tx) => {
@@ -878,7 +883,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
 
       // If PENDIENTE or EN_REVISION, return the reserved days to saldo
       if (current.estado === 'PENDIENTE' || current.estado === 'EN_REVISION') {
-        const anioVac = new Date(vacacion.fechaInicio).getFullYear();
+        // Use createdAt year — matches POST creation saldo year
+        const anioVac = new Date(vacacion.createdAt).getFullYear();
         await tx.vacacionSaldo.updateMany({
           where: { usuarioId: vacacion.usuario.id, anio: anioVac },
           data: { diasPendientes: { decrement: vacacion.diasTotales } },
