@@ -432,6 +432,7 @@ async function scenarioI_Compensatorio(users: UserInfo[], rrhhSession: Session) 
     assert(!!saldoId, 'Kevin saldoId not found');
     const { status, body } = await put(`/vacacion-saldos/${saldoId}`, {
       compensatoriosAcumulados: 5,
+      compensatoriosUsados: 0,  // Reset used count to avoid depletion across test runs
     }, rrhhSession.token);
     assertStatus(status, 200, JSON.stringify(body));
     const b = body as Record<string, unknown>;

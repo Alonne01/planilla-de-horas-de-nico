@@ -622,8 +622,12 @@ router.post('/cierre', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
     }
 
     // ─── Per-employee sheets ───
+    const usedSheetNames = new Map<string, number>();
     for (const p of planillas) {
-      const sheetName = `${p.usuario.apellido}, ${p.usuario.nombre}`.substring(0, 31);
+      const baseName = `${p.usuario.apellido}, ${p.usuario.nombre}`.substring(0, 28);
+      const count = usedSheetNames.get(baseName) ?? 0;
+      const sheetName = count === 0 ? baseName : `${baseName} (${count})`.substring(0, 31);
+      usedSheetNames.set(baseName, count + 1);
       const sheet = workbook.addWorksheet(sheetName);
 
       const dayHeaders = [

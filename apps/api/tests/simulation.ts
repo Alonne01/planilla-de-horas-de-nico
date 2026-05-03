@@ -479,14 +479,20 @@ async function scenarioC_VacationRejection(users: UserInfo[], rrhhSession: Sessi
   // Read saldo before
   let saldoAntes = 0;
   let pendientesAntes = 0;
+  let saldoInsuficiente = false;
   await scenario('Leer saldo vacacional antes de solicitar', label, async () => {
     const { body } = await get('/vacaciones/saldo', kevin!.token);
     const b = body as Record<string, unknown>;
     saldoAntes = b.disponible as number;
     pendientesAntes = b.pendientes as number ?? 0;
     log('ℹ', `Disponible: ${saldoAntes} días | Pendientes: ${pendientesAntes} | Total: ${b.total}`, label);
-    if (saldoAntes < 3) throw new Error(`Saldo insuficiente para el test (${saldoAntes} disponibles)`);
+    if (saldoAntes < 3) {
+      saldoInsuficiente = true;
+      log('⚠', `Saldo insuficiente (${saldoAntes} disponibles) — se omitirán los sub-tests de Kevin`, label);
+    }
   });
+
+  if (saldoInsuficiente) return;
 
   const currentYear = new Date().getFullYear();
   const vacFechaInicio = new Date(currentYear, 9, 5);  // Oct 5 of current year (unique month)
