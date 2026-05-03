@@ -128,6 +128,12 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       return;
     }
 
+    // Ensure message belongs to caller's empresa
+    if (mensaje.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Mensaje no encontrado' });
+      return;
+    }
+
     // Check access: either sender or recipient
     const isRecipient = mensaje.destinatarios.some(d => d.usuarioId === userId);
     const isSender = mensaje.remitenteId === userId;
@@ -203,8 +209,13 @@ router.post('/', requireLevel(LEVEL_RRHH), upload.single('archivo'), async (req:
       userIds = users.map(u => u.id);
     } else if (destinoTipo === 'USUARIO') {
       if (!destinoValor) { res.status(400).json({ error: 'Se requiere el usuario' }); return; }
-      // Support comma-separated user IDs for multi-select
-      userIds = destinoValor.split(',').map(id => id.trim()).filter(Boolean);
+      // Validate all recipient IDs belong to sender's empresa
+      const rawIds = destinoValor.split(',').map(id => id.trim()).filter(Boolean);
+      const validUsers = await prisma.usuario.findMany({
+        where: { id: { in: rawIds }, empresaId, activo: true },
+        select: { id: true },
+      });
+      userIds = validUsers.map(u => u.id);
     }
 
     if (userIds.length === 0) {
@@ -274,6 +285,12 @@ router.post('/:id/responder', upload.single('archivo'), async (req: AuthRequest,
     });
 
     if (!mensaje) {
+      res.status(404).json({ error: 'Mensaje no encontrado' });
+      return;
+    }
+
+    // Ensure message belongs to caller's empresa
+    if (mensaje.empresaId !== req.user!.empresaId) {
       res.status(404).json({ error: 'Mensaje no encontrado' });
       return;
     }

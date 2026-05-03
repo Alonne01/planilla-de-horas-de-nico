@@ -944,8 +944,8 @@ async function main() {
   await test('GET /mis-solicitudes — resumen del operador', async () => {
     const { status, body } = await get('/mis-solicitudes', operadorSession.token, 200);
     if (status !== 200) { log('⚠', `${status}: ${JSON.stringify(body)}`); return; }
-    const b = body as Record<string, unknown>;
-    log('ℹ', `Mis solicitudes: ${JSON.stringify(Object.keys(b))}`);
+    const list = body as unknown[];
+    log('ℹ', `Mis solicitudes: ${list.length} registros (tipos: ${[...new Set(list.map((x: any) => x.tipo))].join(', ')})`);
   });
 
   // ── 10. Edge cases & auth checks ──────────────────
@@ -1006,6 +1006,28 @@ async function main() {
       } else {
         log('🧹', `Planilla ${r.id.slice(-6)} en ${estado} — no eliminada (estado no limpiable)`);
       }
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+
+  // Clean up test ausencias
+  for (const id of [ausenciaId, ausenciaRrhhId].filter(Boolean)) {
+    try {
+      const { status: ds } = await del(`/ausencias/${id}`, rrhhSession.token);
+      if (ds === 204) log('🧹', `Ausencia ${id.slice(-6)} eliminada`);
+      else log('⚠', `No se pudo eliminar ausencia ${id.slice(-6)}: HTTP ${ds}`);
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+
+  // Clean up test vacaciones
+  for (const r of createdResources.filter(x => x.type === 'vacacion')) {
+    try {
+      const { status: ds } = await del(`/vacaciones/${r.id}`, rrhhSession.token);
+      if (ds === 204) log('🧹', `Vacación ${r.id.slice(-6)} eliminada`);
+      else log('⚠', `No se pudo eliminar vacación ${r.id.slice(-6)}: HTTP ${ds}`);
     } catch {
       // ignore cleanup errors
     }

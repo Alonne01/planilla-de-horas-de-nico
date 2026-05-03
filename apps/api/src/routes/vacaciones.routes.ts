@@ -520,10 +520,43 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    const updated = await prisma.vacacion.update({
-      where: { id: vacId },
-      data: { estado: 'PENDIENTE', pasoActual: 1, obsRechazo: null },
-    });
+    // Re-submitting from RECHAZADA: re-add dias to pending balance (rejection decremented it)
+    // Also re-validate available balance — user may have spent days since rejection
+    const anioEnviar = new Date(vacacion.fechaInicio).getFullYear();
+    let updated;
+    try {
+      updated = await prisma.$transaction(async (tx) => {
+        if (vacacion.estado === 'RECHAZADA') {
+          let saldo = await tx.vacacionSaldo.findUnique({
+            where: { usuarioId_anio: { usuarioId: vacacion.usuarioId, anio: anioEnviar } },
+          });
+          if (!saldo) {
+            const u = await tx.usuario.findUnique({ where: { id: vacacion.usuarioId }, select: { fechaIngreso: true } });
+            saldo = await tx.vacacionSaldo.create({
+              data: { usuarioId: vacacion.usuarioId, anio: anioEnviar, diasCorrespondientes: diasPorAntiguedad(u!.fechaIngreso, anioEnviar) },
+            });
+          }
+          const disponible = saldo.diasCorrespondientes + saldo.diasAjuste - saldo.diasUsados - saldo.diasPendientes;
+          if (vacacion.diasTotales > disponible) {
+            throw Object.assign(new Error('SALDO_INSUFICIENTE'), { disponible });
+          }
+          await tx.vacacionSaldo.update({
+            where: { usuarioId_anio: { usuarioId: vacacion.usuarioId, anio: anioEnviar } },
+            data: { diasPendientes: { increment: vacacion.diasTotales } },
+          });
+        }
+        return tx.vacacion.update({
+          where: { id: vacId },
+          data: { estado: 'PENDIENTE', pasoActual: 1, obsRechazo: null },
+        });
+      });
+    } catch (err: any) {
+      if (err?.message === 'SALDO_INSUFICIENTE') {
+        res.status(400).json({ error: `Saldo insuficiente para re-enviar. Disponible: ${err.disponible} días` });
+        return;
+      }
+      throw err;
+    }
 
     await prisma.vacacionHistorial.create({
       data: {
@@ -743,10 +776,32 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       return;
     }
 
-    const updated = await prisma.vacacion.update({
-      where: { id: vacId },
-      data: { estado: 'RECHAZADA', obsRechazo: motivo, pasoActual: 0 },
-    });
+    // Atomically update vacation state and release pending days back to saldo
+    // Uses optimistic concurrency (mirrors avanzar) to prevent double-decrement on race
+    const anio = new Date(vacacion.fechaInicio).getFullYear();
+    let updated;
+    try {
+      updated = await prisma.$transaction(async (tx) => {
+        // Guard: only reject if still in a pending-review state
+        const { count } = await tx.vacacion.updateMany({
+          where: { id: vacId, estado: { in: ['PENDIENTE', 'EN_REVISION'] } },
+          data: { estado: 'RECHAZADA', obsRechazo: motivo, pasoActual: 0 },
+        });
+        if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
+
+        await tx.vacacionSaldo.updateMany({
+          where: { usuarioId: vacacion.usuarioId, anio },
+          data: { diasPendientes: { decrement: vacacion.diasTotales } },
+        });
+        return tx.vacacion.findUnique({ where: { id: vacId } });
+      });
+    } catch (err: any) {
+      if (err?.message === 'CONCURRENT_MODIFICATION') {
+        res.status(409).json({ error: 'La vacación fue modificada simultáneamente. Recargue la página.' });
+        return;
+      }
+      throw err;
+    }
 
     await prisma.vacacionHistorial.create({
       data: {
@@ -766,6 +821,85 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
     res.json(updated);
   } catch (error) {
     console.error('Error al rechazar vacacion:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── DELETE /vacaciones/:id ──────────────────────
+// RRHH/ADMIN can delete any vacacion; owner can delete their own BORRADOR or PENDIENTE vacacion.
+// Deleting a PENDIENTE vacacion returns its diasPendientes to the saldo atomically.
+
+router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const vacId = req.params.id as string;
+    const userId = req.user!.userId;
+    const empresaId = req.user!.empresaId;
+    const userNivel = req.user!.rolNivel ?? 0;
+
+    const vacacion = await prisma.vacacion.findUnique({
+      where: { id: vacId },
+      include: {
+        usuario: { select: { id: true, empresaId: true } },
+      },
+    });
+
+    if (!vacacion || vacacion.usuario.empresaId !== empresaId) {
+      res.status(404).json({ error: 'Vacación no encontrada' });
+      return;
+    }
+
+    const isOwner = vacacion.usuario.id === userId;
+    const isRrhhOrAdmin = userNivel >= 90;
+
+    // Authorization: owner can delete BORRADOR/PENDIENTE; RRHH/ADMIN can delete anything not APROBADA
+    if (!isRrhhOrAdmin) {
+      if (!isOwner) {
+        res.status(403).json({ error: 'No autorizado' });
+        return;
+      }
+      if (vacacion.estado !== 'BORRADOR' && vacacion.estado !== 'PENDIENTE' && vacacion.estado !== 'RECHAZADA') {
+        res.status(400).json({ error: `No se puede eliminar una vacación en estado ${vacacion.estado}` });
+        return;
+      }
+    } else {
+      // RRHH/ADMIN restriction: cannot delete APROBADA (those are historical records)
+      if (vacacion.estado === 'APROBADA') {
+        res.status(400).json({ error: 'No se puede eliminar una vacación ya aprobada' });
+        return;
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Re-fetch current state inside transaction to prevent TOCTOU race
+      const current = await tx.vacacion.findUnique({ where: { id: vacId }, select: { estado: true } });
+      if (!current) throw Object.assign(new Error('NOT_FOUND_IN_TX'), {});
+      // Block deletion if vacation was concurrently approved
+      if (current.estado === 'APROBADA') throw Object.assign(new Error('APROBADA_IN_TX'), {});
+
+      // If PENDIENTE or EN_REVISION, return the reserved days to saldo
+      if (current.estado === 'PENDIENTE' || current.estado === 'EN_REVISION') {
+        const anioVac = new Date(vacacion.fechaInicio).getFullYear();
+        await tx.vacacionSaldo.updateMany({
+          where: { usuarioId: vacacion.usuario.id, anio: anioVac },
+          data: { diasPendientes: { decrement: vacacion.diasTotales } },
+        });
+      }
+      // Delete historial first (cascade may not exist in schema)
+      await tx.vacacionHistorial.deleteMany({ where: { vacacionId: vacId } });
+      await tx.vacacion.delete({ where: { id: vacId } });
+    });
+
+    res.status(204).send();
+  } catch (error) {
+    if ((error as Error)?.message === 'NOT_FOUND_IN_TX') {
+      res.status(404).json({ error: 'Vacación no encontrada' });
+      return;
+    }
+    if ((error as Error)?.message === 'APROBADA_IN_TX') {
+      res.status(409).json({ error: 'La vacación fue aprobada mientras se procesaba la eliminación' });
+      return;
+    }
+    console.error('Error deleting vacacion:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });

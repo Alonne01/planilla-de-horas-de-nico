@@ -113,6 +113,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         where: {
           usuarioId: userId,
           requiereAprobacion: true,
+          estado: { not: 'BORRADOR' },
         },
         include: {
           flujo: flujoInclude,

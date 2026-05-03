@@ -55,5 +55,9 @@ function _isResponsibleApprover(
       && owner.sectorId === approverSectorId;
   }
 
+  // RRHH and ADMIN are equivalent for RRHH-step approvals
+  if (rolAprobador === 'RRHH') {
+    return approverRole === 'RRHH' || approverRole === 'ADMIN';
+  }
   return rolAprobador === approverRole;
 }
