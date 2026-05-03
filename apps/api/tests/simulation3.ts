@@ -1161,6 +1161,171 @@ async function scenarioCC_Backup(adminSession: Session): Promise<void> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SCENARIO DD: Compensatorio Reject → Re-submit balance tracking (bug regression)
+//
+// Problem:
+//   The test DB has no COMPENSATORIO flow, so compensatorio ausencias get flujoId=null.
+//   rechazar requires a flujo step to find the authorized rejector, so we create
+//   a temporary COMPENSATORIO flow (1 RRHH step, default assignment) for this test.
+//
+// Test path:
+//   Create flow → Franco creates compensatorio (now picks up flujoId)
+//   → RRHH rejects (tests Fix 1: atomic rechazar + saldo restore)
+//   → verify pending=0 → RRHH re-submits via enviar (tests Fix 2: saldo re-reservation)
+//   → verify pending=1 [regression]
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function scenarioDD_CompensatorioRejectResubmit(
+  francoSession: Session,
+  rrhhSession: Session,
+  adminSession: Session,
+): Promise<void> {
+  const label = 'DD:CompensatorioRejectResubmit';
+  console.log(c('CYAN', '\n── Scenario DD: Compensatorio Reject→Resubmit Balance ──────────────────'));
+
+  const futureDate = new Date();
+  futureDate.setMonth(futureDate.getMonth() + 3);
+  const futureDateStr = fmt(futureDate);
+  const anio = futureDate.getFullYear();
+
+  let flujoId = '';
+  let asignacionId = '';
+  let ausenciaId = '';
+  let francoSaldoId = '';
+
+  // DD1: Create a COMPENSATORIO flow with a single RRHH step + default assignment
+  // (The test DB has no COMPENSATORIO flow; rechazar requires one to authorize the rejector.)
+  await scenario('DD1 Create COMPENSATORIO flow (RRHH step) for test', label, async () => {
+    const { status: fs, body: fb } = await post('/admin/flujos', {
+      nombre: `DD-Compensatorio-${Date.now()}`,
+      tipoDocumento: 'COMPENSATORIO',
+      descripcion: 'Flujo temporal para test DD',
+      pasos: [{
+        orden: 1,
+        nombrePaso: 'Aprobación RRHH',
+        rolAprobador: 'RRHH',
+        requiereComentarioRechazo: true,
+        notificarRoles: ['OPERADOR'],
+      }],
+    }, adminSession.token);
+    assertStatus(fs, 201, JSON.stringify(fb));
+    flujoId = (fb as Record<string, unknown>).id as string;
+
+    const { status: as, body: ab } = await post('/admin/flujos/asignaciones', {
+      flujoId,
+      tipoDocumento: 'COMPENSATORIO',
+      // no sectorId / usuarioId → default for all users
+    }, adminSession.token);
+    assertStatus(as, 201, JSON.stringify(ab));
+    asignacionId = (ab as Record<string, unknown>).id as string;
+
+    cleanupQueue.push(async () => {
+      if (asignacionId) await del(`/admin/flujos/asignaciones/${asignacionId}`, adminSession.token);
+      if (flujoId) await del(`/admin/flujos/${flujoId}`, adminSession.token);
+    });
+  });
+
+  // DD2: Seed Franco saldo (acumulados=3, pending=0)
+  await scenario('DD2 Admin seeds Franco compensatorio saldo (acumulados=3)', label, async () => {
+    await get('/vacaciones/saldo', francoSession.token); // trigger auto-creation
+    const { body: saldosBody } = await get('/vacacion-saldos', adminSession.token);
+    const saldos = saldosBody as Array<Record<string, unknown>>;
+    const s = saldos.find(x => x.usuarioId === francoSession.user.id && x.anio === anio);
+    if (!s) throw new Error(`Franco saldo for year ${anio} not found`);
+    francoSaldoId = s.id as string;
+    const { status } = await put(`/vacacion-saldos/${francoSaldoId}`, {
+      compensatoriosAcumulados: 3,
+      compensatoriosUsados: 0,
+      compensatoriosPendientes: 0,
+    }, adminSession.token);
+    assertStatus(status, 200, 'Failed to seed saldo');
+    cleanupQueue.push(async () => {
+      if (francoSaldoId) {
+        await put(`/vacacion-saldos/${francoSaldoId}`, {
+          compensatoriosAcumulados: 0,
+          compensatoriosUsados: 0,
+          compensatoriosPendientes: 0,
+        }, adminSession.token);
+      }
+    });
+  });
+
+  // DD3: Franco creates compensatorio → PENDIENTE, pending+1 (picks up new flujoId)
+  await scenario('DD3 Franco requests 1 compensatorio day', label, async () => {
+    if (!flujoId) throw new Error('flujoId not set (DD1 failed)');
+    const { status, body } = await post('/ausencias/compensatorio', {
+      fechaInicio: futureDateStr,
+      fechaFin: futureDateStr,
+      diasAusencia: 1,
+      descripcion: 'DD regression: reject/resubmit balance',
+    }, francoSession.token);
+    assertStatus(status, 201, JSON.stringify(body));
+    ausenciaId = (body as Record<string, unknown>).id as string;
+    assert(ausenciaId.length > 0, 'No ausencia ID returned');
+    const b = body as Record<string, unknown>;
+    assert(b.flujoId === flujoId, `Expected flujoId=${flujoId}, got ${b.flujoId}`);
+    log('ℹ', `Ausencia: ${ausenciaId}`, label);
+
+    cleanupQueue.push(async () => {
+      if (ausenciaId) await post(`/ausencias/${ausenciaId}/revocar`, { motivo: 'DD cleanup' }, francoSession.token).catch(() => {});
+    });
+  });
+
+  // DD4: Verify pending balance incremented to 1
+  await scenario('DD4 Saldo: compensatoriosPendientes=1 after creation', label, async () => {
+    if (!ausenciaId) throw new Error('ausenciaId not set (DD3 failed)');
+    const { body: saldosBody } = await get('/vacacion-saldos', adminSession.token);
+    const saldos = saldosBody as Array<Record<string, unknown>>;
+    const s = saldos.find(x => x.usuarioId === francoSession.user.id && x.anio === anio);
+    if (!s) throw new Error('Franco saldo not found');
+    assert(s.compensatoriosPendientes === 1, `Expected pending=1, got ${s.compensatoriosPendientes}`);
+  });
+
+  // DD5: RRHH rejects at paso 1 (RRHH step) — tests Fix 1: atomic rechazar + saldo restore
+  await scenario('DD5 RRHH rejects compensatorio [Fix 1: rechazar transaction]', label, async () => {
+    if (!ausenciaId) throw new Error('ausenciaId not set');
+    const { status, body } = await post(`/ausencias/${ausenciaId}/rechazar`, {
+      motivo: 'Test rejection — DD regression',
+    }, rrhhSession.token);
+    assertStatus(status, 200, JSON.stringify(body));
+    const b = body as Record<string, unknown>;
+    assert(b.estado === 'RECHAZADA', `Expected RECHAZADA, got ${b.estado}`);
+  });
+
+  // DD6: Verify pending balance restored to 0 (validates Fix 1)
+  await scenario('DD6 Saldo: compensatoriosPendientes=0 after rejection [Fix 1 validates]', label, async () => {
+    if (!ausenciaId) throw new Error('ausenciaId not set');
+    const { body: saldosBody } = await get('/vacacion-saldos', adminSession.token);
+    const saldos = saldosBody as Array<Record<string, unknown>>;
+    const s = saldos.find(x => x.usuarioId === francoSession.user.id && x.anio === anio);
+    if (!s) throw new Error('Franco saldo not found');
+    assert(s.compensatoriosPendientes === 0, `Expected pending=0 after rejection, got ${s.compensatoriosPendientes}`);
+  });
+
+  // DD7: RRHH re-submits the RECHAZADA compensatorio — tests Fix 2: saldo re-reservation on enviar
+  await scenario('DD7 RRHH re-submits rejected compensatorio [Fix 2: enviar re-reserves]', label, async () => {
+    if (!ausenciaId) throw new Error('ausenciaId not set');
+    const { status, body } = await post(`/ausencias/${ausenciaId}/enviar`, {}, rrhhSession.token);
+    assertStatus(status, 200, JSON.stringify(body));
+    const b = body as Record<string, unknown>;
+    assert(b.estado === 'PENDIENTE', `Expected PENDIENTE after re-submit, got ${b.estado}`);
+  });
+
+  // DD8: Verify pending balance re-reserved — key regression test for Fix 2
+  await scenario('DD8 Saldo: compensatoriosPendientes=1 after re-submission [Fix 2 regression]', label, async () => {
+    if (!ausenciaId) throw new Error('ausenciaId not set');
+    const { body: saldosBody } = await get('/vacacion-saldos', adminSession.token);
+    const saldos = saldosBody as Array<Record<string, unknown>>;
+    const s = saldos.find(x => x.usuarioId === francoSession.user.id && x.anio === anio);
+    if (!s) throw new Error('Franco saldo not found');
+    assert(
+      s.compensatoriosPendientes === 1,
+      `Expected pending=1 after re-submission, got ${s.compensatoriosPendientes} — Fix 2 regression: enviar did not re-reserve saldo`,
+    );
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1212,6 +1377,7 @@ async function main() {
   }
 
   await scenarioCC_Backup(adminSession);
+  await scenarioDD_CompensatorioRejectResubmit(francoSession, rrhhSession, adminSession);
 
   // ── Cleanup ───────────────────────────────────────────────────────────────────
 

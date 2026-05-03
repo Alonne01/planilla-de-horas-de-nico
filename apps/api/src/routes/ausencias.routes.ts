@@ -561,26 +561,63 @@ router.post('/:id/enviar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReque
       });
     }
 
-    const updated = await prisma.ausencia.update({
-      where: { id: ausId },
-      data: {
-        estado: 'PENDIENTE',
-        pasoActual: 1,
-        obsRechazo: null,
-        flujoId: flujo?.id ?? null,
-        requiereAprobacion: true,
-        aprobada: false,
-      },
-    });
+    // Atomic: state update + historial + optional saldo re-reservation
+    let updated;
+    try {
+      updated = await prisma.$transaction(async (tx) => {
+        const result = await tx.ausencia.update({
+          where: { id: ausId },
+          data: {
+            estado: 'PENDIENTE',
+            pasoActual: 1,
+            obsRechazo: null,
+            flujoId: flujo?.id ?? null,
+            requiereAprobacion: true,
+            aprobada: false,
+          },
+        });
 
-    await prisma.ausenciaHistorial.create({
-      data: {
-        ausenciaId: ausId,
-        usuarioId: req.user!.userId,
-        estadoAnterior: ausencia.estado as AusenciaEstado,
-        estadoNuevo: 'PENDIENTE',
-      },
-    });
+        await tx.ausenciaHistorial.create({
+          data: {
+            ausenciaId: ausId,
+            usuarioId: req.user!.userId,
+            estadoAnterior: ausencia.estado as AusenciaEstado,
+            estadoNuevo: 'PENDIENTE',
+          },
+        });
+
+        // Re-submitting a rejected FRANCO_COMPENSATORIO: re-reserve the pending balance.
+        // (Rejection released compensatoriosPendientes; we must re-reserve before re-entering the flow.)
+        if (ausencia.tipo === 'FRANCO_COMPENSATORIO' && ausencia.estado === 'RECHAZADA') {
+          const anio = new Date(ausencia.fechaInicio).getFullYear();
+          const saldo = await tx.vacacionSaldo.findUnique({
+            where: { usuarioId_anio: { usuarioId: ausencia.usuarioId, anio } },
+          });
+          const disponible = (saldo?.compensatoriosAcumulados ?? 0)
+            - (saldo?.compensatoriosUsados ?? 0)
+            - (saldo?.compensatoriosPendientes ?? 0);
+          if (ausencia.diasAusencia > disponible) {
+            throw Object.assign(new Error('SALDO_COMPENSATORIO_INSUFICIENTE'), { disponible });
+          }
+          await tx.vacacionSaldo.update({
+            where: { usuarioId_anio: { usuarioId: ausencia.usuarioId, anio } },
+            data: { compensatoriosPendientes: { increment: ausencia.diasAusencia } },
+          });
+        }
+
+        return result;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (err: any) {
+      if (err?.message === 'SALDO_COMPENSATORIO_INSUFICIENTE') {
+        res.status(400).json({ error: `Saldo de compensatorios insuficiente. Disponible: ${err.disponible} días` });
+        return;
+      }
+      if ((err as { code?: string }).code === 'P2034') {
+        res.status(409).json({ error: 'Conflicto de transacción, intente de nuevo' });
+        return;
+      }
+      throw err;
+    }
 
     res.json(updated);
   } catch (error) {
@@ -780,31 +817,47 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       return;
     }
 
-    const updated = await prisma.ausencia.update({
-      where: { id: ausId },
-      data: { estado: 'RECHAZADA', obsRechazo: motivo, pasoActual: 0, aprobada: false },
-    });
+    // Atomic: state guard + historial + saldo in a single transaction
+    let updated;
+    try {
+      updated = await prisma.$transaction(async (tx) => {
+        // Concurrency guard: only reject if still in a reviewable state
+        const { count } = await tx.ausencia.updateMany({
+          where: { id: ausId, estado: { in: ['PENDIENTE', 'EN_REVISION'] } },
+          data: { estado: 'RECHAZADA', obsRechazo: motivo, pasoActual: 0, aprobada: false },
+        });
+        if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
 
-    await prisma.ausenciaHistorial.create({
-      data: {
-        ausenciaId: ausId,
-        usuarioId: req.user!.userId,
-        estadoAnterior: ausencia.estado as AusenciaEstado,
-        estadoNuevo: 'RECHAZADA',
-        comentario: motivo,
-      },
-    });
+        await tx.ausenciaHistorial.create({
+          data: {
+            ausenciaId: ausId,
+            usuarioId: req.user!.userId,
+            estadoAnterior: ausencia.estado as AusenciaEstado,
+            estadoNuevo: 'RECHAZADA',
+            comentario: motivo,
+          },
+        });
 
-    // FRANCO_COMPENSATORIO: restore pendientes on rejection
-    if (ausencia.tipo === 'FRANCO_COMPENSATORIO') {
-      const anio = new Date(ausencia.fechaInicio).getFullYear();
-      await prisma.vacacionSaldo.update({
-        where: { usuarioId_anio: { usuarioId: ausencia.usuarioId, anio } },
-        data: { compensatoriosPendientes: { decrement: ausencia.diasAusencia } },
-      });
+        // FRANCO_COMPENSATORIO: restore pending balance atomically
+        if (ausencia.tipo === 'FRANCO_COMPENSATORIO') {
+          const anio = new Date(ausencia.fechaInicio).getFullYear();
+          await tx.vacacionSaldo.update({
+            where: { usuarioId_anio: { usuarioId: ausencia.usuarioId, anio } },
+            data: { compensatoriosPendientes: { decrement: ausencia.diasAusencia } },
+          });
+        }
+
+        return tx.ausencia.findUnique({ where: { id: ausId } });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (err: any) {
+      if (err?.message === 'CONCURRENT_MODIFICATION') {
+        res.status(409).json({ error: 'La ausencia fue modificada simultáneamente. Recargue la página.' });
+        return;
+      }
+      throw err;
     }
 
-    // Notify absence requester
+    // Notify absence requester (outside tx — fire-and-forget is acceptable)
     const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
     const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}` : 'Un aprobador';
     await notificarAusencia(ausencia.usuarioId, 'RECHAZADA', aprobadorNombre, motivo);
