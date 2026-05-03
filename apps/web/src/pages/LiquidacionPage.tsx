@@ -11,6 +11,7 @@ const FORMATOS = [
   { id: 'tango', label: 'Tango', desc: 'Archivo TXT delimitado por pipes (|)', ext: '.txt' },
   { id: 'bejerman', label: 'Bejerman', desc: 'Archivo CSV delimitado por punto y coma (;)', ext: '.csv' },
   { id: 'general', label: 'General CSV', desc: 'CSV completo con todos los datos del período', ext: '.csv' },
+  { id: 'planillas-excel', label: 'Planillas Excel', desc: 'Excel con todas las planillas cerradas, una persona por hoja', ext: '.xlsx' },
 ];
 
 export default function LiquidacionPage() {
@@ -82,7 +83,7 @@ export default function LiquidacionPage() {
         {/* Formato selector */}
         <div>
           <label className="text-sm font-medium text-foreground mb-3 block">Formato de exportación</label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {FORMATOS.map((f) => (
               <button
                 key={f.id}
@@ -197,6 +198,14 @@ export default function LiquidacionPage() {
             <p className="text-xs text-muted-foreground">
               CSV completo con todos los datos: legajo, CUIL, DNI, sector, categoría, convenio, horas desglosadas,
               días campo/base, neto estimado, estado de firma de recibo. Apto para cualquier sistema.
+            </p>
+          </div>
+          <div>
+            <p className="text-sm font-medium">Planillas Excel</p>
+            <p className="text-xs text-muted-foreground">
+              Excel (.xlsx) con todas las planillas cerradas del período. Una hoja por persona con detalle
+              día a día: horarios, horas trabajadas, horas extra, viajes, lugar de trabajo y observaciones.
+              Incluye totales al pie de cada planilla.
             </p>
           </div>
         </div>

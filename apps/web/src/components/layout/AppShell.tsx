@@ -22,14 +22,14 @@ import {
   Layers,
   GitBranch,
   BookOpen,
-  DollarSign,
+  // DollarSign, // used by Conceptos nav item (currently hidden)
   Lock,
   Shield,
   ClipboardList,
   CheckCircle2,
   RefreshCw,
   MessageSquare,
-  FileText,
+  // FileText, // used by Recibos nav item (currently hidden)
   CalendarRange,
   GraduationCap,
   Bell,
@@ -57,7 +57,7 @@ const navItems: NavItem[] = [
   { label: 'Mis Solicitudes', path: '/mis-solicitudes', icon: ClipboardList },
   { label: 'Aprobaciones', path: '/aprobaciones', icon: CheckCircle2, minLevel: 60, requireApprover: true },
   { label: 'Mensajes', path: '/mensajes', icon: MessageSquare },
-  { label: 'Recibos', path: '/recibos', icon: FileText },
+  // { label: 'Recibos', path: '/recibos', icon: FileText }, // RRHH only — oculto hasta nueva definición
   { label: 'Calendario Vac.', path: '/vacaciones/gantt', icon: CalendarRange, minLevel: 70 },
   { label: 'Capacitaciones', path: '/capacitaciones', icon: GraduationCap },
   { label: 'Mi Equipo', path: '/equipo', icon: Users },
@@ -72,7 +72,7 @@ const adminItems: NavItem[] = [
   { label: 'Diagramas', path: '/admin/diagramas', icon: CalendarDays, minLevel: 100 },
   { label: 'Flujos', path: '/admin/flujos', icon: GitBranch, minLevel: 100 },
   { label: 'Convenios', path: '/admin/convenios', icon: BookOpen, minLevel: 90 },
-  { label: 'Conceptos', path: '/admin/conceptos', icon: DollarSign, minLevel: 90 },
+  // { label: 'Conceptos', path: '/admin/conceptos', icon: DollarSign, minLevel: 90 }, // RRHH only — oculto hasta nueva definición
   { label: 'Roles', path: '/admin/roles', icon: Shield, minLevel: 100 },
   { label: 'Cierre', path: '/admin/cierre', icon: Lock, minLevel: 90 },
   { label: 'Saldos Vac.', path: '/admin/vacacion-saldos', icon: Palmtree, minLevel: 90 },
