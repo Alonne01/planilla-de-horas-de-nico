@@ -1,17 +1,14 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Search,
   Plus,
   Loader2,
   X,
   Trash2,
   Pencil,
   Camera,
-  Eye,
   ChevronDown,
   ChevronUp,
-  Shield,
   BarChart3,
   FileText,
   Users,
@@ -19,7 +16,6 @@ import {
   CheckCircle2,
   Clock,
   ImageIcon,
-  Filter,
   MapPin,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -294,8 +290,6 @@ export default function WentopPage() {
       return data;
     },
   });
-
-  const isGestor = gestorSectorIds.length > 0;
 
   const canManageCard = useCallback(
     (tarjeta: WentopTarjeta) => {

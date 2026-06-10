@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_ADMIN, LEVEL_RRHH, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
 import { revokeAllRefreshTokensForUser } from '../utils/jwt.utils.js';
-import { logAuditoria, logFieldChanges } from '../lib/auditoria.js';
+import { logAuditoria } from '../lib/auditoria.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -71,7 +71,6 @@ const assignDiagramaSchema = z.object({
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { rol, sectorId, activo, search } = req.query;
-    const userRole = req.user!.rol;
     const userEmpresaId = req.user!.empresaId;
 
     const where: Record<string, unknown> = { empresaId: userEmpresaId };
@@ -543,7 +542,7 @@ router.post('/:id/reset-password', requireLevel(LEVEL_RRHH), async (req: AuthReq
     });
 
     // Revoke all refresh tokens so user is forced to re-login
-    revokeAllRefreshTokensForUser(usuario.id);
+    await revokeAllRefreshTokensForUser(usuario.id);
 
     console.log(`[Admin Reset] ${req.user!.email} restableció contraseña de ${usuario.nombre} ${usuario.apellido}`);
 

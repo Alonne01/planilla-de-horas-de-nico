@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { PrismaClient, CctTipo, ConceptoTipo } from '@prisma/client';
+import { PrismaClient, Prisma, CctTipo, ConceptoTipo } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
@@ -120,14 +120,14 @@ const createCategoriaSchema = z.object({
 router.get('/categorias', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { convenioId } = req.query;
-    const where: Record<string, unknown> = {};
+    const where: Prisma.CategoriaWhereInput = {};
     if (convenioId) {
-      where.convenioId = convenioId;
+      where.convenioId = String(convenioId);
     } else {
       where.convenio = { empresaId: req.user!.empresaId };
     }
     const categorias = await prisma.categoria.findMany({
-      where: where as Parameters<typeof prisma.categoria.findMany>[0]['where'],
+      where,
       include: { convenio: { select: { nombre: true } } },
       orderBy: { orden: 'asc' },
     });
@@ -203,14 +203,14 @@ const createConceptoSchema = z.object({
 router.get('/conceptos', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { convenioId } = req.query;
-    const where: Record<string, unknown> = {};
+    const where: Prisma.ConceptoSalarialWhereInput = {};
     if (convenioId) {
-      where.convenioId = convenioId;
+      where.convenioId = String(convenioId);
     } else {
       where.convenio = { empresaId: req.user!.empresaId };
     }
     const conceptos = await prisma.conceptoSalarial.findMany({
-      where: where as Parameters<typeof prisma.conceptoSalarial.findMany>[0]['where'],
+      where,
       orderBy: { orden: 'asc' },
     });
     res.json(conceptos);

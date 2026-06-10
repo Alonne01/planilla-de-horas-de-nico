@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
-import { requireLevel, LEVEL_RRHH, LEVEL_CMASS, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
+import { requireLevel, LEVEL_RRHH, LEVEL_CMASS } from '../middleware/roles.middleware.js';
 import { upload } from '../middleware/upload.middleware.js';
 import { unlink } from 'fs/promises';
 import path from 'path';

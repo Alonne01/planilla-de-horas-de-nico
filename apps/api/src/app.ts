@@ -8,6 +8,7 @@ import path from 'path';
 import { PrismaClient } from '@prisma/client';
 import routes from './routes/index.js';
 import { startBackupScheduler, stopBackupScheduler } from './utils/backup.service.js';
+import { pruneExpiredRefreshTokens } from './utils/jwt.utils.js';
 
 const prisma = new PrismaClient();
 
@@ -119,6 +120,11 @@ app.listen(PORT, '0.0.0.0', () => {
 
   // Start backup scheduler with DB health monitoring
   startBackupScheduler(prisma);
+
+  // Prune expired refresh tokens daily
+  setInterval(() => {
+    pruneExpiredRefreshTokens().catch((err) => console.error('Error pruning refresh tokens:', err));
+  }, 24 * 60 * 60 * 1000);
 });
 
 // Graceful shutdown

@@ -1021,6 +1021,12 @@ router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR)
       return;
     }
 
+    const aprobador = await prisma.usuario.findUnique({
+      where: { id: req.user!.userId },
+      select: { nombre: true, apellido: true },
+    });
+    const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}`.trim() : 'superior';
+
     if (activar) {
       const updated = await prisma.registroHoras.update({
         where: { id: rid },
@@ -1037,7 +1043,7 @@ router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR)
           horasExtra50: new Decimal('0'),
           horasExtra100: new Decimal('0'),
           horasViajeCalc: new Decimal('0'),
-          observaciones: `Franco compensatorio otorgado por ${req.user!.nombre || 'superior'}`,
+          observaciones: `Franco compensatorio otorgado por ${aprobadorNombre}`,
         },
       });
 
@@ -1064,7 +1070,7 @@ router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR)
           esFrancoCompensatorio: false,
           bloqueado: false,
           motivoBloqueo: null,
-          observaciones: `Franco compensatorio revocado por ${req.user!.nombre || 'superior'}`,
+          observaciones: `Franco compensatorio revocado por ${aprobadorNombre}`,
         },
       });
 

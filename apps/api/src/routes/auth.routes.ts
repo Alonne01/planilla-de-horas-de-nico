@@ -136,7 +136,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     };
 
     const accessToken = signAccessToken(tokenPayload);
-    const refreshToken = signRefreshToken(usuario.id);
+    const refreshToken = await signRefreshToken(usuario.id);
 
     // Set refresh token in httpOnly cookie
     res.cookie('refreshToken', refreshToken, COOKIE_OPTIONS);
@@ -174,14 +174,14 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const userId = verifyRefreshToken(oldRefreshToken);
+    const userId = await verifyRefreshToken(oldRefreshToken);
     if (!userId) {
       res.status(401).json({ error: 'Refresh token inválido o expirado' });
       return;
     }
 
     // Revoke old token (rotation)
-    revokeRefreshToken(oldRefreshToken);
+    await revokeRefreshToken(oldRefreshToken);
 
     const usuario = await prisma.usuario.findUnique({
       where: { id: userId },
@@ -214,7 +214,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     };
 
     const accessToken = signAccessToken(tokenPayload);
-    const newRefreshToken = signRefreshToken(usuario.id);
+    const newRefreshToken = await signRefreshToken(usuario.id);
 
     res.cookie('refreshToken', newRefreshToken, COOKIE_OPTIONS);
 
@@ -242,10 +242,10 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
 
 // ─── POST /auth/logout ───────────────────────────
 
-router.post('/logout', (req: Request, res: Response): void => {
+router.post('/logout', async (req: Request, res: Response): Promise<void> => {
   const refreshToken = req.cookies?.refreshToken as string | undefined;
   if (refreshToken) {
-    revokeRefreshToken(refreshToken);
+    await revokeRefreshToken(refreshToken).catch(() => {});
   }
 
   res.clearCookie('refreshToken', {
@@ -469,7 +469,7 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
     ]);
 
     // Revoke all refresh tokens for security
-    revokeAllRefreshTokensForUser(resetToken.usuario.id);
+    await revokeAllRefreshTokensForUser(resetToken.usuario.id);
 
     res.json({ message: 'Contraseña restablecida correctamente. Ya podés iniciar sesión.' });
   } catch (error) {

@@ -26,7 +26,10 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
             diagramas: {
               where: { activo: true },
               take: 1,
-              select: { diagrama: { select: { nombre: true } } },
+              select: { 
+                diagrama: { select: { nombre: true, tipo: true, diasTrabajo: true, diasDescanso: true, diasSemana: true } },
+                fechaInicio: true,
+              },
             },
           },
         },
@@ -50,7 +53,8 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
     }
 
     const u = planilla.usuario;
-    const diagramaNombre = u.diagramas[0]?.diagrama?.nombre ?? null;
+    const diagramaAsignacion = u.diagramas[0] ?? null;
+    const diagramaNombre = diagramaAsignacion?.diagrama?.nombre ?? null;
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Planilla de Horas';
     workbook.created = new Date();
@@ -583,7 +587,7 @@ router.post('/cierre', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
 
     const headerRow = resumenSheet.addRow(resumenHeaders);
     headerRow.eachCell(cell => { Object.assign(cell, { style: headerStyle }); });
-    resumenSheet.columns = resumenHeaders.map((h, i) => ({
+    resumenSheet.columns = resumenHeaders.map((_h, i) => ({
       width: i === 0 ? 30 : i === 2 ? 20 : 15,
     }));
 

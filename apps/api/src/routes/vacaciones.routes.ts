@@ -173,14 +173,14 @@ router.get('/gantt', async (req: AuthRequest, res: Response): Promise<void> => {
       dias: number; estado: string; tipo: string; detalle: string | null;
     };
     type EmpleadoGantt = {
-      id: string; nombre: string; apellido: string; legajo: string;
+      id: string; nombre: string; apellido: string; legajo: string | null;
       sector: { id: string; nombre: string } | null;
       bloques: Block[];
     };
 
     const empleadoMap = new Map<string, EmpleadoGantt>();
 
-    const ensureEmp = (u: { id: string; nombre: string; apellido: string; legajo: string; sector: { id: string; nombre: string } | null }) => {
+    const ensureEmp = (u: { id: string; nombre: string; apellido: string; legajo: string | null; sector: { id: string; nombre: string } | null }) => {
       if (!empleadoMap.has(u.id)) {
         empleadoMap.set(u.id, { ...u, bloques: [] });
       }
@@ -259,7 +259,6 @@ router.get('/gantt', async (req: AuthRequest, res: Response): Promise<void> => {
 
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const userRole = req.user!.rol;
     const userNivel = req.user!.rolNivel ?? 0;
     const userId = req.user!.userId;
     const empresaId = req.user!.empresaId;

@@ -3,7 +3,9 @@
  * absence or vacation is approved. Also used when a new planilla is
  * created to back-fill any previously-approved absences/vacations.
  */
-import { PrismaClient, Decimal } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
+
+const { Decimal } = Prisma;
 
 const prisma = new PrismaClient();
 

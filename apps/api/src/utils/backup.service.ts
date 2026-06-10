@@ -1,9 +1,35 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
+import { existsSync, readdirSync } from 'fs';
 import path from 'path';
 
 const execFileAsync = promisify(execFile);
+
+// pg_dump/pg_restore may not be on PATH (common on Windows).
+// Resolution order: PG_BIN env var → standard install dirs → bare name (PATH).
+function resolvePgTool(tool: string): string {
+  const exe = process.platform === 'win32' ? `${tool}.exe` : tool;
+  if (process.env.PG_BIN) {
+    const candidate = path.join(process.env.PG_BIN, exe);
+    if (existsSync(candidate)) return candidate;
+  }
+  if (process.platform === 'win32') {
+    for (const base of ['C:\\Program Files\\PostgreSQL', 'C:\\Program Files (x86)\\PostgreSQL']) {
+      try {
+        const versions = readdirSync(base).sort().reverse();
+        for (const v of versions) {
+          const candidate = path.join(base, v, 'bin', exe);
+          if (existsSync(candidate)) return candidate;
+        }
+      } catch { /* base dir not present */ }
+    }
+  }
+  return tool;
+}
+
+const PG_DUMP = resolvePgTool('pg_dump');
+const PG_RESTORE = resolvePgTool('pg_restore');
 
 // ─── Config ──────────────────────────────────────────────────
 const DB_URL = process.env.DATABASE_URL ?? '';
@@ -83,7 +109,7 @@ export async function runBackup(): Promise<BackupResult> {
     const primaryPath = path.join(PRIMARY_DIR, fileName);
     const secondaryPath = path.join(SECONDARY_DIR, fileName);
 
-    await execFileAsync('pg_dump', [
+    await execFileAsync(PG_DUMP, [
       '-h', db.host,
       '-p', db.port,
       '-U', db.user,
@@ -180,7 +206,7 @@ export async function restoreFromFile(filePath: string): Promise<{ ok: boolean; 
     const fileName = path.basename(filePath);
     console.log(`🔄 Restaurando base de datos desde: ${fileName}...`);
 
-    await execFileAsync('pg_restore', [
+    await execFileAsync(PG_RESTORE, [
       '-h', db.host,
       '-p', db.port,
       '-U', db.user,

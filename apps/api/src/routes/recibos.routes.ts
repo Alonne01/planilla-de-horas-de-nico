@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { crearNotificacion } from '../utils/notificacion.utils.js';
@@ -177,7 +177,7 @@ router.get('/detalle/:id', async (req: AuthRequest, res: Response): Promise<void
       if (calculo) {
         await prisma.planilla.update({
           where: { id: recibo.planilla.id },
-          data: { snapshotCalculo: calculo as unknown as Record<string, unknown>, netoEstimado: calculo.totales.neto },
+          data: { snapshotCalculo: calculo as unknown as Prisma.InputJsonValue, netoEstimado: calculo.totales.neto },
         });
         recibo.planilla.snapshotCalculo = calculo as unknown as typeof recibo.planilla.snapshotCalculo;
       }
@@ -313,7 +313,7 @@ router.post('/generar/:planillaId', requireLevel(LEVEL_RRHH), async (req: AuthRe
       if (calculo) {
         await tx.planilla.update({
           where: { id: planillaId },
-          data: { snapshotCalculo: calculo as unknown as Record<string, unknown>, netoEstimado: calculo.totales.neto },
+          data: { snapshotCalculo: calculo as unknown as Prisma.InputJsonValue, netoEstimado: calculo.totales.neto },
         });
       }
       return tx.reciboSueldo.create({
