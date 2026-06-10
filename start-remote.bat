@@ -30,6 +30,14 @@ if exist "%TEMP_DIR%" rmdir /s /q "%TEMP_DIR%"
 mkdir "%TEMP_DIR%"
 
 :: ------------------------------------------------
+:: Step 0: Free ports 3000/4000 (stale dev servers)
+:: ------------------------------------------------
+echo [0/6] Liberando puertos 3000 y 4000...
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr /R /C:":3000 .*LISTENING" /C:":4000 .*LISTENING"') do (
+    taskkill /PID %%p /F >nul 2>&1
+)
+
+:: ------------------------------------------------
 :: Step 1: Check PostgreSQL
 :: ------------------------------------------------
 echo [1/6] Verificando PostgreSQL...
@@ -65,14 +73,34 @@ cd /d "%ROOT%"
 :: ------------------------------------------------
 echo [4/6] Iniciando API server (puerto 4000)...
 start "API-Server" /D "%API_DIR%" cmd /c "set DEBUG_APPROVALS=1 && npm run dev"
-timeout /t 6 /nobreak >nul
+set API_ATTEMPTS=0
+:wait_api
+timeout /t 2 /nobreak >nul
+set /a API_ATTEMPTS+=1
+if %API_ATTEMPTS% gtr 20 (
+    echo [ERROR] La API no responde en el puerto 4000. Revisa la ventana API-Server.
+    goto cleanup
+)
+powershell -NoProfile -Command "try { Invoke-RestMethod http://localhost:4000/api/v1/health -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+if %ERRORLEVEL% neq 0 goto wait_api
+echo       API respondiendo OK
 
 :: ------------------------------------------------
 :: Step 5: Start frontend (HMR disabled for tunnel)
 :: ------------------------------------------------
 echo [5/6] Iniciando Frontend (puerto 3000, proxy API, HMR off)...
 start "Frontend-Server" /D "%WEB_DIR%" cmd /c "set VITE_DISABLE_HMR=1 && npm run dev"
-timeout /t 6 /nobreak >nul
+set WEB_ATTEMPTS=0
+:wait_web
+timeout /t 2 /nobreak >nul
+set /a WEB_ATTEMPTS+=1
+if %WEB_ATTEMPTS% gtr 20 (
+    echo [ERROR] El frontend no responde en el puerto 3000. Revisa la ventana Frontend-Server.
+    goto cleanup
+)
+powershell -NoProfile -Command "try { Invoke-WebRequest http://localhost:3000 -TimeoutSec 2 -UseBasicParsing | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+if %ERRORLEVEL% neq 0 goto wait_web
+echo       Frontend respondiendo OK
 
 :: ------------------------------------------------
 :: Step 6: Single tunnel for everything (Vite proxy handles API)
