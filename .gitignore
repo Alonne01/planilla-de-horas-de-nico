@@ -48,3 +48,7 @@ debug */
 *.njsproj
 *.sln
 *.sw?
+
+# Compiled seed artifacts (seed runs via tsx)
+apps/api/prisma/seed.js
+apps/api/prisma/seed.js.map
