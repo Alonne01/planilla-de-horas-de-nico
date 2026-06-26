@@ -12,6 +12,7 @@ import {
 } from '../utils/jwt.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { sendPasswordResetEmail, isSmtpConfigured } from '../utils/email.utils.js';
+import { puedeVerCalendario } from '../utils/calendario-access.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -141,6 +142,10 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     // Set refresh token in httpOnly cookie
     res.cookie('refreshToken', refreshToken, COOKIE_OPTIONS);
 
+    const puedeVerCal = await puedeVerCalendario(prisma, {
+      rolNivel, empresaId: usuario.empresaId, sectorId: usuario.sectorId,
+    });
+
     res.json({
       accessToken,
       user: {
@@ -155,6 +160,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         sectorId: usuario.sectorId,
         sectorNombre: usuario.sector?.nombre ?? null,
         primerLogin: usuario.primerLogin,
+        puedeVerCalendario: puedeVerCal,
       },
     });
   } catch (error) {
@@ -218,6 +224,10 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
 
     res.cookie('refreshToken', newRefreshToken, COOKIE_OPTIONS);
 
+    const puedeVerCal = await puedeVerCalendario(prisma, {
+      rolNivel, empresaId: usuario.empresaId, sectorId: usuario.sectorId,
+    });
+
     res.json({
       accessToken,
       user: {
@@ -232,6 +242,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
         sectorId: usuario.sectorId,
         sectorNombre: usuario.sector?.nombre ?? null,
         primerLogin: usuario.primerLogin,
+        puedeVerCalendario: puedeVerCal,
       },
     });
   } catch (error) {
@@ -266,8 +277,6 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res: Response): Promi
       include: {
         empresa: { select: { id: true, nombre: true } },
         sector: { select: { id: true, nombre: true } },
-        categoria: { select: { id: true, codigo: true, nombre: true } },
-        convenio: { select: { id: true, nombre: true } },
       },
     });
 
@@ -290,17 +299,15 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res: Response): Promi
       empresaNombre: usuario.empresa.nombre,
       sectorId: usuario.sectorId,
       sectorNombre: usuario.sector?.nombre ?? null,
-      categoriaId: usuario.categoriaId,
-      categoriaCodigo: usuario.categoria?.codigo ?? null,
-      categoriaNombre: usuario.categoria?.nombre ?? null,
-      convenioId: usuario.convenioId,
-      convenioNombre: usuario.convenio?.nombre ?? null,
       tipoContrato: usuario.tipoContrato,
       fechaIngreso: usuario.fechaIngreso,
       diasVacacionesSaldo: usuario.diasVacacionesSaldo,
       diasVacacionesUsados: usuario.diasVacacionesUsados,
       primerLogin: usuario.primerLogin,
       avatarUrl: usuario.avatarUrl,
+      puedeVerCalendario: await puedeVerCalendario(prisma, {
+        rolNivel: req.user!.rolNivel ?? 0, empresaId: usuario.empresaId, sectorId: usuario.sectorId,
+      }),
     });
   } catch (error) {
     console.error('Error en /me:', error);
