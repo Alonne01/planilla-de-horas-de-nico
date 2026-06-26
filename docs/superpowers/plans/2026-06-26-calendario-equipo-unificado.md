@@ -604,6 +604,79 @@ export async function fetchCalendar(anio: number, sectorId: string): Promise<Gan
   if (sectorId) params.set('sectorId', sectorId);
   return (await api.get(`/vacaciones/gantt?${params}`)).data;
 }
+
+// ── Solapes (overlap) ──────────────────────────────────────────────────────
+// Offsets día-del-año por mes (leap-aware).
+export function monthOffsets(anio: number): { monthOffset: number[]; totalDays: number } {
+  const monthOffset: number[] = [];
+  let acc = 0;
+  for (let mi = 0; mi < 12; mi++) { monthOffset[mi] = acc; acc += daysInMonth(anio, mi); }
+  return { monthOffset, totalDays: acc };
+}
+
+// Rango [inicio,fin] en día-del-año de un bloque, acotado al año (null si queda afuera).
+export function blockDoyRange(
+  fechaInicio: string, fechaFin: string, year: number, monthOffset: number[], totalDays: number,
+): [number, number] | null {
+  const [y1, m1, d1] = ymd(fechaInicio);
+  const [y2, m2, d2] = ymd(fechaFin);
+  if (y1 > year || y2 < year) return null;
+  const start = y1 < year ? 0 : monthOffset[m1 - 1] + (d1 - 1);
+  const end = y2 > year ? totalDays - 1 : monthOffset[m2 - 1] + (d2 - 1);
+  return [Math.max(0, start), Math.min(totalDays - 1, end)];
+}
+
+// Pico de ocupación por bloque countable (≥2 ⇒ al menos otra persona afuera esos
+// días). Cada empleado cuenta 1 por día. Devuelve sólo los bloques con pico ≥ 2.
+export function computeOverlapPeaks(empleados: Empleado[], anio: number): Map<string, number> {
+  const { monthOffset, totalDays } = monthOffsets(anio);
+  const counts = new Int16Array(totalDays);
+  for (const emp of empleados) {
+    const doySet = new Set<number>();
+    for (const b of emp.bloques) {
+      if (!COUNTABLE[catOf(b.tipo)]) continue;
+      const rg = blockDoyRange(b.fechaInicio, b.fechaFin, anio, monthOffset, totalDays);
+      if (!rg) continue;
+      for (let d = rg[0]; d <= rg[1]; d++) doySet.add(d);
+    }
+    for (const d of doySet) counts[d]++;
+  }
+  const peaks = new Map<string, number>();
+  for (const emp of empleados) {
+    for (const b of emp.bloques) {
+      if (!COUNTABLE[catOf(b.tipo)]) continue;
+      const rg = blockDoyRange(b.fechaInicio, b.fechaFin, anio, monthOffset, totalDays);
+      if (!rg) continue;
+      let peak = 0;
+      for (let d = rg[0]; d <= rg[1]; d++) if (counts[d] > peak) peak = counts[d];
+      if (peak >= 2) peaks.set(b.id, peak);
+    }
+  }
+  return peaks;
+}
+
+// IDs de empleados (excluye al clickeado) cuyo bloque countable se solapa con el
+// rango del bloque dado.
+export function overlappingEmployeeIds(
+  empleados: Empleado[], block: Bloque, clickedEmpId: string, anio: number,
+): Set<string> {
+  const { monthOffset, totalDays } = monthOffsets(anio);
+  const ids = new Set<string>();
+  const range = blockDoyRange(block.fechaInicio, block.fechaFin, anio, monthOffset, totalDays);
+  if (!range) return ids;
+  const [s0, s1] = range;
+  for (const emp of empleados) {
+    if (emp.id === clickedEmpId) continue;
+    for (const b of emp.bloques) {
+      if (!COUNTABLE[catOf(b.tipo)]) continue;
+      const rg = blockDoyRange(b.fechaInicio, b.fechaFin, anio, monthOffset, totalDays);
+      if (!rg || rg[0] > s1 || rg[1] < s0) continue;
+      ids.add(emp.id);
+      break;
+    }
+  }
+  return ids;
+}
 ```
 
 - [ ] **Step 2: Typecheck**
@@ -662,6 +735,9 @@ Insertar **antes** de esa línea:
   background: repeating-linear-gradient(45deg, currentColor 0 1.5px, transparent 1.5px 4px);
   opacity: 0.55;
 }
+/* Marcador de solape: contorno rosa (cal-rose no lo usan las categorías). */
+.cal-estado[data-overlap="1"] { outline: 1.5px solid color-mix(in srgb, var(--cal-rose) 75%, transparent); outline-offset: 1px; }
+.cal-estado[data-overlap="2"] { outline: 1.5px solid var(--cal-rose); outline-offset: 1px; }
 ```
 
 - [ ] **Step 2: Typecheck (CSS no rompe TS, pero validamos el build de tipos)**
@@ -693,13 +769,24 @@ import { Users, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   type GanttData, type Bloque, type Cat,
-  MESES, CAT, CAT_LABEL, CAT_ORDER, ESTADO_BADGE, catOf, tipoLabel,
+  MESES, CAT, CAT_LABEL, CAT_ORDER, ESTADO_BADGE, catOf, tipoLabel, computeOverlapPeaks,
 } from './shared';
 
-interface Props { data?: GanttData; anio: number; isLoading: boolean; }
+interface Props {
+  data?: GanttData;
+  anio: number;
+  isLoading: boolean;
+  onOverlapSelect: (block: Bloque, empId: string, empName: string) => void;
+}
 
-export default function CalendarioCompacto({ data, anio, isLoading }: Props) {
+export default function CalendarioCompacto({ data, anio, isLoading, onOverlapSelect }: Props) {
   const [hovered, setHovered] = useState<(Bloque & { empNombre: string; cat: Cat }) | null>(null);
+
+  // Picos de solape por bloque (pico ≥ 2 ⇒ al menos otra persona afuera esos días).
+  const overlapPeaks = useMemo(
+    () => (data ? computeOverlapPeaks(data.empleados, anio) : new Map<string, number>()),
+    [data, anio],
+  );
 
   const months = useMemo(
     () => MESES.map((label, i) => ({ label, index: i, days: new Date(anio, i + 1, 0).getDate() })),
@@ -745,6 +832,7 @@ export default function CalendarioCompacto({ data, anio, isLoading }: Props) {
         {activeCats.length === 0 && <span>Sin datos</span>}
         <span className="ml-2 flex items-center gap-2 text-[11px]">
           <span>▓ aprobada</span><span>▨ en revisión</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded border-2 border-cal-rose" /> solape</span>
         </span>
       </div>
 
@@ -813,6 +901,8 @@ export default function CalendarioCompacto({ data, anio, isLoading }: Props) {
                     {/* Barras */}
                     {emp.bloques.map((b) => {
                       const cat = catOf(b.tipo);
+                      const peak = overlapPeaks.get(b.id);
+                      const isOverlap = peak != null;
                       const startDay = dateToDayOffset(b.fechaInicio);
                       const endDay = dateToDayOffset(b.fechaFin);
                       const duration = Math.max(endDay - startDay + 1, 1);
@@ -821,11 +911,14 @@ export default function CalendarioCompacto({ data, anio, isLoading }: Props) {
                       return (
                         <div
                           key={`${b.tipo}-${b.id}`}
-                          className={cn('cal-estado absolute top-1/2 -translate-y-1/2 h-5 cursor-pointer', CAT[cat])}
+                          className={cn('cal-estado absolute top-1/2 -translate-y-1/2 h-5', CAT[cat], isOverlap ? 'cursor-pointer' : 'cursor-default')}
                           data-estado={b.estado}
+                          data-overlap={isOverlap ? (peak >= 3 ? '2' : '1') : undefined}
+                          title={isOverlap ? 'Solape — clic para ver con quién' : undefined}
                           style={{ left: `${leftPct}%`, width: `max(${widthPct}%, 4px)` }}
                           onMouseEnter={() => setHovered({ ...b, cat, empNombre: `${emp.apellido}, ${emp.nombre}` })}
                           onMouseLeave={() => setHovered(null)}
+                          onClick={() => { if (isOverlap) onOverlapSelect(b, emp.id, `${emp.apellido}, ${emp.nombre}`); }}
                         />
                       );
                     })}
@@ -881,7 +974,7 @@ Expected: sin errores.
 
 ```bash
 git add apps/web/src/components/calendario/CalendarioCompacto.tsx
-git commit -m "feat(web): componente CalendarioCompacto (5 cat + estado + tipo en tooltip)"
+git commit -m "feat(web): CalendarioCompacto (5 cat + estado + tipo en tooltip + solapes)"
 ```
 
 ---
@@ -951,17 +1044,24 @@ export default function DisponibilidadPage() {
 Reemplazar por:
 
 ```tsx
-interface Props { data?: GanttData; anio: number; isLoading: boolean; }
+interface Props {
+  data?: GanttData;
+  anio: number;
+  isLoading: boolean;
+  onOverlapSelect: (block: Bloque, empId: string, empName: string) => void;
+}
 
-export default function CalendarioDetallado({ data, anio, isLoading }: Props) {
+export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSelect }: Props) {
   const [q, setQ] = useState('');
   const [turnoSel, setTurnoSel] = useState('');
   const [vis, setVis] = useState<Record<Cat, boolean>>({
     VACACION: true, AUSENCIA: true, FRANCO: true, CAPACITACION: false, DESCANSO: false,
   });
   const [hover, setHover] = useState<{ seg: Segment; x: number; y: number } | null>(null);
-  const [detail, setDetail] = useState<DetailState | null>(null);
 ```
+
+Nota: `Bloque` ya viene importado desde `./shared` (Step 2). Se elimina el estado
+`detail` porque el panel de detalle se reemplaza por el filtro (Steps 8–14).
 
 - [ ] **Step 4: Eliminar el gate de permisos local (lo maneja el orquestador)**
 
@@ -1108,16 +1208,161 @@ Reemplazar por:
                   <span className="text-xs">{tipoLabel(detail.seg.block.tipo)}</span>
 ```
 
-- [ ] **Step 8: Typecheck**
+- [ ] **Step 8: Eliminar las interfaces `OverlapEntry` y `DetailState`**
+
+Buscar y eliminar por completo (quedan sin uso al reemplazar el panel por el filtro):
+
+```tsx
+interface OverlapEntry {
+  id: string; name: string; legajo: string | null; sector: string | null;
+  cat: Cat; estado: string; fechaInicio: string; fechaFin: string;
+}
+interface DetailState { seg: Segment; empName: string; others: OverlapEntry[]; }
+```
+
+- [ ] **Step 9: Eliminar la función local `blockDoyRange`**
+
+Buscar y eliminar por completo (sólo la usaba `openDetail`; el orquestador usa la versión de `./shared`):
+
+```tsx
+// Day-of-year range [start,end] of a block, clamped to the visible year (null if outside).
+function blockDoyRange(fechaInicio: string, fechaFin: string, year: number, monthOffset: number[], totalDays: number): [number, number] | null {
+  const [y1, m1, d1] = ymd(fechaInicio);
+  const [y2, m2, d2] = ymd(fechaFin);
+  if (y1 > year || y2 < year) return null;
+  const start = y1 < year ? 0 : monthOffset[m1 - 1] + (d1 - 1);
+  const end = y2 > year ? totalDays - 1 : monthOffset[m2 - 1] + (d2 - 1);
+  return [Math.max(0, start), Math.min(totalDays - 1, end)];
+}
+```
+
+- [ ] **Step 10: Eliminar el `useEffect` de Escape y la función `openDetail`**
+
+Buscar y eliminar:
+
+```tsx
+  // Close the overlap-detail panel on Escape.
+  useEffect(() => {
+    if (!detail) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDetail(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [detail]);
+```
+
+Y también buscar y eliminar:
+
+```tsx
+  // Click a segment → list every employee whose visible/countable request overlaps that block's days.
+  const openDetail = (seg: Segment, clickedEmpId: string) => {
+    if (!data) return;
+    const range = blockDoyRange(seg.block.fechaInicio, seg.block.fechaFin, anio, monthOffset, totalDays);
+    if (!range) return;
+    const [s0, s1] = range;
+    const others: OverlapEntry[] = [];
+    for (const emp of data.empleados) {
+      if (emp.id === clickedEmpId) continue;
+      for (const b of emp.bloques) {
+        const cat = catOf(b.tipo);
+        if (!COUNTABLE[cat] || !vis[cat]) continue;
+        const rg = blockDoyRange(b.fechaInicio, b.fechaFin, anio, monthOffset, totalDays);
+        if (!rg || rg[0] > s1 || rg[1] < s0) continue;
+        others.push({
+          id: emp.id, name: `${emp.apellido}, ${emp.nombre}`, legajo: emp.legajo,
+          sector: emp.sector?.nombre ?? null, cat, estado: b.estado,
+          fechaInicio: b.fechaInicio, fechaFin: b.fechaFin,
+        });
+      }
+    }
+    others.sort((a, b) => a.fechaInicio.localeCompare(b.fechaInicio) || a.name.localeCompare(b.name));
+    setDetail({ seg, empName: seg.emp, others });
+  };
+```
+
+- [ ] **Step 11: Click en solape → filtro (reemplaza `openDetail`)**
+
+Buscar:
+
+```tsx
+                              onClick={() => openDetail(s, r.emp.id)}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(s, r.emp.id); } }}
+```
+
+Reemplazar por (sólo filtra si el tramo está marcado como solape):
+
+```tsx
+                              onClick={() => { if (s.overlap) onOverlapSelect(s.block, r.emp.id, s.emp); }}
+                              onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && s.overlap) { e.preventDefault(); onOverlapSelect(s.block, r.emp.id, s.emp); } }}
+```
+
+- [ ] **Step 12: Dejar el popover de hover siempre visible (ya no se suprime por el panel)**
+
+Buscar:
+
+```tsx
+      {/* Shared hover/focus popover (suppressed while the click-detail panel is open) */}
+      {hover && !detail && (
+```
+
+Reemplazar por:
+
+```tsx
+      {/* Shared hover/focus popover */}
+      {hover && (
+```
+
+- [ ] **Step 13: Eliminar el panel lateral de detalle**
+
+Buscar el bloque JSX completo del panel y eliminarlo. Empieza en:
+
+```tsx
+      {/* Click-detail panel: every employee whose request overlaps the clicked block */}
+      {detail && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setDetail(null)} aria-hidden />
+```
+
+…y termina con el cierre de ese bloque `{detail && ( … )}`, es decir las líneas:
+
+```tsx
+            </div>
+          </div>
+        </>
+      )}
+```
+
+Eliminar TODO desde el comentario `{/* Click-detail panel: … */}` hasta ese `)}` inclusive. **Conservar** el `    </div>` final (el que cierra el `<div className="space-y-3">` del componente) y el `  );` / `}` de cierre de la función.
+
+- [ ] **Step 14: Limpiar imports que quedaron sin uso**
+
+`useEffect` (sólo lo usaba el Escape) y `X` (sólo lo usaba el panel) quedan sin uso.
+
+Buscar:
+
+```tsx
+import { useMemo, useState, useEffect } from 'react';
+import { Search, Users, Loader2, Eye, EyeOff, X } from 'lucide-react';
+```
+
+Reemplazar por:
+
+```tsx
+import { useMemo, useState } from 'react';
+import { Search, Users, Loader2, Eye, EyeOff } from 'lucide-react';
+```
+
+(`CAT_LABEL` sigue en uso en los chips de categorías — **no** quitarlo del import de `./shared`.)
+
+- [ ] **Step 15: Typecheck**
 
 Run: `cd "apps/web" && npx tsc -b`
-Expected: sin errores. (Si TS marca `CAT_LABEL` como no usado, verificar: sigue usándose en los chips y en la lista de solapes — no eliminar el import.)
+Expected: sin errores. Si TS marca algún símbolo sin uso (p. ej. `OverlapEntry`, `DetailState`, `X`, `useEffect`), confirmar que se eliminó según los Steps 8–14.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 16: Commit**
 
 ```bash
 git add apps/web/src/components/calendario/CalendarioDetallado.tsx
-git commit -m "feat(web): CalendarioDetallado (refactor de Disponibilidad, props + shared + tipo en tooltip)"
+git commit -m "feat(web): CalendarioDetallado (shared + tipo en tooltip + click-solape filtra, sin panel)"
 ```
 
 ---
@@ -1133,13 +1378,17 @@ Crear `apps/web/src/pages/CalendarioEquipoPage.tsx`:
 
 ```tsx
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import { ChevronLeft, ChevronRight, CalendarRange, Lock, LayoutList, CalendarDays } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { ChevronLeft, ChevronRight, CalendarRange, Lock, LayoutList, CalendarDays, X } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
-import { type GanttData, calendarQueryKey, fetchCalendar } from '@/components/calendario/shared';
+import {
+  type GanttData, type Bloque, calendarQueryKey, fetchCalendar, fmtDate, overlappingEmployeeIds,
+} from '@/components/calendario/shared';
 import CalendarioCompacto from '@/components/calendario/CalendarioCompacto';
 import CalendarioDetallado from '@/components/calendario/CalendarioDetallado';
+
+interface OverlapSel { block: Bloque; empId: string; empName: string; }
 
 type Modo = 'compacto' | 'detallado';
 const MODO_KEY = 'calendario-equipo-modo';
@@ -1155,6 +1404,7 @@ export default function CalendarioEquipoPage() {
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [sectorId, setSectorId] = useState('');
   const [modo, setModoState] = useState<Modo>(loadModo);
+  const [overlap, setOverlap] = useState<OverlapSel | null>(null);
   const setModo = (m: Modo) => {
     setModoState(m);
     try { localStorage.setItem(MODO_KEY, m); } catch { /* ignore */ }
@@ -1165,6 +1415,20 @@ export default function CalendarioEquipoPage() {
     queryFn: () => fetchCalendar(anio, sectorId),
     enabled: puedeVer,
   });
+
+  // El filtro de solape deja de ser válido si cambia el año o el sector.
+  useEffect(() => { setOverlap(null); }, [anio, sectorId]);
+
+  // Datos pasados al subcomponente: con filtro activo, sólo el empleado clickeado
+  // + los que se solapan con ese bloque.
+  const viewData = useMemo<GanttData | undefined>(() => {
+    if (!data || !overlap) return data;
+    const ids = overlappingEmployeeIds(data.empleados, overlap.block, overlap.empId, anio);
+    ids.add(overlap.empId);
+    return { ...data, empleados: data.empleados.filter((e) => ids.has(e.id)) };
+  }, [data, overlap, anio]);
+
+  const overlapCount = viewData && overlap ? Math.max(0, viewData.empleados.length - 1) : 0;
 
   if (user && !puedeVer) {
     return (
@@ -1234,9 +1498,27 @@ export default function CalendarioEquipoPage() {
         </div>
       </div>
 
+      {/* Banner del filtro de solape (ambos modos) */}
+      {overlap && (
+        <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-cal-rose/40 bg-cal-rose/10 px-3 py-2 text-sm">
+          <span className="text-foreground">
+            Mostrando a <span className="font-semibold">{overlap.empName}</span> y {overlapCount}{' '}
+            {overlapCount === 1 ? 'persona que se solapa' : 'personas que se solapan'}
+            <span className="text-muted-foreground"> ({fmtDate(overlap.block.fechaInicio)}–{fmtDate(overlap.block.fechaFin)})</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setOverlap(null)}
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs hover:bg-muted/50"
+          >
+            <X className="h-3.5 w-3.5" /> Mostrar todos
+          </button>
+        </div>
+      )}
+
       {modo === 'compacto'
-        ? <CalendarioCompacto data={data} anio={anio} isLoading={isLoading} />
-        : <CalendarioDetallado data={data} anio={anio} isLoading={isLoading} />}
+        ? <CalendarioCompacto data={viewData} anio={anio} isLoading={isLoading} onOverlapSelect={(block, empId, empName) => setOverlap({ block, empId, empName })} />
+        : <CalendarioDetallado data={viewData} anio={anio} isLoading={isLoading} onOverlapSelect={(block, empId, empName) => setOverlap({ block, empId, empName })} />}
     </div>
   );
 }
@@ -1251,7 +1533,7 @@ Expected: sin errores.
 
 ```bash
 git add apps/web/src/pages/CalendarioEquipoPage.tsx
-git commit -m "feat(web): página orquestadora CalendarioEquipoPage (toggle de modo persistido)"
+git commit -m "feat(web): orquestador CalendarioEquipoPage (toggle persistido + filtro de solape)"
 ```
 
 ---
@@ -1444,6 +1726,8 @@ Con `apps/api` (`npm run dev`) y `apps/web` (`npm run dev`):
 4. Cambiar año/sector no rompe; cambiar de modo NO dispara un refetch (1 sola request en Network por año/sector).
 5. Navegar a `/vacaciones/gantt` y `/disponibilidad` → redirigen a `/calendario`.
 6. Login como SUPERVISOR de un sector cuya cadena incluye paso SUPERVISOR → ve el ítem y su sector. Login como usuario cuyo sector NO lo incluye (o sin sector) → ítem oculto y `/calendario` muestra "sin permisos".
+7. Solapes (compacto): una barra que coincide con la ausencia de otro empleado muestra contorno rosa; una barra sin coincidencia, no. Clic en la barra con solape → la lista queda con ese empleado + los que se solapan, aparece el banner. "Mostrar todos" restaura. Clic en una barra sin solape no filtra.
+8. Solapes (detallado): mismo filtrado al clickear un tramo marcado; ya no aparece el panel lateral; el popover de hover sigue funcionando. El filtro se mantiene al togglear de modo y se limpia al cambiar año/sector.
 
 - [ ] **Step 7: Commit**
 
@@ -1464,6 +1748,7 @@ git commit -m "chore(web): eliminar páginas VacacionesGantt y Disponibilidad (u
 - Acceso por cadena de aprobación + flag → Tasks 1 (helper+test), 2 (gate /gantt), 3 (flag login/refresh/me), 4 (User store), 11 (nav predicate).
 - Nav unificado + redirects → Tasks 10, 11.
 - Eliminar páginas viejas → Task 12.
+- Solapes marcados en ambos modos + filtrado por click → Tasks 5 (helpers `computeOverlapPeaks`/`overlappingEmployeeIds`), 6 (CSS `.cal-estado[data-overlap]`), 7 (compacto marca+click), 8 (detallado click→filtro, sin panel), 9 (orquestador: estado `overlap`, `viewData`, banner).
 
 **Consistencia de tipos:** `puedeVerCalendario` (helper backend, payloads, store `User`, predicate nav) coherente. `GanttData`/`Empleado`/`Bloque`/`Cat`/`EmpDiagrama` provienen de `shared.ts` y los consumen compacto/detallado/orquestador con las mismas firmas. `tipoLabel`, `CAT`, `CAT_LABEL`, `catOf` exportados desde shared y usados consistentemente.
 

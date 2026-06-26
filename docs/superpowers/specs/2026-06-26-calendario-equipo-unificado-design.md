@@ -43,9 +43,22 @@ Calendario Vac.) y Detallado (la vista actual de Disponibilidad).
    `/calendario` (reemplaza los dos ítems actuales).
 5. **Filtros por modo:**
    - **Compacto (minimalista):** sólo **sector** (RRHH) + **año** + toggle de
-     modo + leyenda. Sin búsqueda/turno/solapes.
+     modo + leyenda. Sin búsqueda/turno/chips. **Sí marca solapes** y permite el
+     filtrado por click (ver decisión 7).
    - **Detallado:** conserva todo lo actual de Disponibilidad (búsqueda, sector,
-     turno, chips de categorías, solapes + panel de detalle, tinte de francos).
+     turno, chips de categorías, tinte de francos) + marcado de solapes.
+7. **Solapes marcados en AMBOS modos + filtrado por click:**
+   - **Marcado:** las barras/tramos cuyos días coinciden con la ausencia de ≥1
+     compañero (pico ≥ 2 sobre categorías "countables": Vacación, Ausencia,
+     Franco comp.) se marcan con contorno rosa. Hoy sólo el detallado lo hace; el
+     compacto lo incorpora.
+   - **Filtrado por click:** al tocar un día/barra **marcado como solape**, la
+     lista se filtra para mostrar **sólo** al empleado clickeado + los empleados
+     cuya ausencia se solapa con ese bloque. Un banner indica el contexto y
+     ofrece "Mostrar todos". Aplica a ambos modos.
+   - **Reemplaza** el panel lateral de detalle del detallado (el filtro cumple la
+     misma función "ver con quién se solapa", pero en la grilla). El popover de
+     hover se conserva.
 6. **Acceso: dinámico por cadena de aprobación del sector** (reemplaza el gate
    plano `nivel >= 70`). Ver sección dedicada más abajo. En resumen: un usuario
    accede al calendario de su sector si su nivel es `>=` el nivel del aprobador
@@ -124,7 +137,7 @@ subcomponentes de presentación. Se descartó:
 ```
 CalendarioEquipoPage                      ← 1 sola query a
  │                                          /vacaciones/gantt?anio&todos=1[&sectorId]
- ├─ estado: anio, sectorId, modo (persistido en localStorage)
+ ├─ estado: anio, sectorId, modo (persistido en localStorage), overlap (filtro)
  ├─ módulo compartido (tipos + helpers):
  │     catOf(), CAT (colores), CAT_LABEL, ESTADO_BADGE, TIPO_LABEL (tooltip),
  │     query de datos
@@ -151,6 +164,9 @@ subcomponentes):
   (reusar las labels actuales de `VacacionesGanttPage.TIPO_LABELS`).
 - Helpers de fecha (`ymd`, `daysInMonth`, `fmtDate`, `norm`).
 - La definición/uso de la query (`queryKey`, `queryFn`).
+- Helpers de solape: `monthOffsets`, `blockDoyRange`, `computeOverlapPeaks`
+  (pico por bloque countable) y `overlappingEmployeeIds` (quiénes se solapan con
+  un bloque dado). Los usan el compacto (marcado) y el orquestador (filtro).
 
 ### CSS: estado compartido (relleno / rayado)
 
@@ -166,6 +182,14 @@ tramos `.av-seg` del detallado. Patrón:
 El color sigue tomándose de la clase `text-cal-*` vía `currentColor`, así que
 una sola regla sirve a las 5 categorías y a los 6 temas sin hex hardcodeado.
 
+Además, `.cal-estado[data-overlap="1"|"2"]` agrega el contorno rosa de solape
+(mismo patrón que `.av-seg[data-overlap]`), para el marcado en el modo compacto.
+
+**Decisión de implementación:** en vez de migrar `.av-seg` a `.cal-estado` (la
+grilla detallada funciona y tiene su propio set), se agrega `.cal-estado` como
+clase nueva para las barras del compacto. Pequeña duplicación deliberada para no
+regresionar el detallado.
+
 ## Modo Compacto (`CalendarioCompacto`)
 
 Refactor de `VacacionesGanttPage`:
@@ -176,20 +200,45 @@ Refactor de `VacacionesGanttPage`:
 - **Tooltip:** muestra el **tipo exacto** (`TIPO_LABEL[bloque.tipo]`) además de
   la categoría y el estado.
 - **Toolbar:** sector (solo RRHH) + año + el toggle de modo + leyenda
-  (`▓ aprobada · ▨ en revisión` + colores de categorías presentes).
+  (`▓ aprobada · ▨ en revisión` + colores de categorías presentes + "▢ solape").
+- **Solapes (nuevo):** marca con contorno rosa las barras con pico ≥ 2
+  (`computeOverlapPeaks`). Click en una barra marcada → dispara el filtro de
+  solape (ver sección dedicada).
 - Conserva: tooltip al hover, marcador de "hoy", footer de resumen.
 
 ## Modo Detallado (`CalendarioDetallado`)
 
-Refactor de `DisponibilidadPage`, **sin cambios funcionales** salvo:
+Refactor de `DisponibilidadPage`, cambios:
 - Consumir el módulo compartido (tipos, `catOf`, colores, labels).
 - Tooltip/hover muestra el tipo exacto además de la categoría (ya muestra
   categoría + estado; se agrega `TIPO_LABEL`).
 - Adopta la clase de estado compartida en lugar de las reglas locales de
   `.av-seg` (mismo resultado visual).
+- **Click en solape → filtro** (reemplaza el panel lateral de detalle): clic en
+  un tramo marcado como solape dispara el filtro del orquestador; se elimina el
+  `openDetail`/panel/`DetailState`. El popover de hover se conserva (incluida la
+  advertencia "⚠ N compañero(s) afuera").
 
 Conserva: búsqueda, filtro de sector y turno, chips de categorías (ojos),
-detección de solapes + panel de detalle, tinte de francos, marcador de "hoy".
+marcado de solapes, tinte de francos, marcador de "hoy".
+
+## Solapes y filtrado por click (ambos modos)
+
+Comportamiento compartido, orquestado desde `CalendarioEquipoPage`:
+
+- **Estado del filtro** (en el orquestador): `overlap: { block, empId, empName } | null`.
+- Cada subcomponente recibe un callback `onOverlapSelect(block, empId, empName)`
+  que sólo se dispara al clickear un bloque **marcado como solape**.
+- Al setearse, el orquestador calcula
+  `ids = overlappingEmployeeIds(empleadosOriginales, block, empId, anio)` y pasa
+  al subcomponente activo un `data` filtrado a `{ empId } ∪ ids` (el clickeado +
+  los que se solapan). Un **banner** muestra "Mostrando a *empName* y *N* que se
+  solapan (*fechas*)" + botón "Mostrar todos".
+- El filtro se limpia al cambiar de **año** o **sector** (el bloque deja de ser
+  válido) y con "Mostrar todos". Cambiar de **modo** lo conserva (es a nivel de
+  datos).
+- Definición de solape: pico ≥ 2 sobre categorías *countables* (`Vacación`,
+  `Ausencia`, `Franco comp.`), independiente de los chips de visibilidad.
 
 ## Navegación y rutas
 
@@ -233,9 +282,12 @@ lee al montar y se escribe en cada cambio de toggle.
 - Verificación manual en navegador (no hay tests de UI en el repo):
   - Toggle alterna modos sin refetch (una sola request en Network).
   - Compacto: barras aprobadas sólidas, en revisión rayadas; tooltip con tipo
-    exacto; leyenda correcta.
+    exacto; leyenda correcta; **barras solapadas con contorno rosa**.
   - Detallado: paridad funcional con la Disponibilidad actual (búsqueda, turno,
-    solapes, francos).
+    francos), con el marcado de solapes.
+  - **Solape (ambos modos):** click en una barra/tramo marcado → la lista queda
+    sólo con el empleado clickeado + los que se solapan; aparece el banner; click
+    en una barra NO solapada no filtra; "Mostrar todos" restaura.
   - `/vacaciones/gantt` y `/disponibilidad` redirigen a `/calendario`.
   - Acceso por cadena:
     - Supervisor de un sector con paso de SUPERVISOR en la cadena → **accede**
