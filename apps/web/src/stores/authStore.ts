@@ -12,6 +12,7 @@ interface User {
   sectorId: string | null;
   sectorNombre: string | null;
   primerLogin: boolean;
+  puedeVerCalendario?: boolean;
 }
 
 interface AuthState {
