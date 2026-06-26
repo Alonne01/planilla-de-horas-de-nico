@@ -94,7 +94,12 @@
 
   --color-pink-500: #ec4899;
 
+  --color-rose-400: #fb7185;
+  --color-rose-500: #f43f5e;
   --color-rose-700: #be123c;
+
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #14b8a6;
 
   --color-zinc-400: #a1a1aa;
 
@@ -108,6 +113,9 @@
   --color-cal-emerald: var(--cal-emerald);
   --color-cal-violet: var(--cal-violet);
   --color-cal-orange: var(--cal-orange);
+  --color-cal-cyan: var(--cal-cyan);
+  --color-cal-rose: var(--cal-rose);
+  --color-cal-teal: var(--cal-teal);
 }
 
 /* ══════════════════════════════════════════════
@@ -320,6 +328,9 @@
   --cal-emerald: #34d399;
   --cal-violet: #a78bfa;
   --cal-orange: #fb923c;
+  --cal-cyan: #22d3ee;
+  --cal-rose: #fb7185;
+  --cal-teal: #2dd4bf;
 }
 [data-theme="wenlen"],
 [data-theme="concrete"],
@@ -331,6 +342,9 @@
   --cal-emerald: #059669;
   --cal-violet: #7c3aed;
   --cal-orange: #ea580c;
+  --cal-cyan: #0e7490;
+  --cal-rose: #e11d48;
+  --cal-teal: #0d9488;
 }
 
 @layer base {
@@ -380,6 +394,170 @@
   }
   ::view-transition-old(root),
   ::view-transition-new(root) {
+    animation: none !important;
+  }
+}
+
+/* ══════════════════════════════════════════════
+   Planilla — vocabulario de movimiento (port de la PWA planilla-horas)
+   Todos los colores van por token; las animaciones tienen guarda de movimiento reducido.
+   ══════════════════════════════════════════════ */
+
+/* Diálogo de carga del día */
+@keyframes dialog-slide-in   { from { opacity: 0; transform: translateY(100%); } to { opacity: 1; transform: none; } }
+@keyframes dialog-slide-out  { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(100%); } }
+@keyframes backdrop-fade-in  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes backdrop-fade-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* "Container transform": el diálogo CRECE desde la celda tocada (transform-origin seteada por JS). */
+@keyframes container-grow-in  { from { opacity: 0; transform: scale(0.18); } to { opacity: 1; transform: scale(1); } }
+@keyframes container-grow-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.18); } }
+
+/* Deslizamiento de mes del calendario */
+@keyframes cal-slide-right { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes cal-slide-left  { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+
+/* Pintado de días (copiar / borrar): salpicadura + glow que respira + rebote elástico. */
+@keyframes paint-splash {
+  0%   { opacity: 0; transform: scale(0.2); }
+  60%  { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes paint-glow {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+@keyframes paint-bounce {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.13); }
+  62%  { transform: scale(0.95); }
+  82%  { transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+
+/* Indicador de HOY: el punto acentuado late suavemente. */
+@keyframes today-dot { 0%, 100% { opacity: 0.5; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1.2); } }
+
+/* Entrada escalonada de las celdas del calendario (animation-delay por índice). */
+@keyframes cell-in { from { opacity: 0; transform: translateY(7px) scale(0.96); } to { opacity: 1; transform: none; } }
+
+/* Reescritura de un día (copiar/borrar): card-flip de puerta (eje Y) de dos caras (vieja → nueva).
+   La perspectiva va por-elemento dentro del keyframe para no depender de un ancestro 3D. */
+@keyframes day-flip-out {
+  0%           { transform: perspective(620px) rotateY(0deg);  opacity: 1; }
+  50%          { transform: perspective(620px) rotateY(90deg); opacity: 1; }
+  50.01%, 100% { transform: perspective(620px) rotateY(90deg); opacity: 0; }
+}
+@keyframes day-flip-in {
+  0%, 50%  { transform: perspective(620px) rotateY(-90deg); opacity: 0; }
+  50.01%   { transform: perspective(620px) rotateY(-90deg); opacity: 1; }
+  100%     { transform: perspective(620px) rotateY(0deg);   opacity: 1; }
+}
+
+/* Barra superior del "modo pintado" */
+@keyframes apply-bar-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+
+/* Barra de cuenta regresiva (tip auto-oculto) */
+@keyframes countdown-bar { from { width: 100%; } to { width: 0%; } }
+
+/* Fondo decorativo: orbes de gradiente a la deriva */
+@keyframes blob-drift-a { 0%, 100% { transform: translate(0, 0) scale(1); }   50% { transform: translate(8%, 6%) scale(1.15); } }
+@keyframes blob-drift-b { 0%, 100% { transform: translate(0, 0) scale(1); }   50% { transform: translate(-6%, -8%) scale(1.1); } }
+@keyframes blob-drift-c { 0%, 100% { transform: translate(0, 0) scale(1.05); } 50% { transform: translate(5%, -5%) scale(0.95); } }
+
+/* Anillo de long-press que se "dibuja" antes de entrar al modo copiar */
+@keyframes tour-ring { to { stroke-dashoffset: 0; } }
+
+/* Textura sutil de rayas diagonales para francos/findes (tematizada vía token). */
+.franco-stripes {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--muted-foreground) 9%, transparent) 0 2px,
+    transparent 2px 7px
+  );
+}
+
+/* ══════════════════════════════════════════════
+   Disponibilidad — grilla anual mes×empleado.
+   Cada celda-mes pinta sus días por gradiente (0 nodos);
+   cada tramo (.av-seg) toma su color de la clase text-cal-* vía currentColor,
+   con relleno sólido (aprobada) o rayado 45° + opacidad (pendiente/en revisión).
+   Un solo set de reglas sirve a las 4 categorías y a los 6 temas, sin hex.
+   ══════════════════════════════════════════════ */
+:root { --rest-tint: color-mix(in srgb, var(--muted-foreground) 13%, transparent); }
+.av-daygrid {
+  /* Layer 1 (top): day gridlines. Layer 2 (below): rest-day tint (set per cell via --av-rest). */
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      transparent 0 calc(100% / var(--av-days) - 1px),
+      color-mix(in srgb, var(--border) 55%, transparent) calc(100% / var(--av-days) - 1px) calc(100% / var(--av-days))
+    ),
+    var(--av-rest, none);
+}
+/* Relleno sólido (aprobada) o rayado 45° + borde punteado (pendiente/en
+   revisión). Usada por las barras del modo compacto del Calendario de Equipo.
+   Toma su color de la clase text-cal-* del elemento, vía currentColor. */
+.cal-estado { border-radius: 4px; }
+.cal-estado::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0.8;
+}
+.cal-estado[data-estado="PENDIENTE"]::before,
+.cal-estado[data-estado="EN_REVISION"]::before { opacity: 0.22; }
+.cal-estado[data-estado="PENDIENTE"]::after,
+.cal-estado[data-estado="EN_REVISION"]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px dashed currentColor;
+  background: repeating-linear-gradient(45deg, currentColor 0 1.5px, transparent 1.5px 4px);
+  opacity: 0.55;
+}
+/* Marcador de solape: contorno rosa (cal-rose no lo usan las categorías). */
+.cal-estado[data-overlap="1"] { outline: 1.5px solid color-mix(in srgb, var(--cal-rose) 75%, transparent); outline-offset: 1px; }
+.cal-estado[data-overlap="2"] { outline: 1.5px solid var(--cal-rose); outline-offset: 1px; }
+.av-seg { border-radius: 3px; }
+.av-seg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0.8;
+}
+.av-seg[data-estado="PENDIENTE"]::before,
+.av-seg[data-estado="EN_REVISION"]::before { opacity: 0.22; }
+.av-seg[data-estado="PENDIENTE"]::after,
+.av-seg[data-estado="EN_REVISION"]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px dashed currentColor;
+  background: repeating-linear-gradient(45deg, currentColor 0 1.5px, transparent 1.5px 4px);
+  opacity: 0.55;
+}
+.av-seg[data-edge="open-r"] { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.av-seg[data-edge="open-l"] { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.av-seg[data-edge="open-both"] { border-radius: 0; }
+/* Overlap marker: pink OUTLINE (not box-shadow — avoids colliding with focus:ring on .av-seg).
+   Level 1 = 2 people off; level 2 = 3+ ("too many out"). cal-rose is unused by categories here. */
+.av-seg[data-overlap="1"] { outline: 1.5px solid color-mix(in srgb, var(--cal-rose) 75%, transparent); outline-offset: 1px; }
+.av-seg[data-overlap="2"] { outline: 1.5px solid var(--cal-rose); outline-offset: 1px; }
+/* Skip painting off-screen rows: big win with ~90+ employees (each cell paints a gradient). */
+.av-row { content-visibility: auto; contain-intrinsic-size: auto 44px; }
+
+@media (prefers-reduced-motion: reduce) {
+  [class*="today-dot"], [class*="cell-in"], [class*="day-flip"],
+  [class*="paint-glow"], [class*="paint-splash"], [class*="paint-bounce"],
+  [class*="cal-slide"], [class*="blob-drift"], [class*="container-grow"],
+  [class*="dialog-slide"], [class*="apply-bar"], [class*="backdrop-fade"] {
     animation: none !important;
   }
 }
