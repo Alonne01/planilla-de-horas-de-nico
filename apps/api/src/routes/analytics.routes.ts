@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
-import { requireLevel, LEVEL_COORDINADOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { requireLevel, LEVEL_COORDINADOR, LEVEL_RRHH, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -13,9 +13,11 @@ router.use(authMiddleware);
 router.get('/usuario/:uid', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const uid = req.params.uid as string;
-    const userRole = req.user!.rol;
-    // Operadores only see own data
-    if (userRole === 'OPERADOR' && uid !== req.user!.userId) {
+    const { userId, empresaId, rolNivel } = req.user!;
+    const isSelf = uid === userId;
+
+    // Only SUPERVISOR+ (or self) may access another user's analytics
+    if (!isSelf && rolNivel < LEVEL_SUPERVISOR) {
       res.status(403).json({ error: 'Sin permiso' });
       return;
     }
@@ -24,14 +26,32 @@ router.get('/usuario/:uid', async (req: AuthRequest, res: Response): Promise<voi
       where: { id: uid },
       select: {
         id: true, nombre: true, apellido: true, legajo: true,
+        empresaId: true, sectorId: true,
         sector: { select: { nombre: true } },
-        categoria: { select: { codigo: true, nombre: true } },
         diasVacacionesSaldo: true, diasVacacionesUsados: true,
       },
     });
     if (!usuario) {
       res.status(404).json({ error: 'Usuario no encontrado' });
       return;
+    }
+
+    // Scope by empresa
+    if (usuario.empresaId !== empresaId) {
+      res.status(403).json({ error: 'Sin permiso' });
+      return;
+    }
+
+    // SUPERVISOR/COORDINADOR (nivel 60–89): only own sector
+    if (!isSelf && rolNivel < LEVEL_RRHH) {
+      const requester = await prisma.usuario.findUnique({
+        where: { id: userId },
+        select: { sectorId: true },
+      });
+      if (!requester?.sectorId || requester.sectorId !== usuario.sectorId) {
+        res.status(403).json({ error: 'Sin permiso' });
+        return;
+      }
     }
 
     // Planillas summary
@@ -77,8 +97,9 @@ router.get('/usuario/:uid', async (req: AuthRequest, res: Response): Promise<voi
       where: { usuarioId: uid, estado: { in: ['PENDIENTE', 'EN_REVISION'] } },
     });
 
+    const { empresaId: _eid, sectorId: _sid, ...usuarioPublic } = usuario;
     res.json({
-      usuario,
+      usuario: usuarioPublic,
       totals,
       trend,
       planillasCount: planillas.length,
@@ -116,14 +137,33 @@ router.get('/sectores', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest
 router.get('/sector/:sid', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const sid = req.params.sid as string;
+    const { userId, empresaId, rolNivel } = req.user!;
 
     const sector = await prisma.sector.findUnique({
       where: { id: sid },
-      select: { id: true, nombre: true },
+      select: { id: true, nombre: true, empresaId: true },
     });
     if (!sector) {
       res.status(404).json({ error: 'Sector no encontrado' });
       return;
+    }
+
+    // Must be same empresa
+    if (sector.empresaId !== empresaId) {
+      res.status(403).json({ error: 'Sin permiso' });
+      return;
+    }
+
+    // COORDINADOR/SUPERVISOR (nivel 60–89): only own sector
+    if (rolNivel < LEVEL_RRHH) {
+      const requester = await prisma.usuario.findUnique({
+        where: { id: userId },
+        select: { sectorId: true },
+      });
+      if (requester?.sectorId !== sid) {
+        res.status(403).json({ error: 'Sin permiso' });
+        return;
+      }
     }
 
     const usuarios = await prisma.usuario.findMany({
@@ -184,7 +224,7 @@ router.get('/sector/:sid', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequ
     });
 
     res.json({
-      sector,
+      sector: { id: sector.id, nombre: sector.nombre },
       usuariosCount: usuarios.length,
       totals: {
         horasNormales: Number(planillaAgg._sum.totalHorasNormales ?? 0),

@@ -172,8 +172,9 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       return;
     }
 
+    const { passwordHash: _omit, ...safeUsuario } = usuario;
     res.json({
-      ...usuario,
+      ...safeUsuario,
       diagramaActual: usuario.diagramas[0]?.diagrama ?? null,
       diagramaFechaInicio: usuario.diagramas[0]?.fechaInicio ?? null,
       diagramas: undefined,
@@ -232,7 +233,8 @@ router.post('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respons
       },
     });
 
-    res.status(201).json(usuario);
+    const { passwordHash: _omit, ...safeUsuario } = usuario;
+    res.status(201).json(safeUsuario);
   } catch (error) {
     if ((error as { code?: string }).code === 'P2003') {
       res.status(400).json({ error: 'Referencia inválida: sector, coordinador o supervisor inexistente' });
@@ -304,7 +306,8 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
       },
     });
 
-    res.json(usuario);
+    const { passwordHash: _omit, ...safeUsuario } = usuario;
+    res.json(safeUsuario);
   } catch (error) {
     if ((error as { code?: string }).code === 'P2003') {
       res.status(400).json({ error: 'Referencia inválida: sector, coordinador o supervisor inexistente' });
@@ -467,7 +470,8 @@ router.patch('/:id/sector', requireLevel(LEVEL_ADMIN), async (req: AuthRequest, 
       },
     });
 
-    res.json(usuario);
+    const { passwordHash: _omit, ...safeUsuario } = usuario;
+    res.json(safeUsuario);
   } catch (error) {
     console.error('Error updating sector:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -512,7 +516,8 @@ router.get('/:id/ficha', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res:
       return;
     }
 
-    res.json(usuario);
+    const { passwordHash: _omit, ...safeUsuario } = usuario;
+    res.json(safeUsuario);
   } catch (error) {
     console.error('Error getting ficha:', error);
     res.status(500).json({ error: 'Error interno del servidor' });

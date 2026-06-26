@@ -56,13 +56,18 @@ router.get('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response
 });
 
 // ─── POST /vacacion-saldos/generar (generate saldos for a year) ──
+const generarSchema = z.object({
+  anio: z.number().int().min(2000).max(2100),
+});
+
 router.post('/generar', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { anio } = req.body;
-    if (!anio || typeof anio !== 'number') {
-      res.status(400).json({ error: 'Se requiere el año' });
+    const parsed = generarSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'El año debe ser un entero entre 2000 y 2100', details: parsed.error.flatten() });
       return;
     }
+    const { anio } = parsed.data;
     const empresaId = req.user!.empresaId;
 
     // Get all active users

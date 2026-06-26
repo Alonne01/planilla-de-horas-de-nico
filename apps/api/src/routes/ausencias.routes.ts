@@ -7,6 +7,7 @@ import { upload } from '../middleware/upload.middleware.js';
 import { inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { notificarAusencia, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
+import { fechaFlexible } from '../utils/zod.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -18,14 +19,17 @@ router.use(authMiddleware);
 const createAusenciaSchema = z.object({
   usuarioId: z.string().uuid(),
   tipo: z.nativeEnum(AusenciaTipo),
-  fechaInicio: z.string(),
-  fechaFin: z.string(),
+  fechaInicio: fechaFlexible,
+  fechaFin: fechaFlexible,
   diasAusencia: z.number().int().min(1),
   descripcion: z.string().max(500).optional(),
   numeroCertificado: z.string().max(50).optional(),
   descuentaSueldo: z.boolean().optional(),
   porcentajeDescuento: z.number().min(0).max(100).optional(),
-});
+}).refine(
+  (d) => new Date(d.fechaFin) >= new Date(d.fechaInicio),
+  { message: 'fechaFin debe ser mayor o igual a fechaInicio', path: ['fechaFin'] },
+);
 
 const updateAusenciaSchema = z.object({
   tipo: z.nativeEnum(AusenciaTipo).optional(),
@@ -182,12 +186,15 @@ router.post('/solicitar', async (req: AuthRequest, res: Response): Promise<void>
 
     const schema = z.object({
       tipo: z.nativeEnum(AusenciaTipo),
-      fechaInicio: z.string(),
-      fechaFin: z.string(),
+      fechaInicio: fechaFlexible,
+      fechaFin: fechaFlexible,
       diasAusencia: z.number().int().min(1),
       descripcion: z.string().max(500).optional(),
       numeroCertificado: z.string().max(50).optional(),
-    });
+    }).refine(
+      (d) => new Date(d.fechaFin) >= new Date(d.fechaInicio),
+      { message: 'fechaFin debe ser mayor o igual a fechaInicio', path: ['fechaFin'] },
+    );
 
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
@@ -292,11 +299,14 @@ router.post('/compensatorio', async (req: AuthRequest, res: Response): Promise<v
     const empresaId = req.user!.empresaId;
 
     const schema = z.object({
-      fechaInicio: z.string(),
-      fechaFin: z.string(),
+      fechaInicio: fechaFlexible,
+      fechaFin: fechaFlexible,
       diasAusencia: z.number().int().min(1),
       descripcion: z.string().max(500).optional(),
-    });
+    }).refine(
+      (d) => new Date(d.fechaFin) >= new Date(d.fechaInicio),
+      { message: 'fechaFin debe ser mayor o igual a fechaInicio', path: ['fechaFin'] },
+    );
 
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
@@ -498,6 +508,14 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       res.status(404).json({ error: 'Ausencia no encontrada' });
       return;
     }
+    // Authorization: only the owner or someone who manages them (direct supervisor/
+    // coordinator, same-sector coordinator, or RRHH/ADMIN) may read an absence.
+    // Prevents IDOR leaking medical certificates to any tenant user who guesses the id.
+    const isOwner = ausencia.usuario.id === req.user!.userId;
+    if (!isOwner && !(await canManageUser(req.user!.userId, req.user!.rolNivel ?? 0, ausencia.usuario.id, req.user!.empresaId))) {
+      res.status(403).json({ error: 'No autorizado' });
+      return;
+    }
     res.json(ausencia);
   } catch (error) {
     console.error('Error getting ausencia:', error);
@@ -525,14 +543,16 @@ router.post('/:id/enviar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReque
       return;
     }
 
-    // Find applicable flow for AUSENCIA
+    // Find applicable flow. A re-sent FRANCO_COMPENSATORIO must route to the
+    // COMPENSATORIO flow, not the generic AUSENCIA flow.
     const targetUserId = ausencia.usuarioId;
+    const tipoDoc = ausencia.tipo === 'FRANCO_COMPENSATORIO' ? 'COMPENSATORIO' : 'AUSENCIA';
     let flujo = await prisma.flujoAprobacion.findFirst({
       where: {
         empresaId: req.user!.empresaId,
-        tipoDocumento: 'AUSENCIA',
+        tipoDocumento: tipoDoc,
         activo: true,
-        asignaciones: { some: { usuarioId: targetUserId, activo: true, tipoDocumento: 'AUSENCIA' } },
+        asignaciones: { some: { usuarioId: targetUserId, activo: true, tipoDocumento: tipoDoc } },
       },
       include: { pasos: { orderBy: { orden: 'asc' } } },
     });
@@ -541,9 +561,9 @@ router.post('/:id/enviar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReque
       flujo = await prisma.flujoAprobacion.findFirst({
         where: {
           empresaId: req.user!.empresaId,
-          tipoDocumento: 'AUSENCIA',
+          tipoDocumento: tipoDoc,
           activo: true,
-          asignaciones: { some: { sectorId: ausencia.usuario.sectorId, activo: true, tipoDocumento: 'AUSENCIA' } },
+          asignaciones: { some: { sectorId: ausencia.usuario.sectorId, activo: true, tipoDocumento: tipoDoc } },
         },
         include: { pasos: { orderBy: { orden: 'asc' } } },
       });
@@ -553,9 +573,9 @@ router.post('/:id/enviar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReque
       flujo = await prisma.flujoAprobacion.findFirst({
         where: {
           empresaId: req.user!.empresaId,
-          tipoDocumento: 'AUSENCIA',
+          tipoDocumento: tipoDoc,
           activo: true,
-          asignaciones: { some: { sectorId: null, usuarioId: null, activo: true, tipoDocumento: 'AUSENCIA' } },
+          asignaciones: { some: { sectorId: null, usuarioId: null, activo: true, tipoDocumento: tipoDoc } },
         },
         include: { pasos: { orderBy: { orden: 'asc' } } },
       });
@@ -657,6 +677,15 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
 
     // pasoActual is 1-based (matches FlujoPaso.orden)
     if (pasoActual > totalPasos || totalPasos === 0) {
+      // No flow configured: block self-approval and require RRHH+ to approve
+      if (ausencia.usuario.id === req.user!.userId) {
+        res.status(403).json({ error: 'No podés aprobar tu propia ausencia' });
+        return;
+      }
+      if ((req.user!.rolNivel ?? 0) < 90) {
+        res.status(403).json({ error: 'Se requiere nivel RRHH o superior para aprobar sin flujo de aprobación' });
+        return;
+      }
       nuevoEstado = 'APROBADA';
       nuevoPaso = pasoActual;
     } else {
@@ -990,6 +1019,13 @@ router.post('/:id/archivo', upload.single('archivo'), async (req: AuthRequest, r
       return;
     }
 
+    const actorId = req.user!.userId;
+    const actorNivel = req.user!.rolNivel ?? 0;
+    if (ausencia.usuarioId !== actorId && !(await canManageUser(actorId, actorNivel, ausencia.usuarioId, req.user!.empresaId))) {
+      res.status(403).json({ error: 'No autorizado para modificar el archivo de esta ausencia' });
+      return;
+    }
+
     const archivoUrl = `/uploads/${req.file.filename}`;
     const updated = await prisma.ausencia.update({
       where: { id: ausId },
@@ -1023,6 +1059,11 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
       return;
     }
 
+    if (existing.estado === 'APROBADA') {
+      res.status(400).json({ error: 'No se puede editar una ausencia aprobada' });
+      return;
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = { ...parsed.data };
     if (data.fechaInicio) data.fechaInicio = new Date(data.fechaInicio);
@@ -1050,6 +1091,11 @@ router.delete('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Re
     });
     if (!existing || existing.usuario.empresaId !== req.user!.empresaId) {
       res.status(404).json({ error: 'Ausencia no encontrada' });
+      return;
+    }
+
+    if (existing.estado === 'APROBADA') {
+      res.status(400).json({ error: 'No se puede eliminar una ausencia aprobada. Usá un flujo de revocación.' });
       return;
     }
 

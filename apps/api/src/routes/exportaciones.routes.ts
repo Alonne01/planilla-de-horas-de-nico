@@ -1,10 +1,27 @@
 import { Router, Response } from 'express';
+import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { fechaFlexible } from '../utils/zod.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
+
+const exportacionSchema = z
+  .object({
+    periodoInicio: fechaFlexible,
+    periodoFin: fechaFlexible,
+    nombreArchivo: z.string().min(1, 'nombreArchivo es requerido'),
+    sectoresIds: z.array(z.string()).optional(),
+    usuariosIds: z.array(z.string()).optional(),
+    totalPersonas: z.number().int().nullable().optional(),
+    totalRegistros: z.number().int().nullable().optional(),
+  })
+  .refine(
+    (d) => new Date(String(d.periodoFin)) >= new Date(String(d.periodoInicio)),
+    { message: 'periodoFin debe ser mayor o igual a periodoInicio', path: ['periodoFin'] },
+  );
 
 router.use(authMiddleware);
 router.use(requireLevel(LEVEL_RRHH));
@@ -33,14 +50,22 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
 router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { periodoInicio, periodoFin, sectoresIds, usuariosIds, nombreArchivo, totalPersonas, totalRegistros } = req.body;
+    const parsed = exportacionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+    const { periodoInicio, periodoFin, sectoresIds, usuariosIds, nombreArchivo, totalPersonas, totalRegistros } = parsed.data;
+
+    const pi = new Date(String(periodoInicio));
+    const pf = new Date(String(periodoFin));
 
     const exportacion = await prisma.exportacion.create({
       data: {
         empresaId: req.user!.empresaId,
         generadaPorId: req.user!.userId,
-        periodoInicio: new Date(periodoInicio),
-        periodoFin: new Date(periodoFin),
+        periodoInicio: pi,
+        periodoFin: pf,
         sectoresIds: sectoresIds ?? [],
         usuariosIds: usuariosIds ?? [],
         rolesFiltro: [],
@@ -105,21 +130,6 @@ router.post('/cierre', async (req: AuthRequest, res: Response): Promise<void> =>
         },
       });
 
-      // Create recibos for each closed planilla
-      const recibosCreated = [];
-      for (const p of planillas) {
-        const existing = await tx.reciboSueldo.findUnique({ where: { planillaId: p.id } });
-        if (!existing) {
-          const recibo = await tx.reciboSueldo.create({
-            data: {
-              planillaId: p.id,
-              usuarioId: p.usuario.id,
-            },
-          });
-          recibosCreated.push(recibo.id);
-        }
-      }
-
       // Create notifications for each user
       for (const p of planillas) {
         await tx.notificacion.create({
@@ -133,13 +143,12 @@ router.post('/cierre', async (req: AuthRequest, res: Response): Promise<void> =>
         });
       }
 
-      return { cerradas: updated.count, recibosCreados: recibosCreated.length };
+      return { cerradas: updated.count };
     });
 
     res.json({
       ok: true,
       planillasCerradas: result.cerradas,
-      recibosCreados: result.recibosCreados,
       usuarios: planillas.map((p) => `${p.usuario.apellido} ${p.usuario.nombre}`),
     });
   } catch (error) {

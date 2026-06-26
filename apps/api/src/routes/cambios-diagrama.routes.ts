@@ -5,6 +5,7 @@ import { fechaFlexible } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
 import { crearNotificacion } from '../utils/notificacion.utils.js';
+import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -225,7 +226,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       where: { id: solId },
       include: {
         flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
-        usuario: { select: { id: true, empresaId: true } },
+        usuario: { select: { id: true, empresaId: true, sectorId: true, supervisorId: true, coordinadorId: true } },
         diagramaNuevo: { select: { nombre: true } },
       },
     });
@@ -254,11 +255,10 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada` });
         return;
       }
-      if (pasoConfig.rolAprobador !== req.user!.rol) {
-        if ((req.user!.rolNivel ?? 0) < 90) {
-          res.status(403).json({ error: `Este paso requiere el rol ${pasoConfig.rolAprobador}` });
-          return;
-        }
+      const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
+      if (!isResponsibleApprover(pasoConfig.rolAprobador, solicitud.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0, approverSectorId)) {
+        res.status(403).json({ error: `No tenés autorización para aprobar esta solicitud en el paso de ${pasoConfig.rolAprobador}` });
+        return;
       }
 
       nuevoPaso = pasoActual + 1;
@@ -386,7 +386,10 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
 
     const solicitud = await prisma.solicitudCambioDiagrama.findUnique({
       where: { id: solId },
-      include: { usuario: { select: { empresaId: true } } },
+      include: {
+        flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
+        usuario: { select: { id: true, empresaId: true, sectorId: true, supervisorId: true, coordinadorId: true } },
+      },
     });
 
     if (!solicitud || solicitud.usuario.empresaId !== req.user!.empresaId) {
@@ -395,6 +398,14 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
     }
     if (solicitud.estado !== 'PENDIENTE' && solicitud.estado !== 'EN_REVISION') {
       res.status(400).json({ error: 'La solicitud no está pendiente de revisión' });
+      return;
+    }
+
+    const pasos = solicitud.flujo?.pasos ?? [];
+    const currentStep = pasos.find(p => p.orden === solicitud.pasoActual);
+    const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
+    if (!currentStep || !isResponsibleApprover(currentStep.rolAprobador, solicitud.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0, approverSectorId)) {
+      res.status(403).json({ error: 'No tenés autorización para rechazar esta solicitud' });
       return;
     }
 
