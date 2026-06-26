@@ -650,6 +650,14 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       return;
     }
 
+    // Explicit state guard (mirrors /avanzar): sólo se rechaza una planilla en
+    // revisión. Sin esto, una planilla ya APROBADA/CERRADA caía en el chequeo de
+    // aprobador y devolvía un 403 engañoso en vez de un 400 con motivo claro.
+    if (planilla.estado !== 'ENVIADA' && planilla.estado !== 'EN_REVISION') {
+      res.status(400).json({ error: 'La planilla no está en estado de revisión' });
+      return;
+    }
+
     // Verify the caller is the responsible approver for this step
     const pasos = planilla.flujo?.pasos ?? [];
     const currentStep = pasos.find(p => p.orden === planilla.pasoActual);

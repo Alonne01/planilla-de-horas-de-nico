@@ -201,6 +201,19 @@ router.post('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respons
       return;
     }
 
+    // Unicidad de legajo a nivel aplicación (el schema no tiene constraint).
+    // Sólo aplica a legajos no nulos y dentro de la misma empresa.
+    if (parsed.data.legajo) {
+      const legajoExists = await prisma.usuario.findFirst({
+        where: { empresaId: req.user!.empresaId, legajo: parsed.data.legajo },
+        select: { id: true },
+      });
+      if (legajoExists) {
+        res.status(409).json({ error: 'Ya existe un usuario con ese legajo' });
+        return;
+      }
+    }
+
     // Privilege-escalation guard: cannot create a user above the caller's level
     if (!(await assertCanAssignRole(req, res, parsed.data.rol))) return;
 
@@ -267,6 +280,17 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
       const emailExists = await prisma.usuario.findUnique({ where: { email: parsed.data.email } });
       if (emailExists) {
         res.status(409).json({ error: 'Email ya en uso' });
+        return;
+      }
+    }
+
+    if (parsed.data.legajo && parsed.data.legajo !== existing.legajo) {
+      const legajoExists = await prisma.usuario.findFirst({
+        where: { empresaId: req.user!.empresaId, legajo: parsed.data.legajo, id: { not: existing.id } },
+        select: { id: true },
+      });
+      if (legajoExists) {
+        res.status(409).json({ error: 'Legajo ya en uso' });
         return;
       }
     }

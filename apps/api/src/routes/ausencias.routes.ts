@@ -7,7 +7,7 @@ import { upload } from '../middleware/upload.middleware.js';
 import { inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { notificarAusencia, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
-import { fechaFlexible } from '../utils/zod.utils.js';
+import { fechaFlexible, spanDiasCalendario } from '../utils/zod.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -21,7 +21,7 @@ const createAusenciaSchema = z.object({
   tipo: z.nativeEnum(AusenciaTipo),
   fechaInicio: fechaFlexible,
   fechaFin: fechaFlexible,
-  diasAusencia: z.number().int().min(1),
+  diasAusencia: z.number().int().min(1).max(366),
   descripcion: z.string().max(500).optional(),
   numeroCertificado: z.string().max(50).optional(),
   descuentaSueldo: z.boolean().optional(),
@@ -29,13 +29,16 @@ const createAusenciaSchema = z.object({
 }).refine(
   (d) => new Date(d.fechaFin) >= new Date(d.fechaInicio),
   { message: 'fechaFin debe ser mayor o igual a fechaInicio', path: ['fechaFin'] },
+).refine(
+  (d) => d.diasAusencia <= spanDiasCalendario(d.fechaInicio, d.fechaFin),
+  { message: 'diasAusencia no puede exceder los días del rango de fechas', path: ['diasAusencia'] },
 );
 
 const updateAusenciaSchema = z.object({
   tipo: z.nativeEnum(AusenciaTipo).optional(),
   fechaInicio: z.string().optional(),
   fechaFin: z.string().optional(),
-  diasAusencia: z.number().int().min(1).optional(),
+  diasAusencia: z.number().int().min(1).max(366).optional(),
   descripcion: z.string().max(500).optional(),
   numeroCertificado: z.string().max(50).optional(),
   descuentaSueldo: z.boolean().optional(),
@@ -188,12 +191,15 @@ router.post('/solicitar', async (req: AuthRequest, res: Response): Promise<void>
       tipo: z.nativeEnum(AusenciaTipo),
       fechaInicio: fechaFlexible,
       fechaFin: fechaFlexible,
-      diasAusencia: z.number().int().min(1),
+      diasAusencia: z.number().int().min(1).max(366),
       descripcion: z.string().max(500).optional(),
       numeroCertificado: z.string().max(50).optional(),
     }).refine(
       (d) => new Date(d.fechaFin) >= new Date(d.fechaInicio),
       { message: 'fechaFin debe ser mayor o igual a fechaInicio', path: ['fechaFin'] },
+    ).refine(
+      (d) => d.diasAusencia <= spanDiasCalendario(d.fechaInicio, d.fechaFin),
+      { message: 'diasAusencia no puede exceder los días del rango de fechas', path: ['diasAusencia'] },
     );
 
     const parsed = schema.safeParse(req.body);
@@ -301,11 +307,14 @@ router.post('/compensatorio', async (req: AuthRequest, res: Response): Promise<v
     const schema = z.object({
       fechaInicio: fechaFlexible,
       fechaFin: fechaFlexible,
-      diasAusencia: z.number().int().min(1),
+      diasAusencia: z.number().int().min(1).max(366),
       descripcion: z.string().max(500).optional(),
     }).refine(
       (d) => new Date(d.fechaFin) >= new Date(d.fechaInicio),
       { message: 'fechaFin debe ser mayor o igual a fechaInicio', path: ['fechaFin'] },
+    ).refine(
+      (d) => d.diasAusencia <= spanDiasCalendario(d.fechaInicio, d.fechaFin),
+      { message: 'diasAusencia no puede exceder los días del rango de fechas', path: ['diasAusencia'] },
     );
 
     const parsed = schema.safeParse(req.body);
@@ -834,6 +843,14 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
 
     if (!ausencia || ausencia.usuario.empresaId !== req.user!.empresaId) {
       res.status(404).json({ error: 'Ausencia no encontrada' });
+      return;
+    }
+
+    // Explicit state guard (mirrors /avanzar): rechazar sólo aplica a una ausencia
+    // en revisión. Devuelve 400 claro en vez del 409 "modificada simultáneamente"
+    // del guard transaccional, que sólo debe dispararse ante una carrera real.
+    if (ausencia.estado !== 'PENDIENTE' && ausencia.estado !== 'EN_REVISION') {
+      res.status(400).json({ error: 'La ausencia no está en estado de revisión' });
       return;
     }
 

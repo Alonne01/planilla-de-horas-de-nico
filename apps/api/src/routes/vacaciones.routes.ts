@@ -468,6 +468,23 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
         throw Object.assign(new Error('SALDO_INSUFICIENTE'), { disponible });
       }
 
+      // Bloquear solapamiento con otra vacación vigente del mismo usuario. Que
+      // distintas personas se solapen es esperable (lo muestra el calendario);
+      // acá sólo evitamos que una misma persona tenga dos vacaciones pisadas.
+      // Dentro de la tx Serializable para ser seguro ante inserts concurrentes.
+      const solapada = await tx.vacacion.findFirst({
+        where: {
+          usuarioId: userId,
+          estado: { notIn: ['RECHAZADA'] },
+          fechaInicio: { lte: fechaFin },
+          fechaFin: { gte: fechaInicio },
+        },
+        select: { id: true },
+      });
+      if (solapada) {
+        throw Object.assign(new Error('VACACION_SOLAPADA'), {});
+      }
+
       const vac = await tx.vacacion.create({
         data: {
           usuarioId: userId,
@@ -503,6 +520,10 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch (error) {
     if (error instanceof Error && error.message === 'SALDO_INSUFICIENTE') {
       res.status(400).json({ error: `Saldo insuficiente. Disponible: ${(error as Error & { disponible: number }).disponible} días` });
+      return;
+    }
+    if (error instanceof Error && error.message === 'VACACION_SOLAPADA') {
+      res.status(409).json({ error: 'Ya tenés una vacación que se solapa con esas fechas' });
       return;
     }
     if ((error as { code?: string }).code === 'P2034') {
@@ -828,6 +849,14 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
 
     if (!vacacion || vacacion.usuario.empresaId !== req.user!.empresaId) {
       res.status(404).json({ error: 'Vacación no encontrada' });
+      return;
+    }
+
+    // Explicit state guard (mirrors /avanzar): rechazar sólo aplica a una vacación
+    // en revisión. Devuelve 400 claro en vez del 409 "modificada simultáneamente"
+    // del guard transaccional, que sólo debe dispararse ante una carrera real.
+    if (vacacion.estado !== 'PENDIENTE' && vacacion.estado !== 'EN_REVISION') {
+      res.status(400).json({ error: 'La vacación no está en estado de revisión' });
       return;
     }
 
