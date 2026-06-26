@@ -6,6 +6,7 @@ import { requireLevel, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.j
 import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
 import { notificarVacacion, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
+import { puedeVerCalendario } from '../utils/calendario-access.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -19,7 +20,14 @@ const createVacacionSchema = z.object({
   fechaFin: z.string(),
   diasHabiles: z.number().int().min(1),
   motivo: z.string().max(500).optional(),
-});
+}).refine(
+  (d) => {
+    const ini = new Date(d.fechaInicio);
+    const fin = new Date(d.fechaFin);
+    return !isNaN(ini.getTime()) && !isNaN(fin.getTime()) && fin >= ini;
+  },
+  { message: 'La fecha de fin no puede ser anterior a la de inicio', path: ['fechaFin'] },
+);
 
 // ─── Helper: calculate vacation days by LCT seniority ─────────
 function diasPorAntiguedad(fechaIngreso: Date, anio: number): number {
@@ -85,21 +93,22 @@ router.get('/gantt', async (req: AuthRequest, res: Response): Promise<void> => {
     const userId = req.user!.userId;
     const empresaId = req.user!.empresaId;
 
-    // Only COORDINADOR+ can see team gantt
-    if (userNivel < 70) {
-      res.status(403).json({ error: 'Sin permisos' });
-      return;
-    }
-
     const { anio, sectorId } = req.query;
     const year = anio ? Number(anio) : new Date().getFullYear();
     const startDate = new Date(year, 0, 1);
     const endDate = new Date(year, 11, 31, 23, 59, 59);
 
     const userWhere: any = { empresaId };
-    // Below RRHH (< 90): force own sector only. RRHH+ can filter or see all.
+    // Acceso dinámico por cadena de aprobación. RRHH+ (>=90) ven todo y pueden
+    // filtrar por sector; el resto sólo su propio sector, y sólo si están en la
+    // cadena de aprobación de ese sector ("de supervisor para arriba" donde aplique).
     if (userNivel < 90) {
       const me = await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } });
+      const allowed = await puedeVerCalendario(prisma, { rolNivel: userNivel, empresaId, sectorId: me?.sectorId ?? null });
+      if (!allowed) {
+        res.status(403).json({ error: 'Sin permisos' });
+        return;
+      }
       if (me?.sectorId) userWhere.sectorId = me.sectorId;
     } else if (sectorId) {
       userWhere.sectorId = sectorId as string;
@@ -172,9 +181,15 @@ router.get('/gantt', async (req: AuthRequest, res: Response): Promise<void> => {
       id: string; fechaInicio: string; fechaFin: string;
       dias: number; estado: string; tipo: string; detalle: string | null;
     };
+    type DiagramaInfo = {
+      id: string; nombre: string; tipo: string;
+      diasTrabajo: number | null; diasDescanso: number | null;
+      diasSemana: number[]; fechaInicio: string;
+    };
     type EmpleadoGantt = {
       id: string; nombre: string; apellido: string; legajo: string | null;
       sector: { id: string; nombre: string } | null;
+      diagrama?: DiagramaInfo | null;
       bloques: Block[];
     };
 
@@ -235,11 +250,45 @@ router.get('/gantt', async (req: AuthRequest, res: Response): Promise<void> => {
       });
     }
 
+    // Optionally include ALL active employees in scope (even with no blocks),
+    // so the Disponibilidad view can show one row per employee.
+    if (req.query.todos === '1' || req.query.todos === 'true') {
+      const todosEmpleados = await prisma.usuario.findMany({
+        where: { ...userWhere, activo: true },
+        select: { id: true, nombre: true, apellido: true, legajo: true, sector: { select: { id: true, nombre: true } } },
+      });
+      for (const u of todosEmpleados) ensureEmp(u);
+    }
+
     // Sort employees by apellido, blocks by date
     const empleados = Array.from(empleadoMap.values())
       .sort((a, b) => a.apellido.localeCompare(b.apellido));
     for (const emp of empleados) {
       emp.bloques.sort((a, b) => a.fechaInicio.localeCompare(b.fechaInicio));
+    }
+
+    // Attach each employee's active diagrama so the client can compute rest days
+    // (francos de descanso) and group employees into turnos.
+    if (empleados.length > 0) {
+      const asignaciones = await prisma.usuarioDiagrama.findMany({
+        where: { usuarioId: { in: empleados.map(e => e.id) }, activo: true },
+        orderBy: { fechaInicio: 'desc' },
+        select: {
+          usuarioId: true, fechaInicio: true,
+          diagrama: { select: { id: true, nombre: true, tipo: true, diasTrabajo: true, diasDescanso: true, diasSemana: true } },
+        },
+      });
+      const diagramaByUser = new Map<string, DiagramaInfo>();
+      for (const a of asignaciones) {
+        if (!diagramaByUser.has(a.usuarioId)) {
+          diagramaByUser.set(a.usuarioId, {
+            id: a.diagrama.id, nombre: a.diagrama.nombre, tipo: a.diagrama.tipo,
+            diasTrabajo: a.diagrama.diasTrabajo, diasDescanso: a.diagrama.diasDescanso,
+            diasSemana: a.diagrama.diasSemana, fechaInicio: (a.fechaInicio as Date).toISOString(),
+          });
+        }
+      }
+      for (const e of empleados) e.diagrama = diagramaByUser.get(e.id) ?? null;
     }
 
     const sectores = await prisma.sector.findMany({
