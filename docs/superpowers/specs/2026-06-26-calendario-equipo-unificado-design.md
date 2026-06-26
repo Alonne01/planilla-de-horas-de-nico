@@ -46,11 +46,72 @@ Calendario Vac.) y Detallado (la vista actual de Disponibilidad).
      modo + leyenda. Sin búsqueda/turno/solapes.
    - **Detallado:** conserva todo lo actual de Disponibilidad (búsqueda, sector,
      turno, chips de categorías, solapes + panel de detalle, tinte de francos).
-6. **Acceso:** `nivel >= 70` ("coordinación para arriba"): COORDINADOR (70),
-   CMASS (75), GERENTE (80), RRHH (90), ADMIN (100). Quedan afuera SUPERVISOR
-   (60) y OPERADOR (10). Es el mismo gate que tienen ambas páginas hoy
-   (`minLevel: 70` en el nav + `nivel >= 70` in-component), por lo que **no hay
-   cambio de comportamiento de acceso**.
+6. **Acceso: dinámico por cadena de aprobación del sector** (reemplaza el gate
+   plano `nivel >= 70`). Ver sección dedicada más abajo. En resumen: un usuario
+   accede al calendario de su sector si su nivel es `>=` el nivel del aprobador
+   más bajo de la cadena de aprobación de ese sector. RRHH/ADMIN (>= 90) acceden
+   siempre y ven todos los sectores.
+
+## Acceso por cadena de aprobación
+
+En vez de un nivel fijo (`>= 70`), el acceso al calendario depende de la **cadena
+de aprobación del sector** del usuario. Motivación: un supervisor que es el
+primer eslabón de la cadena de su sector necesita ver la disponibilidad del
+equipo para planificar/aprobar, pero hoy (nivel 60) está bloqueado del todo.
+
+### Regla (por usuario)
+
+```
+acceso(usuario):
+  if usuario.nivel >= 90:            # RRHH / ADMIN
+      return true                    # y ven todos los sectores
+  if !usuario.sectorId:
+      return false                   # sub-RRHH sin sector → sin acceso
+  flujos = FlujoAprobacion activos asignados al sector del usuario
+           (FlujoAsignacion.sectorId == sectorId && activo), TODOS los
+           tipoDocumento  (decisión: "todos los flujos del sector")
+  niveles = [ Rol.nivel[paso.rolAprobador]
+              for flujo in flujos for paso in flujo.pasos ]
+  minNivel = min(niveles) if niveles else 70   # fallback al gate actual
+  return usuario.nivel >= minNivel
+```
+
+- **Umbral "hacia arriba", no match exacto de rol.** Un GERENTE (80) accede aunque
+  GERENTE no sea literalmente un paso de la cadena (evita regresionar el acceso
+  que ya tienen gerentes/coordinadores hoy).
+- `rolAprobador` guarda un **código** de rol → el nivel se resuelve uniendo con la
+  tabla `Rol` (`codigo` → `nivel`). Sirve también para roles personalizados.
+- Sin flujo asignado al sector → `minNivel = 70` (comportamiento actual).
+- **Scope de datos sin cambios:** sub-RRHH sigue viendo **solo su propio sector**
+  (incluido el supervisor, que ve **todo el sector**, igual que hoy el
+  coordinador). RRHH/ADMIN ven todo.
+
+### Helper compartido (backend)
+
+Un único helper, p. ej. `apps/api/src/utils/calendario-access.utils.ts`:
+
+```
+nivelMinimoAccesoSector(empresaId, sectorId): Promise<number>
+// min nivel de aprobador entre los flujos del sector; 70 si no hay flujos.
+
+puedeVerCalendario(usuario): Promise<boolean>
+// aplica la regla de arriba (usa nivelMinimoAccesoSector).
+```
+
+Lo consumen **dos** lugares (única fuente de verdad):
+1. **Enforcement:** `GET /vacaciones/gantt` reemplaza `if (userNivel < 70)` por
+   `if (!await puedeVerCalendario(req.user)) → 403`.
+2. **Flag de UI:** el payload de usuario de `POST /auth/login` y `GET /auth/me`
+   incluye `puedeVerCalendario: boolean` (computado con el mismo helper).
+
+### Frontend — menú por flag
+
+- `authStore` / interfaz `User`: agregar `puedeVerCalendario?: boolean`.
+- `AppShell` `NavItem`: nuevo predicado `requireCalendarAccess?: boolean`
+  (análogo al `requireApprover` existente). El ítem "Calendario de Equipo" se
+  muestra si `user.puedeVerCalendario === true`. **No** usa `minLevel`.
+- Gate in-component de la página: si `puedeVerCalendario` es false, mostrar el
+  cartel "sin permisos" (y de todas formas el backend responde 403).
 
 ## Arquitectura
 
@@ -134,13 +195,14 @@ detección de solapes + panel de detalle, tinte de francos, marcador de "hoy".
 
 - **`AppShell.tsx`:** reemplazar los dos ítems (`Calendario Vac.` →
   `/vacaciones/gantt` y `Disponibilidad` → `/disponibilidad`) por **uno**:
-  `{ label: 'Calendario de Equipo', path: '/calendario', icon: CalendarRange, minLevel: 70 }`.
+  `{ label: 'Calendario de Equipo', path: '/calendario', icon: CalendarRange, requireCalendarAccess: true }`
+  (sin `minLevel`; se muestra según el flag `user.puedeVerCalendario`).
 - **`App.tsx`:**
   - Nueva ruta `/calendario` → `CalendarioEquipoPage`.
   - `/vacaciones/gantt` → `<Navigate to="/calendario" replace />`.
   - `/disponibilidad` → `<Navigate to="/calendario" replace />`.
-- **Gate in-component:** `nivel >= 70` (mismo cartel de "sin permisos" que el
-  detallado actual).
+- **Gate in-component:** según `user.puedeVerCalendario` (cartel "sin permisos"
+  si es false); el backend además responde 403.
 
 ## Archivos afectados
 
@@ -153,8 +215,12 @@ detección de solapes + panel de detalle, tinte de francos, marcador de "hoy".
 | `apps/web/src/pages/VacacionesGanttPage.tsx` | **Eliminar** (su lógica migra al compacto) |
 | `apps/web/src/pages/DisponibilidadPage.tsx` | **Eliminar** (su lógica migra al detallado) |
 | `apps/web/src/App.tsx` | Ruta nueva + 2 redirects |
-| `apps/web/src/components/layout/AppShell.tsx` | Nav: 2 ítems → 1 |
+| `apps/web/src/components/layout/AppShell.tsx` | Nav: 2 ítems → 1; predicado `requireCalendarAccess` |
 | `apps/web/src/index.css` | Generalizar reglas de estado de `.av-seg` a clase compartida |
+| `apps/api/src/utils/calendario-access.utils.ts` | **Nuevo** — helper `nivelMinimoAccesoSector` + `puedeVerCalendario` |
+| `apps/api/src/routes/vacaciones.routes.ts` | Gate `/gantt`: usar `puedeVerCalendario` en vez de `< 70` |
+| `apps/api/src/routes/auth.routes.ts` | Agregar `puedeVerCalendario` al payload de `login` y `/me` |
+| `apps/web/src/stores/authStore.ts` (interfaz `User`) | Agregar `puedeVerCalendario?: boolean` |
 
 ## Persistencia del modo
 
@@ -171,10 +237,15 @@ lee al montar y se escribe en cada cambio de toggle.
   - Detallado: paridad funcional con la Disponibilidad actual (búsqueda, turno,
     solapes, francos).
   - `/vacaciones/gantt` y `/disponibilidad` redirigen a `/calendario`.
-  - Acceso: un usuario SUPERVISOR (60) ve el cartel de "sin permisos"; un
-    COORDINADOR (70) accede.
+  - Acceso por cadena:
+    - Supervisor de un sector con paso de SUPERVISOR en la cadena → **accede**
+      a su sector (ítem visible, sin 403).
+    - Supervisor de un sector cuya cadena arranca en COORDINADOR → **no** accede
+      (ítem oculto, `/gantt` responde 403).
+    - Coordinador/Gerente → acceden a su sector (sin regresión).
+    - RRHH/ADMIN → acceden y ven todos los sectores.
   - El modo elegido persiste tras recargar.
-- `typecheck` del front limpio.
+- `typecheck` de front y API limpios.
 
 ## Fuera de alcance (YAGNI)
 
