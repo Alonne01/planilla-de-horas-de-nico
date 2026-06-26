@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient, PlanillaEstado, LugarTrabajo, PernocteEnum } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { z } from 'zod';
+import { fechaFlexible } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH, LEVEL_ADMIN } from '../middleware/roles.middleware.js';
 import { notificarPlanilla, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
@@ -40,8 +41,8 @@ async function assertPlanillaAccess(req: AuthRequest, planillaId: string): Promi
 // ─── Schemas ─────────────────────────────────────
 
 const createPlanillaSchema = z.object({
-  periodoInicio: z.string().datetime().optional(),
-  periodoFin: z.string().datetime().optional(),
+  periodoInicio: fechaFlexible.optional(),
+  periodoFin: fechaFlexible.optional(),
 });
 
 const createRegistroSchema = z.object({
@@ -61,6 +62,10 @@ const createRegistroSchema = z.object({
   observaciones: z.string().max(500).nullable().optional(),
   proyectoId: z.string().uuid().nullable().optional(),
 });
+
+// PUT identifica el registro por :rid, por lo que `fecha` es opcional
+// (si se omite, se conserva la fecha del registro existente).
+const updateRegistroSchema = createRegistroSchema.extend({ fecha: z.string().optional() });
 
 // ─── GET /planillas ──────────────────────────────
 
@@ -151,6 +156,10 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     if (parsed.data.periodoInicio && parsed.data.periodoFin) {
       periodoInicio = new Date(parsed.data.periodoInicio);
       periodoFin = new Date(parsed.data.periodoFin);
+      if (periodoFin < periodoInicio) {
+        res.status(400).json({ error: 'El fin del período no puede ser anterior al inicio' });
+        return;
+      }
     } else {
       const periodo = getPeriodoActual(diaInicio, diaFin);
       periodoInicio = periodo.inicio;
@@ -260,7 +269,6 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
             id: true, nombre: true, apellido: true, legajo: true,
             empresaId: true, sectorId: true, supervisorId: true, coordinadorId: true,
             sector: { select: { nombre: true } },
-            categoria: { select: { codigo: true, nombre: true } },
             diagramas: {
               where: { activo: true },
               take: 1,
@@ -326,6 +334,13 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
     }
     if (planilla.estado !== 'BORRADOR' && planilla.estado !== 'RECHAZADA') {
       res.status(400).json({ error: 'Solo se puede enviar una planilla en BORRADOR o RECHAZADA' });
+      return;
+    }
+
+    // Defensive guard: an inverted period would make the completeness loop run zero
+    // times, letting an empty planilla slip into the approval pipeline.
+    if (new Date(planilla.periodoFin) < new Date(planilla.periodoInicio)) {
+      res.status(400).json({ error: 'El período de la planilla es inválido (fin anterior al inicio)' });
       return;
     }
 
@@ -830,6 +845,18 @@ router.post('/:id/registros', async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
+    // Validate proyecto exists in this empresa (prevents FK 500 on bad proyectoId)
+    if (parsed.data.proyectoId) {
+      const proyecto = await prisma.proyecto.findFirst({
+        where: { id: parsed.data.proyectoId, empresaId: planilla.usuario.empresaId },
+        select: { id: true },
+      });
+      if (!proyecto) {
+        res.status(400).json({ error: 'Proyecto inexistente' });
+        return;
+      }
+    }
+
     const config = await getEmpresaConfig(planilla.usuario.empresaId);
     const calculo = calcularHorasRegistro(
       {
@@ -888,7 +915,7 @@ router.post('/:id/registros', async (req: AuthRequest, res: Response): Promise<v
 
 router.put('/:id/registros/:rid', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const parsed = createRegistroSchema.safeParse(req.body);
+    const parsed = updateRegistroSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
       return;
@@ -916,6 +943,18 @@ router.put('/:id/registros/:rid', async (req: AuthRequest, res: Response): Promi
       return;
     }
 
+    // Validate proyecto exists in this empresa (prevents FK 500 on bad proyectoId)
+    if (parsed.data.proyectoId) {
+      const proyecto = await prisma.proyecto.findFirst({
+        where: { id: parsed.data.proyectoId, empresaId: planilla.usuario.empresaId },
+        select: { id: true },
+      });
+      if (!proyecto) {
+        res.status(400).json({ error: 'Proyecto inexistente' });
+        return;
+      }
+    }
+
     const config = await getEmpresaConfig(planilla.usuario.empresaId);
     const calculo = calcularHorasRegistro(
       {
@@ -935,7 +974,7 @@ router.put('/:id/registros/:rid', async (req: AuthRequest, res: Response): Promi
     const registro = await prisma.registroHoras.update({
       where: { id: rid, planillaId },
       data: {
-        fecha: new Date(parsed.data.fecha),
+        fecha: parsed.data.fecha ? new Date(parsed.data.fecha) : existingReg.fecha,
         entradaTurno1: parsed.data.entradaTurno1 ? new Date(parsed.data.entradaTurno1) : null,
         salidaTurno1: parsed.data.salidaTurno1 ? new Date(parsed.data.salidaTurno1) : null,
         entradaTurno2: parsed.data.entradaTurno2 ? new Date(parsed.data.entradaTurno2) : null,

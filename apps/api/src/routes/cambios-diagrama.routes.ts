@@ -1,8 +1,10 @@
 import { Router, Response } from 'express';
 import { PrismaClient, CambioDiagramaEstado } from '@prisma/client';
 import { z } from 'zod';
+import { fechaFlexible } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
+import { crearNotificacion } from '../utils/notificacion.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -32,7 +34,7 @@ const createSolicitudSchema = z.object({
   usuarioId: z.string().uuid(),
   diagramaNuevoId: z.string().uuid(),
   motivo: z.string().min(1).max(500).optional(),
-  fechaEfectiva: z.string().datetime().optional(),
+  fechaEfectiva: fechaFlexible.optional(),
 });
 
 // ─── GET /cambios-diagrama ────────────────────────
@@ -224,6 +226,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       include: {
         flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
         usuario: { select: { id: true, empresaId: true } },
+        diagramaNuevo: { select: { nombre: true } },
       },
     });
 
@@ -335,6 +338,34 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       throw error;
     }
 
+    // Notify the affected employee and the requester (was missing entirely)
+    if (nuevoEstado === 'APROBADA') {
+      await crearNotificacion({
+        usuarioId: solicitud.usuarioId,
+        tipo: 'CAMBIO_DIAGRAMA',
+        titulo: '🗓️ Tu diagrama fue actualizado',
+        cuerpo: `Se aprobó el cambio de tu diagrama${solicitud.diagramaNuevo?.nombre ? ` a "${solicitud.diagramaNuevo.nombre}"` : ''}.`,
+        link: '/dashboard',
+      });
+      if (solicitud.solicitanteId !== solicitud.usuarioId) {
+        await crearNotificacion({
+          usuarioId: solicitud.solicitanteId,
+          tipo: 'CAMBIO_DIAGRAMA',
+          titulo: '✅ Cambio de diagrama aprobado',
+          cuerpo: 'La solicitud de cambio de diagrama que creaste fue aprobada.',
+          link: '/cambios-diagrama',
+        });
+      }
+    } else if (nuevoEstado === 'EN_REVISION' && solicitud.solicitanteId !== req.user!.userId) {
+      await crearNotificacion({
+        usuarioId: solicitud.solicitanteId,
+        tipo: 'CAMBIO_DIAGRAMA',
+        titulo: '⏳ Cambio de diagrama avanzó de paso',
+        cuerpo: 'La solicitud de cambio de diagrama avanzó al siguiente paso de aprobación.',
+        link: '/cambios-diagrama',
+      });
+    }
+
     res.json(updated);
   } catch (error) {
     console.error('Error al avanzar cambio diagrama:', error);
@@ -382,6 +413,17 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       },
     });
 
+    // Notify the requester of the rejection (was missing entirely)
+    if (solicitud.solicitanteId !== req.user!.userId) {
+      await crearNotificacion({
+        usuarioId: solicitud.solicitanteId,
+        tipo: 'CAMBIO_DIAGRAMA',
+        titulo: '❌ Cambio de diagrama rechazado',
+        cuerpo: `La solicitud de cambio de diagrama fue rechazada. Motivo: ${motivo}`,
+        link: '/cambios-diagrama',
+      });
+    }
+
     res.json(updated);
   } catch (error) {
     console.error('Error al rechazar cambio diagrama:', error);
@@ -417,6 +459,41 @@ router.delete('/:id', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, 
   } catch (error) {
     console.error('Error al cancelar cambio diagrama:', error);
     res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── GET /cambios-diagrama/:id — detalle de una solicitud ───
+// (Debe ir al final: después de /diagramas y /pendientes para no sombrearlas.)
+router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const solicitud = await prisma.solicitudCambioDiagrama.findFirst({
+      where: { id: req.params.id, usuario: { empresaId: req.user!.empresaId } },
+      include: {
+        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true, sector: { select: { nombre: true } } } },
+        solicitante: { select: { id: true, nombre: true, apellido: true } },
+        diagramaActual: { select: { id: true, nombre: true, tipo: true, diasTrabajo: true, diasDescanso: true } },
+        diagramaNuevo: { select: { id: true, nombre: true, tipo: true, diasTrabajo: true, diasDescanso: true } },
+        aprobadaPor: { select: { id: true, nombre: true, apellido: true } },
+        flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
+      },
+    });
+
+    if (!solicitud) {
+      res.status(404).json({ error: 'Solicitud no encontrada' });
+      return;
+    }
+
+    // RRHH+ ve todo; aprobadores (nivel>=60) ven cualquiera; el resto, solo las propias.
+    const nivel = req.user!.rolNivel ?? 0;
+    if (nivel < 90 && nivel < 60 && solicitud.solicitanteId !== req.user!.userId) {
+      res.status(403).json({ error: 'Sin permisos' });
+      return;
+    }
+
+    res.json(solicitud);
+  } catch (error) {
+    console.error('Error getting cambio diagrama:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 

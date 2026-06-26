@@ -35,6 +35,11 @@ function _isResponsibleApprover(
 ): boolean {
   if (owner.id && owner.id === approverId) return false;
 
+  // ADMIN: escape hatch para destrabar aprobaciones (p. ej. un paso cuyo rol no
+  // tiene aprobador asignado en el sector). Puede avanzar cualquier paso, salvo
+  // aprobar su propio documento (ya descartado arriba).
+  if (approverRole === 'ADMIN') return true;
+
   if (rolAprobador === 'SUPERVISOR') {
     if (owner.supervisorId) return owner.supervisorId === approverId;
     return approverRole === 'SUPERVISOR'

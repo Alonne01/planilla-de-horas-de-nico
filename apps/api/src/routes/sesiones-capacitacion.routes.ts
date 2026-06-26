@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
-import { requireLevel, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
+import { requireLevel, LEVEL_COORDINADOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { crearNotificacion } from '../utils/notificacion.utils.js';
 import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
 
@@ -162,6 +162,22 @@ router.post('/', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: 
 router.put('/:id', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const data = createSesionSchema.partial().parse(req.body);
+
+    // Ownership/tenant guard: only the organizer (or RRHH+) of a session in the
+    // caller's company may edit it.
+    const existing = await prisma.sesionCapacitacion.findUnique({
+      where: { id: req.params.id },
+      select: { empresaId: true, organizadorId: true },
+    });
+    if (!existing || existing.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Sesión no encontrada' });
+      return;
+    }
+    if (existing.organizadorId !== req.user!.userId && (req.user!.rolNivel ?? 0) < LEVEL_RRHH) {
+      res.status(403).json({ error: 'Solo el organizador o RRHH pueden modificar esta sesión' });
+      return;
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: any = { ...data };
     if (data.fecha) updateData.fecha = new Date(data.fecha);
@@ -187,7 +203,11 @@ router.delete('/:id', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, 
       where: { id: req.params.id },
       include: { invitaciones: { where: { estado: 'ACEPTADA' }, include: { usuario: true } } },
     });
-    if (!sesion) { res.status(404).json({ error: 'Sesión no encontrada' }); return; }
+    if (!sesion || sesion.empresaId !== req.user!.empresaId) { res.status(404).json({ error: 'Sesión no encontrada' }); return; }
+    if (sesion.organizadorId !== req.user!.userId && (req.user!.rolNivel ?? 0) < LEVEL_RRHH) {
+      res.status(403).json({ error: 'Solo el organizador o RRHH pueden cancelar esta sesión' });
+      return;
+    }
 
     // Notify accepted invitees about cancellation
     for (const inv of sesion.invitaciones) {
@@ -322,6 +342,21 @@ router.post('/:id/invitar', requireLevel(LEVEL_COORDINADOR), async (req: AuthReq
 
 router.delete('/:id/invitaciones/:invId', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    // IDOR guard: the invitation must belong to the session in the URL, in the
+    // caller's company, and the caller must be the organizer (or RRHH+).
+    const inv = await prisma.invitacionCapacitacion.findUnique({
+      where: { id: req.params.invId },
+      include: { sesion: { select: { id: true, empresaId: true, organizadorId: true } } },
+    });
+    if (!inv || inv.sesion.id !== req.params.id || inv.sesion.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Invitación no encontrada' });
+      return;
+    }
+    if (inv.sesion.organizadorId !== req.user!.userId && (req.user!.rolNivel ?? 0) < LEVEL_RRHH) {
+      res.status(403).json({ error: 'Solo el organizador o RRHH pueden quitar invitaciones' });
+      return;
+    }
+
     await prisma.invitacionCapacitacion.delete({ where: { id: req.params.invId } });
     res.json({ ok: true });
   } catch (err: any) {
@@ -382,6 +417,12 @@ router.post('/mis-invitaciones/:invId/responder', async (req: AuthRequest, res: 
     }
     if (inv.estado !== 'PENDIENTE') {
       res.status(400).json({ error: 'Ya respondiste a esta invitación' });
+      return;
+    }
+    // Cannot respond to invitations of cancelled or finished sessions — otherwise a
+    // late acceptance could revert a FINALIZADA/CANCELADA session back to COMPLETA.
+    if (inv.sesion.estado === 'CANCELADA' || inv.sesion.estado === 'FINALIZADA') {
+      res.status(400).json({ error: 'La sesión ya no admite respuestas' });
       return;
     }
 
@@ -541,6 +582,50 @@ router.post('/:id/finalizar', requireLevel(LEVEL_COORDINADOR), async (req: AuthR
     res.json({ ok: true, asistieron: asistieronIds.length });
   } catch (error) {
     console.error('Error finalizing sesion:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── GET /sesiones-capacitacion/:id — detalle de una sesión ───
+// (Debe ir al final: después de /subordinados y /mis-invitaciones para no sombrearlas.)
+router.get('/:id', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const empresaId = req.user!.empresaId;
+    const userNivel = req.user!.rolNivel ?? 0;
+
+    const sesion = await prisma.sesionCapacitacion.findFirst({
+      where: { id: req.params.id, empresaId },
+      include: {
+        tipo: { select: { id: true, nombre: true } },
+        organizador: { select: { id: true, nombre: true, apellido: true, sectorId: true } },
+        invitaciones: {
+          include: { usuario: { select: { id: true, nombre: true, apellido: true, legajo: true } } },
+        },
+        _count: { select: { invitaciones: true } },
+      },
+    });
+
+    if (!sesion) {
+      res.status(404).json({ error: 'Sesión no encontrada' });
+      return;
+    }
+
+    // Misma visibilidad que el listado: RRHH+ ve todo; otros, solo propias o de su sector.
+    if (userNivel < 90 && sesion.organizadorId !== userId) {
+      const me = await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } });
+      if (!me?.sectorId || sesion.organizador.sectorId !== me.sectorId) {
+        res.status(403).json({ error: 'Sin permisos para ver esta sesión' });
+        return;
+      }
+    }
+
+    const aceptadas = sesion.invitaciones.filter(i => i.estado === 'ACEPTADA').length;
+    const pendientes = sesion.invitaciones.filter(i => i.estado === 'PENDIENTE').length;
+    const rechazadas = sesion.invitaciones.filter(i => i.estado === 'RECHAZADA').length;
+    res.json({ ...sesion, stats: { aceptadas, pendientes, rechazadas, total: sesion.invitaciones.length } });
+  } catch (error) {
+    console.error('Error getting sesion:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });

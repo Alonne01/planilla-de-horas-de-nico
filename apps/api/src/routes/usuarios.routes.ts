@@ -3,10 +3,10 @@ import { PrismaClient, ContratoTipo, Prisma } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { z } from 'zod';
+import { fechaFlexible } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_ADMIN, LEVEL_RRHH, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
 import { revokeAllRefreshTokensForUser } from '../utils/jwt.utils.js';
-import { logAuditoria } from '../lib/auditoria.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -22,16 +22,14 @@ const createUsuarioSchema = z.object({
   password: z.string().min(8).regex(/[A-Z]/).regex(/[0-9]/),
   rol: z.string().min(1),
   sectorId: z.string().uuid().optional().nullable(),
-  categoriaId: z.string().uuid().optional().nullable(),
-  convenioId: z.string().uuid().optional().nullable(),
   legajo: z.string().max(20).optional().nullable(),
   dni: z.string().max(15).optional().nullable(),
   cuil: z.string().max(15).optional().nullable(),
-  fechaNacimiento: z.string().datetime().optional().nullable(),
+  fechaNacimiento: fechaFlexible.optional().nullable(),
   telefono: z.string().max(30).optional().nullable(),
   tipoContrato: z.nativeEnum(ContratoTipo).optional(),
-  fechaIngreso: z.string().datetime(),
-  fechaFinPrueba: z.string().datetime().optional().nullable(),
+  fechaIngreso: fechaFlexible,
+  fechaFinPrueba: fechaFlexible.optional().nullable(),
   coordinadorId: z.string().uuid().optional().nullable(),
   supervisorId: z.string().uuid().optional().nullable(),
   diagramaColor: z.enum(['AZUL', 'AMARILLO', 'BASE']).optional().nullable(),
@@ -43,28 +41,50 @@ const updateUsuarioSchema = z.object({
   email: z.string().email().optional(),
   rol: z.string().min(1).optional(),
   sectorId: z.string().uuid().optional().nullable(),
-  categoriaId: z.string().uuid().optional().nullable(),
-  convenioId: z.string().uuid().optional().nullable(),
   legajo: z.string().max(20).optional().nullable(),
   dni: z.string().max(15).optional().nullable(),
   cuil: z.string().max(15).optional().nullable(),
-  fechaNacimiento: z.string().datetime().optional().nullable(),
+  fechaNacimiento: fechaFlexible.optional().nullable(),
   telefono: z.string().max(30).optional().nullable(),
   tipoContrato: z.nativeEnum(ContratoTipo).optional(),
-  fechaIngreso: z.string().datetime().optional(),
-  fechaFinPrueba: z.string().datetime().optional().nullable(),
-  fechaEgreso: z.string().datetime().optional().nullable(),
+  fechaIngreso: fechaFlexible.optional(),
+  fechaFinPrueba: fechaFlexible.optional().nullable(),
+  fechaEgreso: fechaFlexible.optional().nullable(),
   coordinadorId: z.string().uuid().optional().nullable(),
   supervisorId: z.string().uuid().optional().nullable(),
   activo: z.boolean().optional(),
-  sueldoBasicoOverride: z.number().optional().nullable(),
   diagramaColor: z.enum(['AZUL', 'AMARILLO', 'BASE']).optional().nullable(),
 });
 
 const assignDiagramaSchema = z.object({
   diagramaId: z.string().uuid(),
-  fechaInicio: z.string().datetime(),
+  fechaInicio: fechaFlexible,
 });
+
+// ─── Helper: resolve a role's permission level for this empresa ───
+// Returns the RolConfig.nivel for `codigo`, or null if the role doesn't exist.
+async function getRoleLevel(empresaId: string, codigo: string): Promise<number | null> {
+  const rc = await prisma.rolConfig.findFirst({
+    where: { empresaId, codigo, activo: true },
+    select: { nivel: true },
+  });
+  return rc?.nivel ?? null;
+}
+
+// Guard against privilege escalation: a user may never assign a role whose
+// level exceeds their own. Writes the HTTP error and returns false when blocked.
+async function assertCanAssignRole(req: AuthRequest, res: Response, codigo: string): Promise<boolean> {
+  const targetLevel = await getRoleLevel(req.user!.empresaId, codigo);
+  if (targetLevel === null) {
+    res.status(400).json({ error: 'Rol inexistente' });
+    return false;
+  }
+  if (targetLevel > (req.user!.rolNivel ?? 0)) {
+    res.status(403).json({ error: 'No podés asignar un rol de nivel superior al tuyo' });
+    return false;
+  }
+  return true;
+}
 
 // ─── GET /usuarios ───────────────────────────────
 
@@ -116,8 +136,6 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         primerLogin: true,
         diagramaColor: true,
         sector: { select: { id: true, nombre: true } },
-        categoria: { select: { id: true, codigo: true, nombre: true } },
-        convenio: { select: { id: true, nombre: true } },
       },
       orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
     });
@@ -138,8 +156,6 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       include: {
         empresa: { select: { id: true, nombre: true } },
         sector: { select: { id: true, nombre: true } },
-        categoria: { select: { id: true, codigo: true, nombre: true } },
-        convenio: { select: { id: true, nombre: true } },
         coordinador: { select: { id: true, nombre: true, apellido: true } },
         supervisor: { select: { id: true, nombre: true, apellido: true } },
         diagramas: {
@@ -184,6 +200,9 @@ router.post('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respons
       return;
     }
 
+    // Privilege-escalation guard: cannot create a user above the caller's level
+    if (!(await assertCanAssignRole(req, res, parsed.data.rol))) return;
+
     const passwordHash = await bcrypt.hash(parsed.data.password, 12);
 
     const usuario = await prisma.usuario.create({
@@ -195,8 +214,6 @@ router.post('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respons
         passwordHash,
         rol: parsed.data.rol,
         sectorId: parsed.data.sectorId ?? null,
-        categoriaId: parsed.data.categoriaId ?? null,
-        convenioId: parsed.data.convenioId ?? null,
         legajo: parsed.data.legajo ?? null,
         dni: parsed.data.dni ?? null,
         cuil: parsed.data.cuil ?? null,
@@ -212,12 +229,15 @@ router.post('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respons
       },
       include: {
         sector: { select: { id: true, nombre: true } },
-        categoria: { select: { id: true, codigo: true, nombre: true } },
       },
     });
 
     res.status(201).json(usuario);
   } catch (error) {
+    if ((error as { code?: string }).code === 'P2003') {
+      res.status(400).json({ error: 'Referencia inválida: sector, coordinador o supervisor inexistente' });
+      return;
+    }
     console.error('Error creating usuario:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
@@ -251,9 +271,14 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
 
     const d = parsed.data;
 
-    // Track salary field for audit
-    const oldSueldo = existing.sueldoBasicoOverride ? Number(existing.sueldoBasicoOverride) : null;
-    const newSueldo = d.sueldoBasicoOverride !== undefined ? (d.sueldoBasicoOverride ?? null) : undefined;
+    // Privilege-escalation guard: cannot promote a user above the caller's level.
+    // Also prevents an RRHH from editing/demoting someone already above them.
+    if (d.rol !== undefined && !(await assertCanAssignRole(req, res, d.rol))) return;
+    const targetCurrentLevel = await getRoleLevel(req.user!.empresaId, existing.rol);
+    if (targetCurrentLevel !== null && targetCurrentLevel > (req.user!.rolNivel ?? 0)) {
+      res.status(403).json({ error: 'No podés modificar a un usuario de nivel superior al tuyo' });
+      return;
+    }
 
     const usuario = await prisma.usuario.update({
       where: { id: req.params.id as string },
@@ -263,8 +288,6 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
         ...(d.email !== undefined && { email: d.email }),
         ...(d.rol !== undefined && { rol: d.rol }),
         ...(d.sectorId !== undefined && { sectorId: d.sectorId }),
-        ...(d.categoriaId !== undefined && { categoriaId: d.categoriaId }),
-        ...(d.convenioId !== undefined && { convenioId: d.convenioId }),
         ...(d.legajo !== undefined && { legajo: d.legajo }),
         ...(d.dni !== undefined && { dni: d.dni }),
         ...(d.cuil !== undefined && { cuil: d.cuil }),
@@ -273,7 +296,6 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
         ...(d.activo !== undefined && { activo: d.activo }),
         ...(d.coordinadorId !== undefined && { coordinadorId: d.coordinadorId }),
         ...(d.supervisorId !== undefined && { supervisorId: d.supervisorId }),
-        ...(d.sueldoBasicoOverride !== undefined && { sueldoBasicoOverride: d.sueldoBasicoOverride }),
         ...(d.fechaIngreso && { fechaIngreso: new Date(d.fechaIngreso) }),
         ...(d.fechaNacimiento && { fechaNacimiento: new Date(d.fechaNacimiento) }),
         ...(d.fechaFinPrueba !== undefined && d.fechaFinPrueba !== null && { fechaFinPrueba: new Date(d.fechaFinPrueba) }),
@@ -282,22 +304,12 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
       },
     });
 
-    // Audit: log salary change
-    if (newSueldo !== undefined && String(oldSueldo) !== String(newSueldo)) {
-      await logAuditoria({
-        entidad: 'Usuario',
-        entidadId: usuario.id,
-        accion: 'EDITAR',
-        campo: 'sueldoBasicoOverride',
-        valorAnterior: oldSueldo != null ? String(oldSueldo) : null,
-        valorNuevo: newSueldo != null ? String(newSueldo) : null,
-        descripcion: `Sueldo básico de ${existing.apellido}, ${existing.nombre}`,
-        usuarioId: req.user!.userId,
-      });
-    }
-
     res.json(usuario);
   } catch (error) {
+    if ((error as { code?: string }).code === 'P2003') {
+      res.status(400).json({ error: 'Referencia inválida: sector, coordinador o supervisor inexistente' });
+      return;
+    }
     console.error('Error updating usuario:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
@@ -350,20 +362,31 @@ router.patch('/:id/diagrama', requireLevel(LEVEL_RRHH), async (req: AuthRequest,
       return;
     }
 
-    // Deactivate current diagram assignment
-    await prisma.usuarioDiagrama.updateMany({
-      where: { usuarioId: req.params.id as string, activo: true },
-      data: { activo: false, fechaFin: new Date() },
+    // Validate the target diagrama exists in this empresa: prevents an FK 500 that
+    // would leave the user with no active diagram after the deactivation below.
+    const diagrama = await prisma.diagrama.findFirst({
+      where: { id: parsed.data.diagramaId, empresaId: req.user!.empresaId },
+      select: { id: true },
     });
+    if (!diagrama) {
+      res.status(400).json({ error: 'Diagrama inexistente' });
+      return;
+    }
 
-    // Create new assignment
-    const assignment = await prisma.usuarioDiagrama.create({
-      data: {
-        usuarioId: req.params.id as string,
-        diagramaId: parsed.data.diagramaId,
-        fechaInicio: new Date(parsed.data.fechaInicio),
-      },
-      include: { diagrama: true },
+    // Atomic: deactivate the current assignment and create the new one together.
+    const assignment = await prisma.$transaction(async (tx) => {
+      await tx.usuarioDiagrama.updateMany({
+        where: { usuarioId: req.params.id as string, activo: true },
+        data: { activo: false, fechaFin: new Date() },
+      });
+      return tx.usuarioDiagrama.create({
+        data: {
+          usuarioId: req.params.id as string,
+          diagramaId: parsed.data.diagramaId,
+          fechaInicio: new Date(parsed.data.fechaInicio),
+        },
+        include: { diagrama: true },
+      });
     });
 
     res.json(assignment);
@@ -460,8 +483,6 @@ router.get('/:id/ficha', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res:
       include: {
         empresa: { select: { nombre: true } },
         sector: true,
-        categoria: true,
-        convenio: true,
         coordinador: { select: { id: true, nombre: true, apellido: true } },
         supervisor: { select: { id: true, nombre: true, apellido: true } },
         diagramas: {
