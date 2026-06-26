@@ -12,25 +12,21 @@ import AppShell from '@/components/layout/AppShell';
 import UsuariosPage from '@/pages/admin/UsuariosPage';
 import SectoresPage from '@/pages/admin/SectoresPage';
 import DiagramasPage from '@/pages/admin/DiagramasPage';
-import ConveniosPage from '@/pages/admin/ConveniosPage';
 import PlanillasPage from '@/pages/planillas/PlanillasPage';
 import PlanillaDetailPage from '@/pages/planillas/PlanillaDetailPage';
 import FlujosPage from '@/pages/admin/FlujosPage';
 import AusenciasPage from '@/pages/ausencias/AusenciasPage';
 import AnalyticsPage from '@/pages/analytics/AnalyticsPage';
 import ConfigPage from '@/pages/admin/ConfigPage';
-import ConceptosPage from '@/pages/admin/ConceptosPage';
 import RolesPage from '@/pages/admin/RolesPage';
 import CierrePage from '@/pages/admin/CierrePage';
 import VacacionSaldosPage from '@/pages/admin/VacacionSaldosPage';
 import AprobacionesPage from '@/pages/aprobaciones/AprobacionesPage';
 import MensajesPage from '@/pages/MensajesPage';
-import RecibosPage from '@/pages/RecibosPage';
-import VacacionesGanttPage from '@/pages/VacacionesGanttPage';
+import CalendarioEquipoPage from '@/pages/CalendarioEquipoPage';
 import AlertasPage from '@/pages/AlertasPage';
 import CapacitacionesPage from '@/pages/CapacitacionesPage';
 import AuditoriaPage from '@/pages/AuditoriaPage';
-import LiquidacionPage from '@/pages/LiquidacionPage';
 import EquipoPage from '@/pages/EquipoPage';
 import CambiosDiagramaPage from '@/pages/CambiosDiagramaPage';
 import MisSolicitudesPage from '@/pages/MisSolicitudesPage';
@@ -142,8 +138,9 @@ export default function App() {
               <Route path="/ausencias" element={<AusenciasPage />} />
               <Route path="/aprobaciones" element={<AprobacionesPage />} />
               <Route path="/mensajes" element={<MensajesPage />} />
-              <Route path="/recibos" element={<RecibosPage />} />
-              <Route path="/vacaciones/gantt" element={<VacacionesGanttPage />} />
+              <Route path="/calendario" element={<CalendarioEquipoPage />} />
+              <Route path="/vacaciones/gantt" element={<Navigate to="/calendario" replace />} />
+              <Route path="/disponibilidad" element={<Navigate to="/calendario" replace />} />
               <Route path="/capacitaciones" element={<CapacitacionesPage />} />
               <Route path="/equipo" element={<EquipoPage />} />
               <Route path="/cambios-diagrama" element={<CambiosDiagramaPage />} />
@@ -154,16 +151,13 @@ export default function App() {
               <Route path="/admin/usuarios" element={<UsuariosPage />} />
               <Route path="/admin/sectores" element={<SectoresPage />} />
               <Route path="/admin/diagramas" element={<DiagramasPage />} />
-              <Route path="/admin/convenios" element={<ConveniosPage />} />
               <Route path="/admin/config" element={<ConfigPage />} />
               <Route path="/admin/flujos" element={<FlujosPage />} />
-              <Route path="/admin/conceptos" element={<ConceptosPage />} />
               <Route path="/admin/roles" element={<RolesPage />} />
               <Route path="/admin/cierre" element={<CierrePage />} />
               <Route path="/admin/vacacion-saldos" element={<VacacionSaldosPage />} />
               <Route path="/admin/alertas" element={<AlertasPage />} />
               <Route path="/admin/auditoria" element={<AuditoriaPage />} />
-              <Route path="/admin/liquidacion" element={<LiquidacionPage />} />
             </Route>
           </Route>
 
