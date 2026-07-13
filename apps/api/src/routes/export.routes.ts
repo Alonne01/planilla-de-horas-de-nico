@@ -22,7 +22,6 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
             id: true, empresaId: true,
             nombre: true, apellido: true, legajo: true,
             sector: { select: { nombre: true } },
-            categoria: { select: { nombre: true, codigo: true } },
             diagramas: {
               where: { activo: true },
               take: 1,
@@ -119,10 +118,6 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
     sheet.getCell('G7').value = `Diagrama: ${diagramaNombre ?? '—'}`;
     sheet.getCell('G7').font = { bold: true, size: 10 };
 
-    sheet.getCell('J7').value = 'Categoría:';
-    sheet.getCell('J7').font = { bold: true, size: 10 };
-    sheet.getCell('K7').value = u.categoria?.codigo ?? '—';
-    sheet.getCell('K7').font = { size: 10 };
 
     // ─── Rows 9-11: Column headers (merged vertically) ───
     const headerFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2D5F8A' } };
@@ -498,8 +493,6 @@ router.post('/cierre', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
       select: {
         id: true, nombre: true, apellido: true, legajo: true, rol: true,
         sector: { select: { id: true, nombre: true } },
-        categoria: { select: { nombre: true } },
-        convenio: { select: { nombre: true } },
       },
       orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
     });

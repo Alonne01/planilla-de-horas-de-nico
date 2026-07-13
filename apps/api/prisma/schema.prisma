@@ -76,20 +76,6 @@ enum ContratoTipo {
   EVENTUAL
 }
 
-enum CctTipo {
-  PETROLEROS_PRIVADOS_644
-  PETROLEROS_JERARQUICOS_637
-  PERSONALIZADO
-}
-
-enum ConceptoTipo {
-  REMUNERATIVO_FIJO
-  REMUNERATIVO_VARIABLE
-  NO_REMUNERATIVO
-  RETENCION
-  DESCUENTO
-}
-
 // ═══════════════════════════════════════════════════════
 // EMPRESA
 // ═══════════════════════════════════════════════════════
@@ -105,7 +91,6 @@ model Empresa {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   sectores              Sector[]
-  convenios             Convenio[]
   usuarios              Usuario[]
   diagramas             Diagrama[]
   flujos                FlujoAprobacion[]
@@ -197,95 +182,6 @@ model Sector {
   wentopGestores     WentopGestor[]
 
   @@map("sectores")
-}
-
-// ═══════════════════════════════════════════════════════
-// CONVENIO COLECTIVO (CCT)
-// ═══════════════════════════════════════════════════════
-
-model Convenio {
-  id           String    @id @default(uuid())
-  empresaId    String    @map("empresa_id")
-  nombre       String
-  tipo         CctTipo
-  vigenteDesde DateTime  @map("vigente_desde")
-  vigenteHasta DateTime? @map("vigente_hasta")
-  activo       Boolean   @default(true)
-  createdAt    DateTime  @default(now()) @map("created_at")
-
-  empresa    Empresa            @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  categorias Categoria[]
-  conceptos  ConceptoSalarial[]
-  usuarios   Usuario[]
-
-  @@map("convenios")
-}
-
-// ═══════════════════════════════════════════════════════
-// CATEGORIA LABORAL
-// ═══════════════════════════════════════════════════════
-
-model Categoria {
-  id          String  @id @default(uuid())
-  convenioId  String  @map("convenio_id")
-  codigo      String
-  nombre      String
-  descripcion String?
-  orden       Int     @default(0)
-  activo      Boolean @default(true)
-
-  convenio Convenio        @relation(fields: [convenioId], references: [id], onDelete: Cascade)
-  usuarios Usuario[]
-  valores  ConceptoValor[]
-
-  @@map("categorias")
-}
-
-// ═══════════════════════════════════════════════════════
-// CONCEPTOS SALARIALES
-// ═══════════════════════════════════════════════════════
-
-model ConceptoSalarial {
-  id               String       @id @default(uuid())
-  convenioId       String       @map("convenio_id")
-  codigo           String
-  nombre           String
-  tipo             ConceptoTipo
-  descripcion      String?
-  esPorcentual     Boolean      @default(false) @map("es_porcentual")
-  porcentajeBase   Decimal?     @map("porcentaje_base") @db.Decimal(6, 4)
-  montoFijo        Decimal?     @map("monto_fijo") @db.Decimal(12, 2)
-  baseCalculo      String?      @map("base_calculo")
-  aplicaSiempre    Boolean      @default(true) @map("aplica_siempre")
-  condicionFormula String?      @map("condicion_formula")
-  esRemunerativo   Boolean      @default(true) @map("es_remunerativo")
-  visibleEmpleado  Boolean      @default(true) @map("visible_empleado")
-  editableRrhh     Boolean      @default(true) @map("editable_rrhh")
-  orden            Int          @default(0)
-  activo           Boolean      @default(true)
-  createdAt        DateTime     @default(now()) @map("created_at")
-  updatedAt        DateTime     @updatedAt @map("updated_at")
-
-  convenio Convenio        @relation(fields: [convenioId], references: [id], onDelete: Cascade)
-  valores  ConceptoValor[]
-
-  @@map("conceptos_salariales")
-}
-
-model ConceptoValor {
-  id           String    @id @default(uuid())
-  conceptoId   String    @map("concepto_id")
-  categoriaId  String?   @map("categoria_id")
-  vigenteDesde DateTime  @map("vigente_desde")
-  vigenteHasta DateTime? @map("vigente_hasta")
-  monto        Decimal?  @db.Decimal(12, 2)
-  porcentaje   Decimal?  @db.Decimal(6, 4)
-  createdAt    DateTime  @default(now()) @map("created_at")
-
-  concepto  ConceptoSalarial @relation(fields: [conceptoId], references: [id], onDelete: Cascade)
-  categoria Categoria?       @relation(fields: [categoriaId], references: [id])
-
-  @@map("conceptos_valores")
 }
 
 // ═══════════════════════════════════════════════════════
@@ -394,8 +290,6 @@ model Usuario {
   id                   String       @id @default(uuid())
   empresaId            String       @map("empresa_id")
   sectorId             String?      @map("sector_id")
-  categoriaId          String?      @map("categoria_id")
-  convenioId           String?      @map("convenio_id")
   nombre               String
   apellido             String
   email                String       @unique
@@ -415,7 +309,6 @@ model Usuario {
   supervisorId         String?      @map("supervisor_id")
   diasVacacionesSaldo  Int          @default(0) @map("dias_vacaciones_saldo")
   diasVacacionesUsados Int          @default(0) @map("dias_vacaciones_usados")
-  sueldoBasicoOverride Decimal?     @map("sueldo_basico_override") @db.Decimal(12, 2)
   activo               Boolean      @default(true)
   primerLogin          Boolean      @default(true) @map("primer_login")
   diagramaColor        String?      @map("diagrama_color") // AZUL | AMARILLO | BASE — visual badge for Well Testing
@@ -424,8 +317,6 @@ model Usuario {
 
   empresa            Empresa             @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   sector             Sector?             @relation(fields: [sectorId], references: [id])
-  categoria          Categoria?          @relation(fields: [categoriaId], references: [id])
-  convenio           Convenio?           @relation(fields: [convenioId], references: [id])
   coordinador        Usuario?            @relation("coordinador_subordinados", fields: [coordinadorId], references: [id])
   supervisor         Usuario?            @relation("supervisor_subordinados", fields: [supervisorId], references: [id])
   subordinadosCoord  Usuario[]           @relation("coordinador_subordinados")
@@ -446,7 +337,6 @@ model Usuario {
   flujoAsignaciones  FlujoAsignacion[]   @relation("flujo_asignaciones_usuario")
   exportaciones      Exportacion[]
   exportacionPlantillas ExportacionPlantilla[]
-  recibosSueldo      ReciboSueldo[]
   capacitaciones     EmpleadoCapacitacion[]
   passwordResetTokens PasswordResetToken[]
   refreshTokens      RefreshToken[]
@@ -500,7 +390,6 @@ model Planilla {
   flujo       FlujoAprobacion?    @relation(fields: [flujoId], references: [id])
   registros   RegistroHoras[]
   historial   PlanillaHistorial[]
-  reciboSueldo ReciboSueldo?
 
   @@map("planillas")
 }
@@ -825,29 +714,6 @@ model Proyecto {
   registros RegistroHoras[]
 
   @@map("proyectos")
-}
-
-// ═══════════════════════════════════════════════════════
-// ADDENDUM — RECIBOS DE SUELDO
-// ═══════════════════════════════════════════════════════
-
-model ReciboSueldo {
-  id                String    @id @default(uuid())
-  planillaId        String    @unique @map("planilla_id")
-  usuarioId         String    @map("usuario_id")
-  pdfUrl            String?   @map("pdf_url")
-  firmadoEmpleadoAt DateTime? @map("firmado_empleado_at")
-  conforme          Boolean?
-  observacionFirma  String?   @map("observacion_firma")
-  ipFirma           String?   @map("ip_firma")
-  userAgentFirma    String?   @map("user_agent_firma")
-  hashContenido     String?   @map("hash_contenido")
-  createdAt         DateTime  @default(now()) @map("created_at")
-
-  planilla Planilla @relation(fields: [planillaId], references: [id])
-  usuario  Usuario  @relation(fields: [usuarioId], references: [id])
-
-  @@map("recibos_sueldo")
 }
 
 // ═══════════════════════════════════════════════════════

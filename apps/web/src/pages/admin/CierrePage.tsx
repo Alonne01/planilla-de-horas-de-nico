@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
 import {
   Lock, FileText, Loader2, CheckCircle2,
-  DollarSign, Download, Eye, FileSpreadsheet,
+  Download, FileSpreadsheet,
   AlertTriangle, Users, Filter, RotateCcw, ShieldAlert
 } from 'lucide-react';
 import { toast } from '@/stores/toastStore';
@@ -14,15 +14,6 @@ import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSele
 interface Sector {
   id: string;
   nombre: string;
-}
-
-interface ReciboPreview {
-  usuario: { nombre: string; apellido: string; legajo: string; categoria: string; convenio: string };
-  periodo: { inicio: string; fin: string };
-  horas: { normales: number; extra50: number; extra100: number; viaje: number; diasCampo: number; diasBase: number };
-  conceptos: { codigo: string; nombre: string; tipo: string; monto: number; esRemunerativo: boolean }[];
-  retenciones: { codigo: string; nombre: string; monto: number }[];
-  totales: { remunerativo: number; noRemunerativo: number; bruto: number; retenciones: number; neto: number };
 }
 
 interface Planilla {
@@ -65,7 +56,6 @@ export default function CierrePage() {
   const [pendientesFilter, setPendientesFilter] = useState('');
 
   // Aprobadas tab state
-  const [previewPlanillaId, setPreviewPlanillaId] = useState<string | null>(null);
 
   // Cierre confirmation state
   const [cerrarTarget, setCerrarTarget] = useState<Planilla | null>(null);
@@ -114,13 +104,6 @@ export default function CierrePage() {
       return { ...u, estadoPlanilla: planilla?.estado ?? 'Sin planilla' };
     });
 
-  const { data: preview } = useQuery<ReciboPreview>({
-    queryKey: ['recibo-preview', previewPlanillaId],
-    queryFn: async () => (await api.get(`/recibos/preview/${previewPlanillaId}`)).data,
-    enabled: !!previewPlanillaId,
-  });
-
-  const fmt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   // Toggle sector selection
   const toggleSector = (id: string) => {
@@ -485,12 +468,6 @@ export default function CierrePage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => setPreviewPlanillaId(p.id)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted/30 transition-colors border border-border"
-                      >
-                        <Eye className="h-3 w-3" /> Preview
-                      </button>
-                      <button
                         onClick={async () => {
                           try {
                             const res = await api.get(`/export/planilla/${p.id}`, { responseType: 'blob' });
@@ -615,101 +592,6 @@ export default function CierrePage() {
         </div>
       )}
 
-      {/* ─── Recibo Preview Modal ─── */}
-      {previewPlanillaId && preview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 overflow-y-auto">
-          <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <DollarSign className="h-5 w-5 text-emerald-400" /> Recibo de Sueldo (Preview)
-              </h2>
-              <button onClick={() => setPreviewPlanillaId(null)} className="p-1 rounded-lg hover:bg-accent text-muted-foreground">&times;</button>
-            </div>
-            <div className="p-4 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">Empleado</p>
-                  <p className="text-sm font-medium">{preview.usuario.apellido} {preview.usuario.nombre}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Categoría</p>
-                  <p className="text-sm font-medium">{preview.usuario.categoria ?? '—'}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Período</p>
-                  <p className="text-sm">{new Date(preview.periodo.inicio).toLocaleDateString('es-AR')} — {new Date(preview.periodo.fin).toLocaleDateString('es-AR')}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Convenio</p>
-                  <p className="text-sm">{preview.usuario.convenio ?? '—'}</p>
-                </div>
-              </div>
-
-              <div className="rounded-lg bg-muted/20 p-3">
-                <p className="text-xs font-medium text-muted-foreground mb-2">HORAS</p>
-                <div className="grid grid-cols-3 gap-2 text-sm">
-                  <div><span className="text-muted-foreground">Normales:</span> <span className="font-mono font-bold">{preview.horas.normales.toFixed(1)}</span></div>
-                  <div><span className="text-amber-400">E50%:</span> <span className="font-mono font-bold">{preview.horas.extra50.toFixed(1)}</span></div>
-                  <div><span className="text-red-400">E100%:</span> <span className="font-mono font-bold">{preview.horas.extra100.toFixed(1)}</span></div>
-                  <div><span className="text-muted-foreground">Viaje:</span> <span className="font-mono">{preview.horas.viaje.toFixed(1)}</span></div>
-                  <div><span className="text-emerald-400">Campo:</span> <span className="font-mono">{preview.horas.diasCampo}d</span></div>
-                  <div><span className="text-blue-400">Base:</span> <span className="font-mono">{preview.horas.diasBase}d</span></div>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2">HABERES</p>
-                <div className="space-y-1">
-                  {preview.conceptos.map((c, i) => (
-                    <div key={i} className="flex justify-between text-sm py-1">
-                      <span className={cn(c.esRemunerativo ? 'text-foreground' : 'text-blue-400')}>{c.nombre}</span>
-                      <span className="font-mono">${fmt(c.monto)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2">RETENCIONES</p>
-                <div className="space-y-1">
-                  {preview.retenciones.map((r, i) => (
-                    <div key={i} className="flex justify-between text-sm py-1 text-red-400">
-                      <span>{r.nombre}</span>
-                      <span className="font-mono">-${fmt(r.monto)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="border-t border-border pt-3 space-y-1">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Total Remunerativo</span>
-                  <span className="font-mono">${fmt(preview.totales.remunerativo)}</span>
-                </div>
-                {preview.totales.noRemunerativo > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">No Remunerativo</span>
-                    <span className="font-mono">${fmt(preview.totales.noRemunerativo)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Total Bruto</span>
-                  <span className="font-mono">${fmt(preview.totales.bruto)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-red-400">Retenciones</span>
-                  <span className="font-mono text-red-400">-${fmt(preview.totales.retenciones)}</span>
-                </div>
-                <div className="flex justify-between text-lg font-bold pt-2 border-t border-border">
-                  <span className="text-emerald-400">NETO A COBRAR</span>
-                  <span className="font-mono text-emerald-400">${fmt(preview.totales.neto)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ─── Cerrar Confirmation Modal (double confirmation) ─── */}
       {cerrarTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -732,8 +614,7 @@ export default function CierrePage() {
                 <p>Esta acción:</p>
                 <ul className="list-disc ml-4 mt-1 space-y-1">
                   <li>Bloquea la planilla permanentemente</li>
-                  <li>Habilita la generación del recibo de sueldo</li>
-                  <li>Incluye la planilla en la liquidación</li>
+                  <li>Incluye la planilla en la exportación del período</li>
                 </ul>
               </div>
 

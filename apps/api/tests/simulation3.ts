@@ -8,13 +8,10 @@
  *   S.  Admin Config          — GET, PUT
  *   T.  Admin Alertas         — GET, POST, PUT, PATCH toggle, DELETE
  *   U.  Admin Flujos          — full CRUD + pasos + asignaciones
- *   V.  Admin Convenios       — convenio, categorías, conceptos, valor, historial CRUD
  *   W.  Usuarios CRUD         — create, update, ficha, reset-password, diagrama, deactivate
  *   X.  Test Bed              — create + approve planilla (base for Y–BB)
- *   Y.  Export XLSX           — planilla, sector, pendientes, POST cierre, recibo preview
+ *   Y.  Export XLSX           — planilla, sector, pendientes, POST cierre
  *   AA. Exportaciones log     — GET list, POST log, POST cierre (closes planilla → CERRADA)
- *   Z.  Liquidacion           — bejerman, general, planillas-excel (both modes, needs CERRADA)
- *   BB. Recibos               — mis-recibos, RRHH list, detalle, firmar
  *   CC. Backup                — GET status
  *
  * Requirements:
@@ -617,138 +614,6 @@ async function scenarioU_AdminFlujos(adminSession: Session): Promise<void> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SCENARIO V: Admin Convenios + Categorías + Conceptos
-// ═══════════════════════════════════════════════════════════════════════════════
-
-async function scenarioV_AdminConvenios(rrhhSession: Session): Promise<void> {
-  const label = 'V:AdminConvenios';
-  console.log(c('CYAN', '\n── Scenario V: Admin Convenios CRUD ────────────────────────────────────'));
-
-  let convenioId = '';
-  let categoriaId = '';
-  let conceptoId = '';
-
-  await scenario('V1 GET /admin/convenios (list)', label, async () => {
-    const { status, body } = await get('/admin/convenios', rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    assert(Array.isArray(body), 'Not an array');
-  });
-
-  await scenario('V2 POST /admin/convenios (create)', label, async () => {
-    const { status, body } = await post('/admin/convenios', {
-      nombre: `SIM3-CCT-Prueba-${Date.now()}`,
-      tipo: 'PERSONALIZADO',
-      vigenteDesde: '2020-01-01T00:00:00.000Z',
-    }, rrhhSession.token);
-    assertStatus(status, 201, JSON.stringify(body));
-    const b = body as Record<string, unknown>;
-    assert(typeof b.id === 'string', 'No id');
-    convenioId = b.id as string;
-    // No DELETE endpoint for convenios — just leave it
-    log('ℹ', `Convenio ${convenioId} created (no DELETE route, will remain in DB)`, label);
-  });
-
-  await scenario('V3 GET /admin/convenios/:id (single)', label, async () => {
-    if (!convenioId) throw new Error('convenioId not set (V2 failed)');
-    const { status, body } = await get(`/admin/convenios/${convenioId}`, rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    const b = body as Record<string, unknown>;
-    assert(b.id === convenioId, 'Wrong convenio returned');
-  });
-
-  await scenario('V4 PUT /admin/convenios/:id (update)', label, async () => {
-    if (!convenioId) throw new Error('convenioId not set (V2 failed)');
-    const { status, body } = await put(`/admin/convenios/${convenioId}`, {
-      nombre: `SIM3-CCT-Prueba-Updated-${Date.now()}`,
-    }, rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-  });
-
-  await scenario('V5 GET /admin/categorias (list)', label, async () => {
-    const { status, body } = await get('/admin/categorias', rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    assert(Array.isArray(body), 'Not an array');
-  });
-
-  await scenario('V6 POST /admin/categorias (create)', label, async () => {
-    if (!convenioId) throw new Error('convenioId not set (V2 failed)');
-    const { status, body } = await post('/admin/categorias', {
-      convenioId,
-      codigo: `CAT-S3-${Date.now().toString().slice(-5)}`,
-      nombre: 'Categoría Sim3',
-      descripcion: 'Categoría de prueba',
-      orden: 1,
-    }, rrhhSession.token);
-    assertStatus(status, 201, JSON.stringify(body));
-    const b = body as Record<string, unknown>;
-    assert(typeof b.id === 'string', 'No id');
-    categoriaId = b.id as string;
-  });
-
-  await scenario('V7 PUT /admin/categorias/:id (update)', label, async () => {
-    if (!categoriaId) throw new Error('categoriaId not set (V6 failed)');
-    const { status, body } = await put(`/admin/categorias/${categoriaId}`, {
-      nombre: 'Categoría Sim3 Actualizada',
-      orden: 2,
-    }, rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-  });
-
-  await scenario('V8 GET /admin/conceptos (list)', label, async () => {
-    const { status, body } = await get('/admin/conceptos', rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    assert(Array.isArray(body), 'Not an array');
-  });
-
-  await scenario('V9 POST /admin/conceptos (create)', label, async () => {
-    if (!convenioId) throw new Error('convenioId not set (V2 failed)');
-    const { status, body } = await post('/admin/conceptos', {
-      convenioId,
-      codigo: `CNC-S3-${Date.now().toString().slice(-5)}`,
-      nombre: 'Concepto Sim3 Test',
-      tipo: 'REMUNERATIVO_FIJO',
-      descripcion: 'Concepto salarial de prueba',
-      esPorcentual: false,
-      montoFijo: 5000,
-      esRemunerativo: true,
-      visibleEmpleado: true,
-      orden: 1,
-    }, rrhhSession.token);
-    assertStatus(status, 201, JSON.stringify(body));
-    const b = body as Record<string, unknown>;
-    assert(typeof b.id === 'string', 'No id');
-    conceptoId = b.id as string;
-  });
-
-  await scenario('V10 PUT /admin/conceptos/:id (update)', label, async () => {
-    if (!conceptoId) throw new Error('conceptoId not set (V9 failed)');
-    const { status, body } = await put(`/admin/conceptos/${conceptoId}`, {
-      nombre: 'Concepto Sim3 Actualizado',
-      montoFijo: 6000,
-    }, rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-  });
-
-  await scenario('V11 PATCH /admin/conceptos/:id/valor (add value)', label, async () => {
-    if (!conceptoId) throw new Error('conceptoId not set (V9 failed)');
-    const { status, body } = await patch(`/admin/conceptos/${conceptoId}/valor`, {
-      vigenteDesde: '2024-01-01T00:00:00.000Z',
-      monto: 7500,
-    }, rrhhSession.token);
-    assertStatus(status, 201, JSON.stringify(body));
-    const b = body as Record<string, unknown>;
-    assert(typeof b.id === 'string', 'No valor id');
-  });
-
-  await scenario('V12 GET /admin/conceptos/:id/historial', label, async () => {
-    if (!conceptoId) throw new Error('conceptoId not set (V9 failed)');
-    const { status, body } = await get(`/admin/conceptos/${conceptoId}/historial`, rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    assert(Array.isArray(body), 'Not an array');
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // SCENARIO W: Usuarios CRUD
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -973,13 +838,6 @@ async function scenarioY_ExportXLSX(
     }, rrhhSession.token);
     assertStatus(status, 200, JSON.stringify(body));
   });
-
-  await scenario('Y5 GET /recibos/preview/:planillaId (salary preview)', label, async () => {
-    const { status, body } = await get(`/recibos/preview/${data.planillaId}`, rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    const b = body as Record<string, unknown>;
-    assert(b.totales !== undefined, 'Missing totales in preview');
-  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1025,121 +883,6 @@ async function scenarioAA_Exportaciones(
     assert(typeof b.planillasCerradas === 'number' && (b.planillasCerradas as number) >= 1,
       `Expected ≥1 planillas cerradas, got ${b.planillasCerradas}`);
     log('ℹ', `Closed ${b.planillasCerradas} planilla(s), created ${b.recibosCreados} recibo(s)`, label);
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SCENARIO Z: Liquidacion exports (needs CERRADA planilla from AA3)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-async function scenarioZ_Liquidacion(
-  rrhhSession: Session,
-  data: PlanillaTestData,
-): Promise<void> {
-  const label = 'Z:Liquidacion';
-  console.log(c('CYAN', '\n── Scenario Z: Liquidacion exports ─────────────────────────────────────'));
-
-  await scenario('Z1 POST /liquidacion/bejerman (CSV)', label, async () => {
-    const { status, body } = await post('/liquidacion/bejerman', {
-      periodoInicio: data.periodoInicio,
-      periodoFin: data.periodoFin,
-    }, rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    assert(typeof body === 'string' || typeof body === 'object', 'Unexpected body type');
-  });
-
-  await scenario('Z2 POST /liquidacion/general (CSV)', label, async () => {
-    const { status, body } = await post('/liquidacion/general', {
-      periodoInicio: data.periodoInicio,
-      periodoFin: data.periodoFin,
-    }, rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-  });
-
-  await scenario('Z3 POST /liquidacion/planillas-excel (resumen)', label, async () => {
-    const { status, body } = await post('/liquidacion/planillas-excel', {
-      periodoInicio: data.periodoInicio,
-      periodoFin: data.periodoFin,
-      modo: 'resumen',
-    }, rrhhSession.token);
-    if (status === 404) {
-      // Acceptable if no CERRADA planillas in exact period (may differ by period boundaries)
-      log('⚠', `Got 404 — no CERRADA planillas in exact period (acceptable)`, label);
-      return;
-    }
-    assertStatus(status, 200, JSON.stringify(body));
-  });
-
-  await scenario('Z4 POST /liquidacion/planillas-excel (detalle)', label, async () => {
-    const { status, body } = await post('/liquidacion/planillas-excel', {
-      periodoInicio: data.periodoInicio,
-      periodoFin: data.periodoFin,
-      modo: 'detalle',
-    }, rrhhSession.token);
-    if (status === 404) {
-      log('⚠', `Got 404 — no CERRADA planillas in exact period (acceptable)`, label);
-      return;
-    }
-    assertStatus(status, 200, JSON.stringify(body));
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SCENARIO BB: Recibos
-// ═══════════════════════════════════════════════════════════════════════════════
-
-async function scenarioBB_Recibos(
-  francoSession: Session,
-  rrhhSession: Session,
-  data: PlanillaTestData,
-): Promise<void> {
-  const label = 'BB:Recibos';
-  console.log(c('CYAN', '\n── Scenario BB: Recibos ────────────────────────────────────────────────'));
-
-  let reciboId = '';
-
-  await scenario('BB1 GET /recibos/mis-recibos (as employee)', label, async () => {
-    const { status, body } = await get('/recibos/mis-recibos', francoSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    assert(Array.isArray(body), 'Not an array');
-    const arr = body as Array<Record<string, unknown>>;
-    // Find the recibo for our planilla (created by exportaciones/cierre)
-    const found = arr.find(r => (r.planilla as Record<string, unknown>)?.id === data.planillaId);
-    if (found) {
-      reciboId = found.id as string;
-      log('ℹ', `Found recibo ${reciboId}`, label);
-    }
-  });
-
-  await scenario('BB2 GET /recibos (RRHH list all)', label, async () => {
-    const { status, body } = await get('/recibos', rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    assert(Array.isArray(body), 'Not an array');
-    // Pick recibo ID if not found in BB1
-    if (!reciboId) {
-      const arr = body as Array<Record<string, unknown>>;
-      const found = arr.find(r => r.planillaId === data.planillaId);
-      if (found) reciboId = found.id as string;
-    }
-  });
-
-  await scenario('BB3 GET /recibos/detalle/:id (RRHH)', label, async () => {
-    if (!reciboId) throw new Error('reciboId not set (BB1/BB2 found no recibo)');
-    const { status, body } = await get(`/recibos/detalle/${reciboId}`, rrhhSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    const b = body as Record<string, unknown>;
-    assert(b.id === reciboId, 'Wrong recibo returned');
-  });
-
-  await scenario('BB4 POST /recibos/:id/firmar (employee signs)', label, async () => {
-    if (!reciboId) throw new Error('reciboId not set (BB1/BB2 found no recibo)');
-    const { status, body } = await post(`/recibos/${reciboId}/firmar`, {
-      conforme: true,
-    }, francoSession.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    const b = body as Record<string, unknown>;
-    assert(b.firmadoEmpleadoAt !== null && b.firmadoEmpleadoAt !== undefined, 'No firmadoEmpleadoAt');
-    assert(b.conforme === true, 'conforme should be true');
   });
 }
 
@@ -1358,7 +1101,6 @@ async function main() {
   await scenarioS_AdminConfig(adminSession);
   await scenarioT_AdminAlertas(rrhhSession);
   await scenarioU_AdminFlujos(adminSession);
-  await scenarioV_AdminConvenios(rrhhSession);
   await scenarioW_UsuariosCRUD(rrhhSession, adminSession, diagramaId);
 
   // Test bed: create + approve a planilla
@@ -1367,8 +1109,6 @@ async function main() {
   if (planillaData) {
     await scenarioY_ExportXLSX(rrhhSession, planillaData);
     await scenarioAA_Exportaciones(rrhhSession, planillaData);
-    await scenarioZ_Liquidacion(rrhhSession, planillaData);
-    await scenarioBB_Recibos(francoSession, rrhhSession, planillaData);
   } else {
     log(c('YELLOW', '⚠'), 'Test bed planilla setup failed — skipping Y, AA, Z, BB scenarios');
     for (const name of ['Y1','Y2','Y3','Y4','Y5','AA1','AA2','AA3','Z1','Z2','Z3','Z4','BB1','BB2','BB3','BB4']) {

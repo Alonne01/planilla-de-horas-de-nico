@@ -79,6 +79,30 @@ router.put('/leer-todas', async (req: AuthRequest, res: Response): Promise<void>
   }
 });
 
+// ─── DELETE /notificaciones/:id — delete one of the user's own ──
+router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    await prisma.notificacion.deleteMany({
+      where: { id: req.params.id as string, usuarioId: req.user!.userId },
+    });
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error deleting notificacion:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── DELETE /notificaciones — clear all of the user's own ──
+router.delete('/', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    await prisma.notificacion.deleteMany({ where: { usuarioId: req.user!.userId } });
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error clearing notificaciones:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ─── POST /notificaciones (admin/system) ─────────
 
 router.post('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {

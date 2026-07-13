@@ -24,14 +24,6 @@ async function main() {
   const sectorMap: Record<string, string> = {};
   for (const s of sectores) sectorMap[s.nombre] = s.id;
 
-  // Get convenios and categories
-  const convenios = await prisma.convenio.findMany({ where: { empresaId: empresa.id } });
-  const convenioPP = convenios.find(c => c.nombre.includes('644'));
-  const convenioPJ = convenios.find(c => c.nombre.includes('637'));
-
-  const categoriasPP = await prisma.categoria.findMany({ where: { convenioId: convenioPP?.id } });
-  const categoriasPJ = await prisma.categoria.findMany({ where: { convenioId: convenioPJ?.id } });
-
   // Find existing coordinador for Well Testing
   const existingCoord = await prisma.usuario.findFirst({
     where: { empresaId: empresa.id, rol: 'COORDINADOR', sector: { nombre: 'Well Testing' } },
@@ -82,9 +74,6 @@ async function main() {
       continue;
     }
 
-    const convenioCats = u.convenio === 'PP' ? categoriasPP : categoriasPJ;
-    const cat = convenioCats.find(c => c.codigo === u.cat);
-
     // Find coordinador for this sector
     let coordinadorId: string | null = null;
     if (u.rol === 'OPERADOR' || u.rol === 'SUPERVISOR') {
@@ -108,8 +97,6 @@ async function main() {
         legajo: `WT-${String(100 + created).padStart(4, '0')}`,
         tipoContrato: ContratoTipo.INDEFINIDO,
         fechaIngreso,
-        convenioId: u.convenio === 'PP' ? convenioPP?.id : convenioPJ?.id,
-        categoriaId: cat?.id ?? null,
         coordinadorId,
         diagramaColor: (u as any).diagramaColor ?? null,
       },

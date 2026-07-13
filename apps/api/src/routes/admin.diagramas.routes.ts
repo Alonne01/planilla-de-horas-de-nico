@@ -138,6 +138,20 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
       return;
     }
 
+    // Historical (inactive) assignments still reference this diagrama via FK, so a
+    // hard delete would throw P2003. Soft-delete instead to preserve history.
+    const historicalAssignments = await prisma.usuarioDiagrama.count({
+      where: { diagramaId: req.params.id },
+    });
+    if (historicalAssignments > 0) {
+      await prisma.diagrama.update({
+        where: { id: req.params.id },
+        data: { activo: false },
+      });
+      res.status(200).json({ softDeleted: true, message: 'Diagrama desactivado (conserva historial de asignaciones)' });
+      return;
+    }
+
     await prisma.diagrama.delete({ where: { id: req.params.id } });
     res.status(204).send();
   } catch (error) {

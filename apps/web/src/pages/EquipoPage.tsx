@@ -19,8 +19,6 @@ interface Empleado {
   primerLogin: boolean;
   diagramaColor: string | null;
   sector: { id: string; nombre: string } | null;
-  categoria: { id: string; codigo: string; nombre: string } | null;
-  convenio: { id: string; nombre: string } | null;
 }
 
 const ROL_COLORS: Record<string, string> = {
@@ -165,11 +163,6 @@ export default function EquipoPage() {
                 {emp.sector && (
                   <p className="flex items-center gap-1.5">
                     <Briefcase className="h-3 w-3" /> {emp.sector.nombre}
-                  </p>
-                )}
-                {canSeeRoleInfo && emp.categoria && (
-                  <p className="flex items-center gap-1.5">
-                    <Briefcase className="h-3 w-3" /> {emp.categoria.nombre}
                   </p>
                 )}
                 <p className="flex items-center gap-1.5">

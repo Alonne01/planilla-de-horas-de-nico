@@ -908,27 +908,8 @@ async function main() {
     assertStatus(status, 200);
   });
 
-  // ── 8. Liquidación / Export ───────────────────────
-  console.log('\n── Liquidación / Export ────────────────');
-
-  await test('POST /liquidacion/tango — exportar período (formato pipe)', async () => {
-    // Use a period that has closed planillas
-    const liqInicio = daysAgo(120).toISOString();
-    const liqFin = daysAgo(80).toISOString();
-    const { status, body } = await post(
-      '/liquidacion/tango',
-      { periodoInicio: liqInicio, periodoFin: liqFin },
-      rrhhSession.token,
-    );
-    if (status === 404 || status === 400) {
-      log('⚠', `Liquidación: ${JSON.stringify(body)}`);
-      return; // No data in period is ok
-    }
-    assertStatus(status, 200, JSON.stringify(body));
-    // Response should be text with pipe-delimited content
-    const text = body as string;
-    log('ℹ', `Respuesta liquidación: ${String(text).substring(0, 100)}...`);
-  });
+  // ── 8. Export ─────────────────────────────────────
+  console.log('\n── Export ──────────────────────────────');
 
   await test('GET /exportaciones — lista exportaciones previas', async () => {
     const { status, body } = await get('/exportaciones', rrhhSession.token, 200);

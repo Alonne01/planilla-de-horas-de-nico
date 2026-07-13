@@ -122,8 +122,9 @@ object CalculoSalarialUtil {
             extra100 = max(0.0, hsTrabajadas - 12.0)         // Hora 13 en adelante
         }
 
-        // Horas de viaje separadas SOLO si no maneja (se pagan al 47%)
-        if (esCampo && !reg.maneja && reg.horasViaje > 0.0) {
+        // Horas de viaje separadas SOLO si no maneja (se pagan al 47%).
+        // Incluye el viaje a Base (+1h).
+        if ((esBase || (esCampo && !reg.maneja)) && reg.horasViaje > 0.0) {
             viaje = reg.horasViaje
         }
 

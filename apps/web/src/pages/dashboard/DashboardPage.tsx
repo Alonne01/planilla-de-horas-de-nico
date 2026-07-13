@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Clock, Palmtree, AlertTriangle,
   Loader2, TrendingUp, FileText, CheckCircle2,
-  ArrowRight, MapPin, Send, CalendarCheck2, Shield, PenLine, BarChart3
+  ArrowRight, MapPin, Send, CalendarCheck2, Shield, BarChart3
 } from 'lucide-react';
 import { ESTADO_STYLES } from '@/constants/planillaConstants';
 
@@ -34,7 +34,6 @@ interface DashboardData {
     totalHorasExtra100: string;
   }[];
   horasTrend: { label: string; normales: number; extra50: number; extra100: number }[];
-  recibos: { total: number; pendientesFirma: number; ultimoFirmado: string | null }[];
 }
 
 export default function DashboardPage() {
@@ -44,18 +43,16 @@ export default function DashboardPage() {
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ['dashboard'],
     queryFn: async () => {
-      const [planillasRes, saldoRes, ausenciasRes, compSaldoRes, recibosRes] = await Promise.all([
+      const [planillasRes, saldoRes, ausenciasRes, compSaldoRes] = await Promise.all([
         api.get('/planillas'),
         api.get('/vacaciones/saldo').catch(() => ({ data: { disponible: 0, usados: 0, pendiente: 0 } })),
         api.get('/ausencias').catch(() => ({ data: [] })),
         api.get('/vacacion-saldos/mi-saldo').catch(() => ({ data: { compensatoriosDisponible: 0, compensatoriosAcumulados: 0, compensatoriosUsados: 0, compensatoriosPendientes: 0 } })),
-        api.get('/recibos/mis-recibos').catch(() => ({ data: [] })),
       ]);
 
       const planillas = planillasRes.data;
       const saldo = saldoRes.data;
       const compSaldo = compSaldoRes.data;
-      const recibosData = recibosRes.data as { firmadoEmpleadoAt: string | null }[];
 
       // Find current period planilla
       const planillaActual = planillas.find((p: { estado: string }) =>
@@ -83,9 +80,6 @@ export default function DashboardPage() {
         };
       });
 
-      // Recibos summary
-      const pendientesFirma = recibosData.filter((r) => !r.firmadoEmpleadoAt).length;
-
       return {
         planillaActual: planillaActual ? {
           ...planillaActual,
@@ -105,7 +99,6 @@ export default function DashboardPage() {
         ausencias: Object.entries(ausMap).map(([tipo, v]) => ({ tipo, ...v })),
         planillasRecientes: planillas.slice(0, 5),
         horasTrend,
-        recibos: [{ total: recibosData.length, pendientesFirma, ultimoFirmado: null }],
       };
     },
   });
@@ -311,7 +304,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Quick actions + campo/base + recibos */}
+        {/* Quick actions + campo/base */}
         <div className="space-y-4">
           {/* Campo / base info */}
           {pa && (
@@ -342,38 +335,6 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Recibos widget */}
-          {(data?.recibos[0]?.total ?? 0) > 0 && (
-            <button
-              onClick={() => navigate('/recibos')}
-              className="w-full rounded-xl border border-border bg-card p-5 hover:border-primary/30 transition-colors text-left"
-            >
-              <h2 className="text-lg font-semibold text-foreground mb-2 flex items-center gap-2">
-                <FileText className="h-5 w-5 text-primary" /> Mis Recibos
-              </h2>
-              <div className="flex items-center gap-4">
-                <div>
-                  <p className="text-2xl font-bold">{data!.recibos[0].total}</p>
-                  <p className="text-xs text-muted-foreground">recibos</p>
-                </div>
-                {data!.recibos[0].pendientesFirma > 0 && (
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15">
-                    <PenLine className="h-4 w-4 text-amber-400" />
-                    <span className="text-sm font-medium text-amber-400">
-                      {data!.recibos[0].pendientesFirma} pendiente{data!.recibos[0].pendientesFirma > 1 ? 's' : ''} de firma
-                    </span>
-                  </div>
-                )}
-                {data!.recibos[0].pendientesFirma === 0 && (
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                    <span className="text-sm font-medium text-emerald-400">Todo firmado</span>
-                  </div>
-                )}
-              </div>
-            </button>
-          )}
-
           {/* Quick actions */}
           <div className="rounded-xl border border-border bg-card p-5">
             <h2 className="text-lg font-semibold text-foreground mb-3">Acciones rápidas</h2>
@@ -395,12 +356,6 @@ export default function DashboardPage() {
                 className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-400 text-sm font-medium hover:bg-amber-500/20 transition-colors"
               >
                 <AlertTriangle className="h-4 w-4" /> Ausencias
-              </button>
-              <button
-                onClick={() => navigate('/recibos')}
-                className="flex items-center gap-2 p-3 rounded-lg bg-cyan-500/10 text-cyan-400 text-sm font-medium hover:bg-cyan-500/20 transition-colors"
-              >
-                <FileText className="h-4 w-4" /> Recibos
               </button>
             </div>
           </div>

@@ -1,39 +1,212 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 
-const ITEM_H = 40;
+// ── Geometría del barril 3D (port de la PWA planilla-horas) ──────────────
+const ITEM_H = 36; // alto de cada fila (px)
+const VISIBLE = 5; // filas visibles (impar)
+const ANGLE = 18; // grados entre ítems contiguos sobre el cilindro
+const RADIUS = ITEM_H / 2 / Math.tan((ANGLE * Math.PI) / 360); // radio del cilindro
+const PERSPECTIVE = 760; // perspectiva → el ítem central se agranda ~17%
+const BOX_H = ITEM_H * VISIBLE; // alto total del selector
 
-/**
- * Click-to-select for drum scroll containers (desktop).
- * Click any visible item → smooth-scroll to it.
- * Wheel & touch: native CSS scroll-snap (unaffected).
- */
-function useDrumClick(
-  ref: React.RefObject<HTMLDivElement | null>,
-  itemCount: number,
-) {
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const MINUTES = ['00', '15', '30', '45'];
 
-    const onClick = (e: MouseEvent) => {
-      const rect = el.getBoundingClientRect();
-      const contentY = el.scrollTop + (e.clientY - rect.top);
-      const idx = Math.round((contentY - ITEM_H - ITEM_H / 2) / ITEM_H);
-      const clamped = Math.max(0, Math.min(idx, itemCount - 1));
-      el.scrollTo({ top: clamped * ITEM_H, behavior: 'smooth' });
+function haptic() {
+  try { navigator.vibrate?.(6); } catch { /* no soportado */ }
+}
+
+/** Resistencia elástica al pasar los extremos. */
+function rubber(s: number, n: number): number {
+  if (s < 0) return s * 0.35;
+  if (s > n - 1) return n - 1 + (s - (n - 1)) * 0.35;
+  return s;
+}
+
+function DrumColumn({ items, value, onChange }: { items: string[]; value: string; onChange: (v: string) => void }) {
+  const N = items.length;
+  const targetIndex = Math.max(0, items.indexOf(value));
+
+  const scroll = useRef(targetIndex); // posición continua (en unidades de ítem)
+  const lastHaptic = useRef(targetIndex);
+  const lastEmitted = useRef(targetIndex);
+
+  const dragging = useRef(false);
+  const moved = useRef(false);
+  const startY = useRef(0);
+  const startScroll = useRef(0);
+  const lastMoveY = useRef(0);
+  const lastMoveT = useRef(0);
+  const vel = useRef(0); // ítems/ms
+  const raf = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const [pos, setPos] = useState(targetIndex);
+  const clamp = useCallback((s: number) => Math.max(0, Math.min(N - 1, s)), [N]);
+
+  const apply = useCallback((s: number) => {
+    scroll.current = s;
+    setPos(s);
+    const ri = clamp(Math.round(s));
+    if (ri !== lastHaptic.current) { lastHaptic.current = ri; haptic(); }
+  }, [clamp]);
+
+  const emit = useCallback(() => {
+    const idx = clamp(Math.round(scroll.current));
+    if (idx !== lastEmitted.current) {
+      lastEmitted.current = idx;
+      onChange(items[idx]);
+    }
+  }, [clamp, items, onChange]);
+
+  const stop = useCallback(() => {
+    if (raf.current != null) { cancelAnimationFrame(raf.current); raf.current = null; }
+  }, []);
+
+  const animateTo = useCallback((target: number, tau = 110) => {
+    stop();
+    let prev = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min(40, now - prev); prev = now;
+      const k = 1 - Math.exp(-dt / tau);
+      apply(scroll.current + (target - scroll.current) * k);
+      if (Math.abs(target - scroll.current) < 0.0015) {
+        apply(target);
+        raf.current = null;
+        emit();
+        return;
+      }
+      raf.current = requestAnimationFrame(tick);
     };
+    raf.current = requestAnimationFrame(tick);
+  }, [apply, emit, stop]);
 
-    el.addEventListener('click', onClick);
-    return () => el.removeEventListener('click', onClick);
-  }, [ref, itemCount]);
+  // Sincroniza con cambios externos del valor cuando está inactivo.
+  useEffect(() => {
+    if (dragging.current || raf.current != null) return;
+    if (clamp(Math.round(scroll.current)) !== targetIndex) {
+      lastEmitted.current = targetIndex;
+      animateTo(targetIndex);
+    }
+  }, [targetIndex, clamp, animateTo]);
+
+  useEffect(() => () => stop(), [stop]);
+
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    stop();
+    dragging.current = true;
+    moved.current = false;
+    startY.current = e.clientY;
+    startScroll.current = scroll.current;
+    lastMoveY.current = e.clientY;
+    lastMoveT.current = performance.now();
+    vel.current = 0;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }
+
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!dragging.current) return;
+    const dy = e.clientY - startY.current;
+    if (Math.abs(dy) > 3) moved.current = true;
+
+    const now = performance.now();
+    const dt = now - lastMoveT.current;
+    if (dt > 0) {
+      const inst = -((e.clientY - lastMoveY.current) / ITEM_H) / dt;
+      vel.current = vel.current * 0.7 + inst * 0.3;
+      lastMoveY.current = e.clientY;
+      lastMoveT.current = now;
+    }
+    apply(rubber(startScroll.current - dy / ITEM_H, N));
+  }
+
+  function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!dragging.current) return;
+    dragging.current = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+
+    // Tap (sin arrastre): llevar al centro el ítem tocado.
+    if (!moved.current) {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        const delta = Math.round((e.clientY - (rect.top + rect.height / 2)) / ITEM_H);
+        animateTo(clamp(Math.round(scroll.current) + delta));
+      }
+      return;
+    }
+
+    // Arrastre con inercia: proyectar destino según velocidad de salida.
+    const projected = scroll.current + vel.current * 240;
+    const dist = Math.abs(projected - scroll.current);
+    animateTo(clamp(Math.round(projected)), Math.max(80, Math.min(230, 80 + dist * 14)));
+  }
+
+  function onWheel(e: React.WheelEvent<HTMLDivElement>) {
+    stop();
+    animateTo(clamp(Math.round(scroll.current) + Math.sign(e.deltaY)));
+  }
+
+  const center = clamp(Math.round(pos));
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative flex-1"
+      style={{ height: BOX_H, perspective: PERSPECTIVE, touchAction: 'none', userSelect: 'none', cursor: 'grab' }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onWheel={onWheel}
+    >
+      <div
+        className="absolute inset-0"
+        style={{
+          transformStyle: 'preserve-3d',
+          maskImage: 'linear-gradient(to bottom, transparent, #000 26%, #000 74%, transparent)',
+          WebkitMaskImage: 'linear-gradient(to bottom, transparent, #000 26%, #000 74%, transparent)',
+        }}
+      >
+        {items.map((item, i) => {
+          const rot = -(i - pos) * ANGLE;
+          if (Math.abs(rot) >= 92) return null;
+          const isSel = center === i;
+          return (
+            <div
+              key={item}
+              className="absolute inset-x-0 flex items-center justify-center"
+              style={{
+                height: ITEM_H,
+                top: '50%',
+                marginTop: -ITEM_H / 2,
+                transform: `rotateX(${rot}deg) translateZ(${RADIUS}px)`,
+                backfaceVisibility: 'hidden',
+                opacity: Math.cos((rot * Math.PI) / 180),
+              }}
+            >
+              <span
+                className="font-mono tabular-nums transition-colors duration-150"
+                style={{
+                  fontSize: 22,
+                  fontWeight: 600,
+                  letterSpacing: '0.02em',
+                  color: isSel ? 'var(--foreground)' : 'var(--muted-foreground)',
+                }}
+              >
+                {item}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 /**
- * Drum/scroll time picker with hour and minute wheels.
- * Minutes snap to 15-minute intervals (0, 15, 30, 45).
- * Desktop: click items to select, drag with mechanical detent feel.
- * Mobile: native touch scroll with CSS snap.
+ * Selector de hora tipo barril 3D (port de la PWA): inercia, rubber-band y háptica.
+ * Mantiene la interfaz {value, onChange, disabled} del picker anterior (siempre HH:MM, sin turno vacío).
  */
 export default function DrumTimePicker({
   value,
@@ -44,127 +217,30 @@ export default function DrumTimePicker({
   onChange: (v: string) => void;
   disabled?: boolean;
 }) {
-  const MINUTE_STEPS = [0, 15, 30, 45];
-  const HOURS = Array.from({ length: 24 }, (_, i) => i);
-
-  const [h, m] = value.split(':').map(Number);
-  const currentHour = isNaN(h) ? 7 : h;
-  const currentMin = isNaN(m) ? 0 : Math.round(m / 15) * 15 % 60;
-
-  const hourRef = useRef<HTMLDivElement>(null);
-  const minRef = useRef<HTMLDivElement>(null);
-  const hourDebounce = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const minDebounce = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const expectedHour = useRef(currentHour);
-  const expectedMin = useRef(currentMin);
-
-  useDrumClick(hourRef, HOURS.length);
-  useDrumClick(minRef, MINUTE_STEPS.length);
-
-  const scrollTo = useCallback((ref: React.RefObject<HTMLDivElement | null>, index: number) => {
-    if (!ref.current) return;
-    ref.current.scrollTo({ top: index * ITEM_H, behavior: 'instant' });
-  }, []);
-
-  useEffect(() => {
-    clearTimeout(hourDebounce.current);
-    expectedHour.current = currentHour;
-    scrollTo(hourRef, currentHour);
-  }, [currentHour, scrollTo]);
-
-  useEffect(() => {
-    clearTimeout(minDebounce.current);
-    expectedMin.current = currentMin;
-    scrollTo(minRef, MINUTE_STEPS.indexOf(currentMin));
-  }, [currentMin, scrollTo]);
-
-  const handleHourScroll = () => {
-    clearTimeout(hourDebounce.current);
-    hourDebounce.current = setTimeout(() => {
-      if (!hourRef.current) return;
-      const idx = Math.round(hourRef.current.scrollTop / ITEM_H);
-      const newH = HOURS[Math.min(idx, HOURS.length - 1)];
-      if (newH !== expectedHour.current) {
-        expectedHour.current = newH;
-        onChange(`${String(newH).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`);
-      }
-    }, 80);
-  };
-
-  const handleMinScroll = () => {
-    clearTimeout(minDebounce.current);
-    minDebounce.current = setTimeout(() => {
-      if (!minRef.current) return;
-      const idx = Math.round(minRef.current.scrollTop / ITEM_H);
-      const newM = MINUTE_STEPS[Math.min(idx, MINUTE_STEPS.length - 1)];
-      if (newM !== expectedMin.current) {
-        expectedMin.current = newM;
-        onChange(`${String(currentHour).padStart(2, '0')}:${String(newM).padStart(2, '0')}`);
-      }
-    }, 80);
-  };
-
-  useEffect(() => {
-    return () => {
-      clearTimeout(hourDebounce.current);
-      clearTimeout(minDebounce.current);
-    };
-  }, []);
+  const [hRaw, mRaw = ''] = value.split(':');
+  const h = String(Math.min(23, Math.max(0, Number(hRaw) || 0))).padStart(2, '0');
+  const m = MINUTES.includes(mRaw) ? mRaw : String((Math.round((Number(mRaw) || 0) / 15) * 15) % 60).padStart(2, '0');
+  const mm = MINUTES.includes(m) ? m : '00';
 
   if (disabled) {
     return (
       <div className="flex items-center justify-center h-10 px-3 rounded-lg border border-input bg-muted/30 text-sm font-mono text-muted-foreground">
-        {String(currentHour).padStart(2, '0')}:{String(currentMin).padStart(2, '0')}
+        {h}:{mm}
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-1 justify-center">
-      {/* Hour drum */}
+    <div className="relative rounded-lg border border-input bg-background overflow-hidden">
+      {/* Lente central: resalta la fila seleccionada abarcando HH : MM */}
       <div
-        ref={hourRef}
-        onScroll={handleHourScroll}
-        className="h-[120px] overflow-y-scroll snap-y snap-mandatory scrollbar-none rounded-lg border border-input bg-background text-foreground relative w-16 cursor-grab"
-        style={{ scrollbarWidth: 'none' }}
-      >
-        <div style={{ height: ITEM_H }} />
-        {HOURS.map((hr) => (
-          <div
-            key={hr}
-            className={cn(
-              'flex items-center justify-center snap-center h-10 text-lg font-mono transition-colors select-none',
-              hr === currentHour ? 'text-primary font-bold text-xl' : 'text-muted-foreground',
-            )}
-          >
-            {String(hr).padStart(2, '0')}
-          </div>
-        ))}
-        <div style={{ height: ITEM_H }} />
-      </div>
-
-      <span className="text-xl font-bold text-foreground">:</span>
-
-      {/* Minute drum */}
-      <div
-        ref={minRef}
-        onScroll={handleMinScroll}
-        className="h-[120px] overflow-y-scroll snap-y snap-mandatory scrollbar-none rounded-lg border border-input bg-background text-foreground relative w-16 cursor-grab"
-        style={{ scrollbarWidth: 'none' }}
-      >
-        <div style={{ height: ITEM_H }} />
-        {MINUTE_STEPS.map((mn) => (
-          <div
-            key={mn}
-            className={cn(
-              'flex items-center justify-center snap-center h-10 text-lg font-mono transition-colors select-none',
-              mn === currentMin ? 'text-primary font-bold text-xl' : 'text-muted-foreground',
-            )}
-          >
-            {String(mn).padStart(2, '0')}
-          </div>
-        ))}
-        <div style={{ height: ITEM_H }} />
+        className="absolute inset-x-2 z-0 rounded-md border-y border-foreground/10 bg-foreground/[0.05] pointer-events-none"
+        style={{ top: (BOX_H - ITEM_H) / 2, height: ITEM_H }}
+      />
+      <div className="relative z-10 flex items-center justify-center gap-1" style={{ height: BOX_H }}>
+        <DrumColumn items={HOURS} value={h} onChange={(hh) => onChange(`${hh}:${mm}`)} />
+        <span className={cn('select-none font-mono font-bold text-foreground')} style={{ fontSize: 22, marginTop: -2 }}>:</span>
+        <DrumColumn items={MINUTES} value={mm} onChange={(newM) => onChange(`${h}:${newM}`)} />
       </div>
     </div>
   );

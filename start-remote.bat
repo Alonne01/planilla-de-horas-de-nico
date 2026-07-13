@@ -123,7 +123,7 @@ findstr /I /R "https.*trycloudflare" "%TEMP_DIR%\tunnel.txt" >nul 2>&1
 if %ERRORLEVEL% neq 0 goto wait_url
 
 :: Extract URL
-for /f "usebackq delims=" %%u in (`type "%TEMP_DIR%\tunnel.txt" ^| powershell -NoProfile -Command "foreach($l in $input){if($l -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com'){$Matches[0];break}}"`) do (
+for /f "usebackq delims=" %%u in (`powershell -NoProfile -Command "(Select-String -Path '%TEMP_DIR%\tunnel.txt' -Pattern 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | Select-Object -First 1).Matches[0].Value"`) do (
     set "WEB_URL=%%u"
 )
 
@@ -133,6 +133,9 @@ if "!WEB_URL!"=="" (
     type "%TEMP_DIR%\tunnel.txt" 2>nul
     goto cleanup
 )
+
+:: Copy URL to clipboard
+powershell -NoProfile -Command "Set-Clipboard -Value '!WEB_URL!'" >nul 2>&1
 
 :: ------------------------------------------------
 :: Show results
@@ -146,7 +149,7 @@ echo    PLANILLA DE HORAS - REMOTE TESTING ACTIVO
 echo.
 echo ========================================================
 echo.
-echo    URL para compartir:
+echo    URL para compartir (ya copiada al portapapeles):
 echo.
 echo      !WEB_URL!
 echo.

@@ -3,7 +3,7 @@ import { useThemeStore, THEMES } from '@/stores/themeStore';
 import { cn } from '@/lib/utils';
 import { Palette, Check } from 'lucide-react';
 
-export default function ThemeSwitcher() {
+export default function ThemeSwitcher({ collapsed = false }: { collapsed?: boolean }) {
   const { theme, setTheme } = useThemeStore();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -70,8 +70,8 @@ export default function ThemeSwitcher() {
             background: `linear-gradient(135deg, ${current?.bg} 50%, ${current?.preview} 50%)`,
           }}
         />
-        <span className="text-xs text-muted-foreground">{current?.label}</span>
-        <Palette className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className={cn('text-xs text-muted-foreground', collapsed && 'lg:hidden')}>{current?.label}</span>
+        <Palette className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
       </button>
 
       {/* Submenu */}
@@ -81,6 +81,8 @@ export default function ThemeSwitcher() {
         className={cn(
           'absolute bottom-full right-0 mb-2 w-52 max-h-[60vh] rounded-xl border border-border bg-card shadow-2xl overflow-hidden overflow-y-auto',
           'origin-bottom-right transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]',
+          // Collapsed sidebar is only ~64px wide: open toward the content (right) so it isn't clipped off-screen left.
+          collapsed && 'lg:left-0 lg:right-auto lg:origin-bottom-left',
           open
             ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
             : 'opacity-0 scale-75 translate-y-2 pointer-events-none'

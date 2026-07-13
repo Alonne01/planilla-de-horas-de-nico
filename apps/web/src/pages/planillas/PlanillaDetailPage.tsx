@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
@@ -7,17 +7,20 @@ import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/stores/toastStore';
 import {
   ArrowLeft, Send, CheckCircle2, XCircle, Loader2,
-  Clock, MapPin, Car, Moon, AlertCircle, AlertTriangle, X, Download, CalendarClock, Lock, Zap, Printer, Trash2
+  Clock, MapPin, Car, Moon, Sun, AlertCircle, AlertTriangle, X, Download, Lock, Printer, Trash2, Copy, Eraser,
+  CalendarDays, ChevronDown, Lightbulb
 } from 'lucide-react';
 import { ESTADO_STYLES, ESTADO_LABELS } from '@/constants/planillaConstants';
 import {
-  dateKey, buildArgHolidays, buildDiasNoLaborables,
-  esDiaFranco, buildCalendarDays, buildWeeks,
+  dateKey, esFeriadoNacional, nombreFeriado, refreshFeriados,
+  esDiaFranco, buildCalendarDays, buildWeeks, cellStyle,
   type DiagramaInfo,
 } from '@/utils/planillaHelpers';
 import SuccessOverlay from '@/components/planilla/SuccessOverlay';
 import DrumTimePicker from '@/components/planilla/DrumTimePicker';
 import MiniCard from '@/components/planilla/MiniCard';
+import BgBlobs from '@/components/planilla/BgBlobs';
+import PeriodGridPicker, { type PeriodoItem } from '@/components/planilla/PeriodGridPicker';
 import { useDialogStore } from '@/stores/dialogStore';
 
 interface Registro {
@@ -65,7 +68,6 @@ interface PlanillaDetalle {
     apellido: string;
     legajo: string | null;
     sector: { nombre: string } | null;
-    categoria: { codigo: string; nombre: string } | null;
     diagramas: { diagrama: { nombre: string } }[];
   };
   flujo?: {
@@ -76,6 +78,31 @@ interface PlanillaDetalle {
 
 const DOW_LABELS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
+/** Minutos desde medianoche de un "HH:MM". */
+function toMin(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+/**
+ * Clasifica un turno como noche/día (informativo, port PWA §5.3):
+ * es "noche" si cruza la medianoche (salida < entrada) o si ≥50% de las horas caen en 21:00–06:00.
+ */
+function clasificarTurno(entrada: string, salida: string): { noche: boolean; cruza: boolean } {
+  if (!entrada || !salida) return { noche: false, cruza: false };
+  const e = toMin(entrada);
+  const s = toMin(salida);
+  const cruza = s < e;
+  const total = cruza ? 1440 - e + s : s - e;
+  if (total <= 0) return { noche: false, cruza };
+  let nocturnos = 0;
+  for (let i = 0; i < total; i++) {
+    const min = (e + i) % 1440;
+    if (min >= 21 * 60 || min < 6 * 60) nocturnos++;
+  }
+  return { noche: cruza || nocturnos / total >= 0.5, cruza };
+}
+
 export default function PlanillaDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -83,15 +110,45 @@ export default function PlanillaDetailPage() {
   const user = useAuthStore((s) => s.user);
   const dialog = useDialogStore();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  // transform-origin del diálogo para "crecer desde la celda" (desktop); null = sin origen (móvil).
+  const [dialogOrigin, setDialogOrigin] = useState<string | null>(null);
+  const initialFormRef = useRef<string>(''); // snapshot del form al abrir → detecta cambios sin guardar
   const [motivoRechazo, setMotivoRechazo] = useState('');
   const [showRechazo, setShowRechazo] = useState(false);
   const [showConfirmApproval, setShowConfirmApproval] = useState(false);
   const [approvalChecked, setApprovalChecked] = useState(false);
-  const [applyingDiagram, setApplyingDiagram] = useState(false);
-  const [quickFilling, setQuickFilling] = useState(false);
   const [diasFaltantes, setDiasFaltantes] = useState<string[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
   const handleSuccessDone = useCallback(() => setShowSuccess(false), []);
+  const [showPeriodPicker, setShowPeriodPicker] = useState(false);
+  // Tip dismissable "mantené pulsado para copiar" (auto-oculto 5s; descarte persistido)
+  const TIP_KEY = 'planilla-tip-copiar';
+  const [tipHidden, setTipHidden] = useState(false);
+  const [tipDismissed, setTipDismissed] = useState(() => {
+    try { return localStorage.getItem(TIP_KEY) === '1'; } catch { return false; }
+  });
+
+  // ── Modos de pintado (copiar / borrar días) ──
+  const [paintMode, setPaintMode] = useState<'none' | 'copy' | 'delete'>('none');
+  const [copySource, setCopySource] = useState<string | null>(null);
+  const [painted, setPainted] = useState<Set<string>>(new Set());
+  const [applyingPaint, setApplyingPaint] = useState(false);
+  // Card-flip de reescritura: días recién copiados/borrados giran (puerta) al refrescarse el dato.
+  const [flippingKeys, setFlippingKeys] = useState<Set<string>>(new Set());
+  const [flipToken, setFlipToken] = useState(0);
+  const paintingRef = useRef(false);
+  const strokeActionRef = useRef<'add' | 'remove'>('add');
+  const strokeTouchedRef = useRef<Set<string>>(new Set());
+
+  // ── Long-press en una celda con datos → entra al modo copiar usándola como origen (port PWA) ──
+  const [pressingKey, setPressingKey] = useState<string | null>(null);
+  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lpRingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lpFired = useRef(false);
+  const lpStart = useRef<{ x: number; y: number } | null>(null);
+
+  // Feriados: refresco opcional desde la API (el seed offline siempre funciona)
+  const [, setFeriadosVersion] = useState(0);
 
   // Form state for the day editor
   const [formData, setFormData] = useState({
@@ -103,9 +160,6 @@ export default function PlanillaDetailPage() {
     distanciaViaje: '' as string,
     maneja: false,
     horasViajeInput: '0',
-    esFeriado: false,
-    esNoLaborable: false,
-    esFrancoTrabajado: false,
     esFrancoCompensatorio: false,
     observaciones: '',
   });
@@ -126,10 +180,36 @@ export default function PlanillaDetailPage() {
     staleTime: 60_000,
   });
 
+  // Lista de planillas (para el selector de período 3×4) — cacheada con PlanillasPage.
+  const { data: todasLasPlanillas = [] } = useQuery<Array<PeriodoItem & { usuario: { id: string } }>>({
+    queryKey: ['planillas'],
+    queryFn: () => api.get('/planillas').then((r) => r.data),
+    staleTime: 60_000,
+  });
+
   const diagramaActual: DiagramaInfo | null = usuarioDetalle?.diagramaActual ?? null;
   const fechaInicioDiagrama: Date | null = usuarioDetalle?.diagramaFechaInicio
     ? new Date(usuarioDetalle.diagramaFechaInicio)
     : null;
+
+  // Actualizar feriados de los años del período desde la API (cache persistente)
+  useEffect(() => {
+    if (!planilla) return;
+    const years = [...new Set([
+      new Date(planilla.periodoInicio).getFullYear(),
+      new Date(planilla.periodoFin).getFullYear(),
+    ])];
+    refreshFeriados(years).then((changed) => {
+      if (changed) setFeriadosVersion((v) => v + 1);
+    });
+  }, [planilla?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tip "mantené pulsado para copiar": se auto-oculta a los 5 s.
+  useEffect(() => {
+    if (tipDismissed) return;
+    const t = setTimeout(() => setTipHidden(true), 5000);
+    return () => clearTimeout(t);
+  }, [tipDismissed]);
 
   const enviarMutation = useMutation({
     mutationFn: () => api.post(`/planillas/${id}/enviar`),
@@ -249,6 +329,19 @@ export default function PlanillaDetailPage() {
     return buildWeeks(days);
   }, [planilla]);
 
+  // Orden cronológico de los días que están girando → escalona el card-flip.
+  const flipRank = useMemo(() => {
+    const m = new Map<string, number>();
+    if (flippingKeys.size === 0) return m;
+    let i = 0;
+    for (const week of weeks) for (const d of week) {
+      if (!d) continue;
+      const k = dateKey(d);
+      if (flippingKeys.has(k)) m.set(k, i++);
+    }
+    return m;
+  }, [flippingKeys, weeks]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -287,6 +380,11 @@ export default function PlanillaDetailPage() {
     (currentStep.rolAprobador === user?.rol || userNivel >= 90) &&
     (planilla.estado === 'ENVIADA' || planilla.estado === 'EN_REVISION');
   const totalHoras = Number(planilla.totalHorasNormales) + Number(planilla.totalHorasExtra50) + Number(planilla.totalHorasExtra100);
+  // Planillas del MISMO usuario → alimentan el selector de período 3×4.
+  const ownerPlanillas: PeriodoItem[] = todasLasPlanillas
+    .filter((p) => p.usuario.id === planilla.usuario.id)
+    .map((p) => ({ id: p.id, periodoInicio: p.periodoInicio, periodoFin: p.periodoFin }));
+  const showTip = canEdit && paintMode === 'none' && !tipDismissed && !tipHidden;
 
   /** Check if a date is a franco day according to the user's current diagram */
   function isFranco(day: Date): boolean {
@@ -294,155 +392,154 @@ export default function PlanillaDetailPage() {
     return esDiaFranco(day, diagramaActual, fechaInicioDiagrama);
   }
 
-  /**
-   * Apply diagram to all days in the planilla period:
-   * - Work days without registro: create with saved defaults + observaciones
-   * - Franco days with existing registro: mark esFrancoTrabajado = true
-   * - Holidays and blocked days: skip
-   */
-  async function handleApplyDiagram() {
-    if (!diagramaActual || !fechaInicioDiagrama || !planilla) return;
-    setApplyingDiagram(true);
-    try {
-      // Load last saved defaults for creating work day registros
-      let lastEntry = '07:00';
-      let lastExit = '15:00';
-      let lastLugar = 'CAMPO';
-      let lastPernocte = 'NO';
-      try {
-        const saved = JSON.parse(localStorage.getItem(LAST_DEFAULTS_KEY) || '{}');
-        if (saved.entrada) lastEntry = saved.entrada;
-        if (saved.salida) lastExit = saved.salida;
-        if (saved.lugarTrabajo) lastLugar = saved.lugarTrabajo;
-        if (saved.pernocte) lastPernocte = saved.pernocte;
-      } catch { /* ignore */ }
+  // ═══════════════════════════════════════════════
+  // Modos de pintado: copiar un día a otros / borrar días arrastrando
+  // ═══════════════════════════════════════════════
 
-      const diagramaLabel = diagramaActual.nombre
-        ? `Diagrama ${diagramaActual.nombre}`
-        : diagramaActual.tipo === 'ROTATIVO'
-          ? `Diagrama ${diagramaActual.diasTrabajo}×${diagramaActual.diasDescanso}`
-          : 'Diagrama fijo semanal';
-      const days = buildCalendarDays(planilla.periodoInicio, planilla.periodoFin);
-      const promises: Promise<unknown>[] = [];
-
-      for (const day of days) {
-        const key = dateKey(day);
-        const reg = registroMap[key];
-        const franco = isFranco(day);
-
-        if (franco && reg && !reg.esFrancoTrabajado) {
-          // Existing registro on a franco day → mark as franco trabajado
-          promises.push(api.put(`/planillas/${id}/registros/${reg.id}`, {
-            fecha: reg.fecha,
-            entradaTurno1: reg.entradaTurno1,
-            salidaTurno1: reg.salidaTurno1,
-            entradaTurno2: reg.entradaTurno2 ?? null,
-            salidaTurno2: reg.salidaTurno2 ?? null,
-            lugarTrabajo: reg.lugarTrabajo,
-            pernocte: reg.pernocte,
-            maneja: reg.maneja,
-            horasViajeInput: Number(reg.horasViajeInput) || 0,
-            esFeriado: reg.esFeriado,
-            esFrancoCompensatorio: reg.esFrancoCompensatorio,
-            esFrancoTrabajado: true,
-            distanciaViaje: reg.distanciaViaje ?? null,
-            observaciones: reg.observaciones || `Franco trabajado — ${diagramaLabel}`,
-          }));
-        } else if (!franco && !reg) {
-          // Work day without registro → create with defaults
-          const y = day.getFullYear();
-          const holidays = buildArgHolidays(y);
-          if (holidays.has(key)) continue;
-
-          const [h1, m1] = lastEntry.split(':').map(Number);
-          const [h2, m2] = lastExit.split(':').map(Number);
-
-          promises.push(api.post(`/planillas/${id}/registros`, {
-            fecha: new Date(y, day.getMonth(), day.getDate(), 12, 0, 0).toISOString(),
-            entradaTurno1: new Date(y, day.getMonth(), day.getDate(), h1, m1, 0).toISOString(),
-            salidaTurno1: new Date(y, day.getMonth(), day.getDate(), h2, m2, 0).toISOString(),
-            entradaTurno2: null,
-            salidaTurno2: null,
-            lugarTrabajo: lastLugar,
-            pernocte: lastPernocte,
-            maneja: false,
-            horasViajeInput: 0,
-            distanciaViaje: null,
-            esFeriado: false,
-            esFrancoTrabajado: false,
-            esFrancoCompensatorio: false,
-            observaciones: `Jornada normal — ${diagramaLabel}`,
-          }));
-        }
-      }
-      await Promise.all(promises);
-      queryClient.invalidateQueries({ queryKey: ['planilla', id] });
-    } finally {
-      setApplyingDiagram(false);
-    }
+  function startPaintMode(mode: 'copy' | 'delete') {
+    setPaintMode(mode);
+    setCopySource(null);
+    setPainted(new Set());
   }
 
-  /**
-   * Quick-fill all working days that don't have a registro yet.
-   * Uses the last saved defaults (hours, location, pernocte).
-   * Skips: franco days, feriados, days already with a registro, blocked days.
-   */
-  async function handleQuickFill() {
-    if (!planilla) return;
-    setQuickFilling(true);
+  function exitPaintMode() {
+    setPaintMode('none');
+    setCopySource(null);
+    setPainted(new Set());
+  }
+
+  function cancelPress() {
+    if (lpRingTimer.current) { clearTimeout(lpRingTimer.current); lpRingTimer.current = null; }
+    if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null; }
+    setPressingKey((p) => (p === null ? p : null));
+  }
+
+  /** Entra al modo copiar usando `key` como día origen (disparado por long-press). */
+  function startCopyFrom(key: string) {
+    setPaintMode('copy');
+    setCopySource(key);
+    setPainted(new Set());
+  }
+
+  function dismissTip() {
+    try { localStorage.setItem(TIP_KEY, '1'); } catch { /* ignore */ }
+    setTipDismissed(true);
+  }
+
+  /** ¿La celda puede pintarse en el modo activo? */
+  function cellPaintable(key: string): boolean {
+    const reg = registroMap[key];
+    if (reg?.bloqueado) return false;
+    if (paintMode === 'copy') return !!copySource && key !== copySource;
+    if (paintMode === 'delete') return !!reg; // sólo días con datos
+    return false;
+  }
+
+  function keyFromPoint(x: number, y: number): string | null {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    return el?.closest('[data-daykey]')?.getAttribute('data-daykey') ?? null;
+  }
+
+  function applyStroke(key: string) {
+    setPainted((prev) => {
+      const next = new Set(prev);
+      if (strokeActionRef.current === 'add') next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
+  function handlePaintPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (paintMode === 'none') return;
+    const key = keyFromPoint(e.clientX, e.clientY);
+    if (!key) return;
+    // En modo copiar, el primer toque elige el día origen
+    if (paintMode === 'copy' && !copySource) {
+      const reg = registroMap[key];
+      if (reg && !reg.bloqueado) setCopySource(key);
+      return;
+    }
+    if (!cellPaintable(key)) return;
+    paintingRef.current = true;
+    strokeTouchedRef.current = new Set([key]);
+    // Un trazo decide al inicio si pinta o despinta y no re-togglea celdas ya tocadas
+    strokeActionRef.current = painted.has(key) ? 'remove' : 'add';
+    applyStroke(key);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  }
+
+  function handlePaintPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!paintingRef.current) return;
+    const key = keyFromPoint(e.clientX, e.clientY);
+    if (!key || strokeTouchedRef.current.has(key) || !cellPaintable(key)) return;
+    strokeTouchedRef.current.add(key);
+    applyStroke(key);
+  }
+
+  function handlePaintPointerUp() {
+    paintingRef.current = false;
+  }
+
+  /** Dispara la animación de "reescritura" (card-flip) sobre los días afectados, ya con el dato fresco. */
+  function triggerFlip(keys: Set<string>) {
+    if (keys.size === 0) return;
+    setFlipToken((t) => t + 1);
+    setFlippingKeys(keys);
+    const maxMs = 300 + keys.size * 80 + 600;
+    setTimeout(() => setFlippingKeys(new Set()), maxMs);
+  }
+
+  /** Aplica el modo activo: copia el registro origen a los destinos, o borra los pintados */
+  async function confirmPaint() {
+    if (painted.size === 0) return;
+    const affected = new Set(painted); // capturar antes de limpiar el modo
+    setApplyingPaint(true);
     try {
-      let lastEntry = '07:00';
-      let lastExit = '15:00';
-      let lastLugar = 'CAMPO';
-      let lastPernocte = 'NO';
-      try {
-        const saved = JSON.parse(localStorage.getItem(LAST_DEFAULTS_KEY) || '{}');
-        if (saved.entrada) lastEntry = saved.entrada;
-        if (saved.salida) lastExit = saved.salida;
-        if (saved.lugarTrabajo) lastLugar = saved.lugarTrabajo;
-        if (saved.pernocte) lastPernocte = saved.pernocte;
-      } catch { /* ignore */ }
-
-      const days = buildCalendarDays(planilla.periodoInicio, planilla.periodoFin);
-      const promises: Promise<unknown>[] = [];
-
-      for (const day of days) {
-        const key = dateKey(day);
-        const reg = registroMap[key];
-        // Skip if already has a registro
-        if (reg) continue;
-        // Skip franco days
-        const franco = isFranco(day);
-        if (franco) continue;
-        // Skip feriados
-        const y = day.getFullYear();
-        const holidays = buildArgHolidays(y);
-        if (holidays.has(key)) continue;
-
-        const [h1, m1] = lastEntry.split(':').map(Number);
-        const [h2, m2] = lastExit.split(':').map(Number);
-
-        promises.push(api.post(`/planillas/${id}/registros`, {
-          fecha: new Date(y, day.getMonth(), day.getDate(), 12, 0, 0).toISOString(),
-          entradaTurno1: new Date(y, day.getMonth(), day.getDate(), h1, m1, 0).toISOString(),
-          salidaTurno1: new Date(y, day.getMonth(), day.getDate(), h2, m2, 0).toISOString(),
-          entradaTurno2: null,
-          salidaTurno2: null,
-          lugarTrabajo: lastLugar,
-          pernocte: lastPernocte,
-          maneja: false,
-          horasViajeInput: 0,
-          distanciaViaje: null,
-          esFeriado: false,
-          esFrancoTrabajado: false,
-          esFrancoCompensatorio: false,
-          observaciones: 'Jornada normal',
-        }));
+      if (paintMode === 'copy' && copySource) {
+        const src = registroMap[copySource];
+        if (!src) return;
+        const srcHasWork = !!(src.entradaTurno1 && src.salidaTurno1) && !src.esFrancoCompensatorio;
+        const promises = [...painted].map((key) => {
+          const [y, m, d] = key.split('-').map(Number);
+          const sameClock = (iso: string | null) => {
+            if (!iso) return null;
+            const t = new Date(iso);
+            return new Date(y, m - 1, d, t.getHours(), t.getMinutes(), 0).toISOString();
+          };
+          const body = {
+            fecha: new Date(y, m - 1, d, 12, 0, 0).toISOString(),
+            entradaTurno1: sameClock(src.entradaTurno1),
+            salidaTurno1: sameClock(src.salidaTurno1),
+            entradaTurno2: null,
+            salidaTurno2: null,
+            lugarTrabajo: src.lugarTrabajo,
+            pernocte: src.pernocte,
+            maneja: src.maneja,
+            horasViajeInput: Number(src.horasViajeInput) || 0,
+            distanciaViaje: src.distanciaViaje ?? null,
+            esFeriado: esFeriadoNacional(key),
+            esFrancoTrabajado: srcHasWork && isFranco(new Date(y, m - 1, d, 12, 0, 0)),
+            esFrancoCompensatorio: src.esFrancoCompensatorio,
+            observaciones: src.observaciones ?? null,
+          };
+          const existing = registroMap[key];
+          return existing
+            ? api.put(`/planillas/${id}/registros/${existing.id}`, body)
+            : api.post(`/planillas/${id}/registros`, body);
+        });
+        await Promise.all(promises);
+      } else if (paintMode === 'delete') {
+        const promises = [...painted]
+          .map((key) => registroMap[key])
+          .filter((reg): reg is Registro => !!reg && !reg.bloqueado)
+          .map((reg) => api.delete(`/planillas/${id}/registros/${reg.id}`));
+        await Promise.all(promises);
       }
-      await Promise.all(promises);
-      queryClient.invalidateQueries({ queryKey: ['planilla', id] });
+      await queryClient.invalidateQueries({ queryKey: ['planilla', id] });
+      exitPaintMode();
+      triggerFlip(affected); // gira los días afectados con el dato ya refrescado
     } finally {
-      setQuickFilling(false);
+      setApplyingPaint(false);
     }
   }
 
@@ -464,7 +561,6 @@ export default function PlanillaDetailPage() {
         doc.text(`Empleado: ${planilla.usuario.apellido.toUpperCase()} ${planilla.usuario.nombre.toUpperCase()}`, 14, 22);
         doc.text(`Legajo: ${planilla.usuario.legajo || '—'}`, 14, 27);
         doc.text(`Sector: ${planilla.usuario.sector?.nombre || '—'}`, 80, 22);
-        doc.text(`Categoría: ${planilla.usuario.categoria?.codigo || '—'}`, 80, 27);
         doc.text(`Período: ${periodoStr}`, 160, 22);
         doc.text(`Diagrama: ${planilla.usuario.diagramas[0]?.diagrama?.nombre || '—'}`, 160, 27);
 
@@ -550,22 +646,23 @@ export default function PlanillaDetailPage() {
     });
   }
 
-  function openDay(key: string) {
-    const [y, m, d] = key.split('-').map(Number);
-    const dayDate = new Date(y, m - 1, d, 12, 0, 0);
-    const holidays = buildArgHolidays(y);
-    const noLaborables = buildDiasNoLaborables(y);
-    const autoFeriado = holidays.has(key);
-    const autoNoLaborable = noLaborables.has(key);
-    const autoFranco = isFranco(dayDate);
-
+  function openDay(key: string, rect?: DOMRect | null) {
+    // Origen del "container transform": que el diálogo crezca desde el centro de la celda tocada.
+    if (rect) {
+      const ox = Math.round(rect.left + rect.width / 2 - window.innerWidth / 2);
+      const oy = Math.round(rect.top + rect.height / 2 - window.innerHeight / 2);
+      setDialogOrigin(`calc(50% + ${ox}px) calc(50% + ${oy}px)`);
+    } else {
+      setDialogOrigin(null);
+    }
     const existing = registroMap[key];
+    let form: typeof formData;
     if (existing) {
       const fmtTime = (iso: string | null) => {
         if (!iso) return '';
         return new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
       };
-      setFormData({
+      form = {
         entradaTurno1: fmtTime(existing.entradaTurno1) || '07:00',
         salidaTurno1: fmtTime(existing.salidaTurno1) || '15:00',
         lugarTrabajo: existing.lugarTrabajo || 'CAMPO',
@@ -574,12 +671,9 @@ export default function PlanillaDetailPage() {
         horasViajeInput: existing.horasViajeInput || '0',
         viaje: parseFloat(existing.horasViajeInput || '0') > 0,
         distanciaViaje: existing.distanciaViaje || '',
-        esFeriado: existing.esFeriado || autoFeriado,
-        esNoLaborable: autoNoLaborable,
-        esFrancoTrabajado: existing.esFrancoTrabajado,
         esFrancoCompensatorio: existing.esFrancoCompensatorio,
         observaciones: existing.observaciones || '',
-      });
+      };
     } else {
       // Remember last used defaults (times + location)
       let lastEntry = '07:00';
@@ -593,18 +687,58 @@ export default function PlanillaDetailPage() {
         if (saved.lugarTrabajo) lastLugar = saved.lugarTrabajo;
         if (saved.pernocte) lastPernocte = saved.pernocte;
       } catch { /* ignore */ }
-      setFormData({
+      form = {
         entradaTurno1: lastEntry, salidaTurno1: lastExit,
         lugarTrabajo: lastLugar, pernocte: lastPernocte,
         viaje: false, distanciaViaje: '', maneja: false, horasViajeInput: '0',
-        esFeriado: autoFeriado,
-        esNoLaborable: autoNoLaborable,
-        esFrancoTrabajado: autoFranco,
         esFrancoCompensatorio: false, observaciones: '',
-      });
+      };
     }
+    setFormData(form);
+    initialFormRef.current = JSON.stringify(form); // snapshot para detectar cambios sin guardar
     setSelectedDate(key);
   }
+
+  /** Cierra el diálogo del día; si hay cambios sin guardar (y se puede editar), pide confirmar. */
+  async function closeDay() {
+    if (canEdit && selectedDate && !registroMap[selectedDate]?.bloqueado
+        && JSON.stringify(formData) !== initialFormRef.current) {
+      const ok = await dialog.confirm({
+        title: '¿Descartar cambios?',
+        message: 'Tenés cambios sin guardar en este día.',
+        confirmLabel: 'Descartar',
+        cancelLabel: 'Seguir editando',
+        variant: 'danger',
+      });
+      if (!ok) return;
+    }
+    setSelectedDate(null);
+  }
+
+  /** Contexto del día seleccionado (no editable): franco por diagrama y feriado nacional */
+  const selFranco = selectedDate
+    ? (() => { const [y, m, d] = selectedDate.split('-').map(Number); return isFranco(new Date(y, m - 1, d, 12, 0, 0)); })()
+    : false;
+  const selFeriado = selectedDate ? esFeriadoNacional(selectedDate) : false;
+  const selFeriadoNombre = selectedDate ? nombreFeriado(selectedDate) : null;
+  // Auto-detección según horarios cargados: no hay botón "franco/feriado trabajado"
+  const formHasWork = !formData.esFrancoCompensatorio && formData.entradaTurno1 !== formData.salidaTurno1;
+  // Clasificación noche/día del turno cargado (informativo, port PWA).
+  const turno = clasificarTurno(formData.entradaTurno1, formData.salidaTurno1);
+  // Reloj sugerido: último día CON trabajo anterior al seleccionado (sólo para días nuevos sin registro).
+  const sugerenciaReloj = (() => {
+    if (!selectedDate || registroMap[selectedDate]) return null;
+    const fmtTime = (iso: string | null) =>
+      iso ? new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+    let best: { entrada: string; salida: string; fecha: string } | null = null;
+    for (const k of Object.keys(registroMap)) {
+      const r = registroMap[k];
+      if (!r.entradaTurno1 || !r.salidaTurno1 || r.bloqueado || r.esFrancoCompensatorio) continue;
+      if (k >= selectedDate) continue;
+      if (!best || k > best.fecha) best = { entrada: fmtTime(r.entradaTurno1), salida: fmtTime(r.salidaTurno1), fecha: k };
+    }
+    return best;
+  })();
 
   function handleSaveDay() {
     const [y, m, d] = selectedDate!.split('-').map(Number);
@@ -639,15 +773,16 @@ export default function PlanillaDetailPage() {
       maneja: formData.maneja,
       horasViajeInput: formData.esFrancoCompensatorio || !formData.viaje ? 0 : (parseFloat(formData.horasViajeInput) || 0),
       distanciaViaje: formData.viaje ? formData.distanciaViaje : null,
-      esFeriado: formData.esFeriado,
-      esFrancoTrabajado: formData.esFrancoTrabajado,
+      esFeriado: selFeriado,
+      esFrancoTrabajado: selFranco && formHasWork,
       esFrancoCompensatorio: formData.esFrancoCompensatorio,
       observaciones: formData.observaciones || null,
     });
   }
 
   return (
-    <div className="space-y-5">
+    <div className="relative isolate space-y-5">
+      <BgBlobs />
       {/* ── Header ── */}
       <div className="flex items-center gap-3">
         <button onClick={() => navigate('/planillas')} className="p-2 rounded-lg hover:bg-accent transition-colors">
@@ -662,10 +797,17 @@ export default function PlanillaDetailPage() {
               {ESTADO_LABELS[planilla.estado]}
             </span>
           </div>
-          <p className="text-sm text-muted-foreground">
-            {new Date(planilla.periodoInicio).toLocaleDateString('es-AR')} — {new Date(planilla.periodoFin).toLocaleDateString('es-AR')}
-            {planilla.usuario.sector && ` • ${planilla.usuario.sector.nombre}`}
-            {planilla.usuario.categoria && ` • ${planilla.usuario.categoria.codigo}`}
+          <p className="text-sm text-muted-foreground flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => setShowPeriodPicker(true)}
+              className="inline-flex items-center gap-1 font-medium text-foreground/80 hover:text-primary transition-colors"
+              title="Cambiar de período"
+            >
+              <CalendarDays className="h-3.5 w-3.5" />
+              {new Date(planilla.periodoInicio).toLocaleDateString('es-AR')} — {new Date(planilla.periodoFin).toLocaleDateString('es-AR')}
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+            {planilla.usuario.sector && <span>• {planilla.usuario.sector.nombre}</span>}
           </p>
         </div>
       </div>
@@ -698,11 +840,11 @@ export default function PlanillaDetailPage() {
 
       {/* ── Summary cards ── */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-        <MiniCard label="Total" value={totalHoras.toFixed(1)} color="text-primary" />
-        <MiniCard label="Normales" value={Number(planilla.totalHorasNormales).toFixed(1)} />
-        <MiniCard label="E50%" value={Number(planilla.totalHorasExtra50).toFixed(1)} color="text-cal-amber" />
-        <MiniCard label="E100%" value={Number(planilla.totalHorasExtra100).toFixed(1)} color="text-cal-red" />
-        <MiniCard label="Viaje" value={Number(planilla.totalHorasViaje).toFixed(1)} color="text-cal-blue" />
+        <MiniCard label="Total" animate={totalHoras} glow color="text-primary" />
+        <MiniCard label="Normales" animate={Number(planilla.totalHorasNormales)} />
+        <MiniCard label="E50%" animate={Number(planilla.totalHorasExtra50)} color="text-cal-amber" />
+        <MiniCard label="E100%" animate={Number(planilla.totalHorasExtra100)} color="text-cal-red" />
+        <MiniCard label="Viaje" animate={Number(planilla.totalHorasViaje)} color="text-cal-blue" />
         <MiniCard label="Campo/Base" value={`${planilla.totalDiasCampo}/${planilla.totalDiasBase}`} color="text-cal-emerald" />
       </div>
 
@@ -728,27 +870,32 @@ export default function PlanillaDetailPage() {
             </button>
           </>
         )}
-        {/* Apply diagram button: only shown when user has a diagram assigned and planilla is editable */}
-        {canEdit && diagramaActual && (
+        {canEdit && (
           <button
-            onClick={handleApplyDiagram}
-            disabled={applyingDiagram}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-primary/40 text-primary bg-primary/5 text-sm font-medium hover:bg-primary/10 disabled:opacity-50 transition-colors"
-            title="Marca los registros cargados en días de franco como 'Franco trabajado'"
+            onClick={() => paintMode === 'copy' ? exitPaintMode() : startPaintMode('copy')}
+            className={cn(
+              'inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors',
+              paintMode === 'copy'
+                ? 'border-sky-400 text-sky-400 bg-sky-500/15'
+                : 'border-sky-500/40 text-sky-500 bg-sky-500/5 hover:bg-sky-500/10',
+            )}
+            title="Elegí un día origen y pintá los días destino para copiarlo"
           >
-            {applyingDiagram ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
-            Aplicar diagrama
+            <Copy className="h-4 w-4" /> Copiar día
           </button>
         )}
         {canEdit && (
           <button
-            onClick={handleQuickFill}
-            disabled={quickFilling}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-cal-amber/40 text-cal-amber bg-amber-500/5 text-sm font-medium hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
-            title="Llena todos los días laborables vacíos con el último horario usado"
+            onClick={() => paintMode === 'delete' ? exitPaintMode() : startPaintMode('delete')}
+            className={cn(
+              'inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors',
+              paintMode === 'delete'
+                ? 'border-red-400 text-red-400 bg-red-500/15'
+                : 'border-red-500/40 text-red-500 bg-red-500/5 hover:bg-red-500/10',
+            )}
+            title="Pintá los días con datos que quieras borrar"
           >
-            {quickFilling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-            Llenar días laborables
+            <Eraser className="h-4 w-4" /> Borrar días
           </button>
         )}
         <button onClick={async () => {
@@ -770,10 +917,64 @@ export default function PlanillaDetailPage() {
         )}
       </div>
 
+      {/* ── Barra del modo de pintado ── */}
+      {paintMode !== 'none' && (
+        <div className={cn(
+          'sticky top-2 z-30 rounded-xl border p-3 flex flex-wrap items-center gap-3 backdrop-blur shadow-lg',
+          'animate-[apply-bar-in_220ms_ease-out_both]',
+          paintMode === 'copy' ? 'border-sky-400/40 bg-sky-500/15' : 'border-red-400/40 bg-red-500/15',
+        )}>
+          <p className="text-sm flex-1 min-w-[200px]">
+            {paintMode === 'copy'
+              ? !copySource
+                ? '1. Tocá el día origen que querés copiar (debe tener datos)'
+                : <>2. Pintá (tocá o arrastrá) los días destino — <strong>{painted.size}</strong> seleccionado{painted.size === 1 ? '' : 's'}</>
+              : <>Pintá los días con datos que quieras borrar — <strong>{painted.size}</strong> seleccionado{painted.size === 1 ? '' : 's'}</>}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={confirmPaint}
+              disabled={painted.size === 0 || applyingPaint}
+              className={cn(
+                'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors',
+                paintMode === 'copy' ? 'bg-sky-600 hover:bg-sky-700' : 'bg-red-600 hover:bg-red-700',
+              )}
+            >
+              {applyingPaint ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {paintMode === 'copy' ? 'Aplicar' : 'Borrar'}
+            </button>
+            <button onClick={exitPaintMode}
+              className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted/30 transition-colors">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tip: long-press para copiar (auto-oculto 5 s, descarte persistido) */}
+      {showTip && (
+        <div className="relative overflow-hidden rounded-xl border border-cal-blue/30 bg-blue-500/10 px-3 py-2 text-xs text-cal-blue flex items-center gap-2">
+          <Lightbulb className="h-4 w-4 shrink-0" />
+          <span className="flex-1">Mantené pulsado un día con datos para copiarlo a otros, o usá «Copiar día».</span>
+          <button onClick={dismissTip} aria-label="Descartar" className="p-0.5 rounded hover:bg-cal-blue/10">
+            <X className="h-3.5 w-3.5" />
+          </button>
+          <span className="absolute left-0 bottom-0 h-0.5 w-full bg-cal-blue/60 animate-[countdown-bar_5s_linear_forwards]" />
+        </div>
+      )}
+
       {/* ══════════════════════════════════════════════ */}
       {/* ── CALENDAR GRID (21→20) ──────────────────── */}
       {/* ══════════════════════════════════════════════ */}
-      <div className="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
+      <div
+        key={planilla.id}
+        className="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden"
+        style={paintMode !== 'none' ? { touchAction: 'none' } : undefined}
+        onPointerDown={handlePaintPointerDown}
+        onPointerMove={handlePaintPointerMove}
+        onPointerUp={handlePaintPointerUp}
+        onPointerCancel={handlePaintPointerUp}
+      >
         {/* Day-of-week header */}
         <div className="grid grid-cols-7 bg-muted/30 border-b border-border/60">
           {DOW_LABELS.map((d, i) => (
@@ -802,25 +1003,107 @@ export default function PlanillaDetailPage() {
               const francoDay = isFranco(day);
               const isLocked = reg?.bloqueado === true;
               const isFaltante = diasFaltantes.includes(key);
-              const isFeriado = buildArgHolidays(day.getFullYear()).has(key);
-              const isNoLaborable = buildDiasNoLaborables(day.getFullYear()).has(key);
+              const isFeriado = esFeriadoNacional(key);
+              const isPainted = painted.has(key);
+              const isCopySource = copySource === key;
+              const dimmedByPaint = paintMode === 'delete' && (!hasData || isLocked);
+              // Estilo "pintado" (relleno semántico full-cell) — port de la PWA, vía tokens.
+              const vis = cellStyle(reg, { isFranco: francoDay, isFeriado });
+              const francoTexture = !hasData && (francoDay || isWeekend);
+              const isHighlighted = isPainted || isCopySource; // estados de pintado pisan el relleno
+              const cellIdx = wi * 7 + di;
+              const isFlipping = flippingKeys.has(key);
+              const flipDelay = 300 + (flipRank.get(key) ?? 0) * 80;
+              // Overlay de pintado: colores de ACCIÓN (no dependen del tema) — salpicadura + glow.
+              const paint = isCopySource
+                ? { c: 'rgba(56,189,248,0.95)', bg: 'rgba(56,189,248,0.14)' }
+                : isPainted && paintMode === 'delete'
+                  ? { c: 'rgba(248,113,113,0.96)', bg: 'rgba(248,113,113,0.18)' }
+                  : isPainted && hasData
+                    ? { c: 'rgba(251,191,36,0.96)', bg: 'rgba(251,191,36,0.16)' }
+                    : isPainted
+                      ? { c: 'rgba(52,211,153,0.96)', bg: 'rgba(52,211,153,0.16)' }
+                      : null;
 
               return (
                 <button
-                  key={di}
-                  onClick={() => isLocked ? undefined : (canEdit ? openDay(key) : (hasData ? openDay(key) : undefined))}
+                  key={isFlipping ? `${di}-f${flipToken}` : di}
+                  data-daykey={key}
+                  onClick={(e) => {
+                    if (paintMode !== 'none') return; // pintando: tap normal deshabilitado
+                    if (lpFired.current) { lpFired.current = false; return; } // venía de un long-press
+                    if (isLocked) return;
+                    if (canEdit || hasData) openDay(key, e.currentTarget.getBoundingClientRect());
+                  }}
+                  onPointerDown={(e) => {
+                    if (paintMode !== 'none' || !canEdit || !hasData || isLocked) return;
+                    lpFired.current = false;
+                    lpStart.current = { x: e.clientX, y: e.clientY };
+                    lpRingTimer.current = setTimeout(() => setPressingKey(key), 140);
+                    lpTimer.current = setTimeout(() => { lpFired.current = true; startCopyFrom(key); cancelPress(); }, 500);
+                  }}
+                  onPointerMove={(e) => {
+                    const s = lpStart.current;
+                    if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) > 10) cancelPress();
+                  }}
+                  onPointerUp={cancelPress}
+                  onPointerLeave={cancelPress}
+                  onContextMenu={(e) => {
+                    if (paintMode !== 'none' || !canEdit || !hasData || isLocked) return;
+                    e.preventDefault();
+                    lpFired.current = true;
+                    startCopyFrom(key);
+                  }}
+                  style={{ animationDelay: isFlipping ? `${flipDelay}ms` : `${Math.min(cellIdx * 10, 360)}ms` }}
                   className={cn(
                     'min-h-[90px] p-2 text-left transition-all duration-150 relative group',
-                    'hover:bg-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:z-10',
-                    isLocked && 'bg-violet-500/8 cursor-not-allowed hover:bg-violet-500/8',
-                    !isLocked && francoDay && !hasData && 'bg-orange-500/[0.03]',
-                    !isLocked && isWeekend && !hasData && !francoDay && 'bg-muted/8',
-                    isToday && 'ring-2 ring-inset ring-primary/50 bg-primary/[0.03]',
-                    isFaltante && 'border-l-[3px] border-l-red-500/80 bg-red-500/[0.04]',
+                    !isFlipping && 'animate-[cell-in_320ms_ease-out_both]',
+                    isFlipping && 'animate-[day-flip-in_600ms_ease-in-out_both]',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:z-10',
+                    paintMode === 'none' && 'hover:bg-primary/5 active:scale-[0.98]',
+                    !isHighlighted && vis.bgClass,
+                    francoTexture && 'franco-stripes',
+                    isLocked && 'cursor-not-allowed',
+                    !isLocked && isWeekend && !hasData && !francoDay && !isFeriado && 'bg-muted/10',
+                    isToday && paintMode === 'none' && 'ring-2 ring-inset ring-primary/50',
+                    isFaltante && 'border-l-[3px] border-l-red-500/80',
+                    dimmedByPaint && 'opacity-30',
+                    isCopySource && 'ring-2 ring-inset ring-sky-400 z-10',
+                    isPainted && paintMode === 'copy' && (hasData
+                      ? 'ring-2 ring-inset ring-amber-400 z-10'
+                      : 'ring-2 ring-inset ring-emerald-400 z-10'),
+                    isPainted && paintMode === 'delete' && 'ring-2 ring-inset ring-red-400 z-10',
                   )}
                 >
+                  {/* Indicador de HOY: punto acentuado que late (port PWA) */}
+                  {isToday && (
+                    <span className="pointer-events-none absolute right-1 top-1 z-30 h-1.5 w-1.5 rounded-full bg-primary animate-[today-dot_2s_ease-in-out_infinite]" />
+                  )}
+                  {/* Anillo de long-press: se "dibuja" antes de entrar a copiar (port PWA) */}
+                  {pressingKey === key && (
+                    <span className="pointer-events-none absolute inset-0 z-30 grid place-items-center">
+                      <svg viewBox="0 0 36 36" className="h-[70%] w-[70%] -rotate-90">
+                        <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(56,189,248,0.25)" strokeWidth="3" />
+                        <circle cx="18" cy="18" r="16" fill="none" stroke="rgb(56,189,248)" strokeWidth="3" strokeLinecap="round"
+                          style={{ strokeDasharray: 100.5, strokeDashoffset: 100.5, animation: 'tour-ring 360ms linear forwards' }} />
+                      </svg>
+                    </span>
+                  )}
+                  {/* Overlay de pintado (copiar/borrar): salpicadura + glow que respira (port PWA) */}
+                  {paint && (
+                    <>
+                      <span
+                        className="pointer-events-none absolute inset-0 animate-[paint-splash_360ms_cubic-bezier(.34,1.56,.64,1)_both]"
+                        style={{ backgroundColor: paint.bg }}
+                      />
+                      <span
+                        className="pointer-events-none absolute inset-0 animate-[paint-glow_2.2s_ease-in-out_infinite]"
+                        style={{ color: paint.c, boxShadow: '0 0 0 1.5px currentColor, 0 0 12px 1px currentColor' }}
+                      />
+                    </>
+                  )}
                   {/* Day number + badges row */}
-                  <div className="flex items-start justify-between gap-0.5">
+                  <div className="relative z-10 flex items-start justify-between gap-0.5">
                     <span className={cn(
                       'text-[13px] font-semibold w-7 h-7 flex items-center justify-center rounded-full transition-colors',
                       isToday && 'bg-primary text-primary-foreground shadow-sm',
@@ -855,13 +1138,8 @@ export default function PlanillaDetailPage() {
                         </span>
                       )}
                       {isFeriado && (
-                        <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-red-500/15 text-cal-red">
-                          FE
-                        </span>
-                      )}
-                      {isNoLaborable && !isFeriado && (
-                        <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-amber-500/15 text-cal-amber">
-                          NL
+                        <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-amber-500/20 text-cal-amber" title={nombreFeriado(key) ?? 'Feriado'}>
+                          FER
                         </span>
                       )}
                     </div>
@@ -869,7 +1147,7 @@ export default function PlanillaDetailPage() {
 
                   {/* Hour data */}
                   {hasData && !isLocked && (
-                    <div className="mt-1.5 space-y-1">
+                    <div className="relative z-10 mt-1.5 space-y-1">
                       <p className="text-[15px] font-bold text-foreground leading-none tracking-tight">{hrs.toFixed(1)}<span className="text-[11px] font-medium text-muted-foreground ml-0.5">h</span></p>
                       <div className="flex gap-1 flex-wrap">
                         {Number(reg.horasNormales) > 0 && (
@@ -886,9 +1164,24 @@ export default function PlanillaDetailPage() {
                     </div>
                   )}
 
+                  {/* Mini-barra de horas (normales / 50% / 100%) — totales del backend (port PWA) */}
+                  {hasData && !isLocked && hrs > 0 && (
+                    <span className="pointer-events-none absolute inset-x-2 bottom-1 z-10 flex h-[3px] gap-px">
+                      {Number(reg.horasNormales) > 0 && (
+                        <span className="rounded-full bg-foreground/70" style={{ flex: Number(reg.horasNormales) }} />
+                      )}
+                      {Number(reg.horasExtra50) > 0 && (
+                        <span className="rounded-full bg-cal-amber/85" style={{ flex: Number(reg.horasExtra50) }} />
+                      )}
+                      {Number(reg.horasExtra100) > 0 && (
+                        <span className="rounded-full bg-cal-red/85" style={{ flex: Number(reg.horasExtra100) }} />
+                      )}
+                    </span>
+                  )}
+
                   {/* Locked day (ausencia/vacación) */}
                   {isLocked && (
-                    <div className="mt-1.5 space-y-0.5">
+                    <div className="relative z-10 mt-1.5 space-y-0.5">
                       <div className="flex items-center gap-1">
                         <Lock className="h-3 w-3 text-cal-violet/80" />
                         <span className="text-[10px] font-semibold text-cal-violet leading-tight">
@@ -932,15 +1225,42 @@ export default function PlanillaDetailPage() {
       {/* ── DAY EDITOR MODAL ─────────────────────── */}
       {/* ══════════════════════════════════════════════ */}
       {selectedDate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setSelectedDate(null)}>
-          <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Clock className="h-5 w-5 text-primary" />
-                {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}
-              </h2>
-              <button onClick={() => setSelectedDate(null)} className="p-1 rounded-lg hover:bg-accent text-muted-foreground">
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/60 backdrop-blur-sm sm:p-4 animate-[backdrop-fade-in_180ms_ease_both]"
+          onClick={closeDay}
+        >
+          <div
+            className={cn(
+              'w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl border border-border bg-card/95 backdrop-blur shadow-2xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto',
+              'animate-[dialog-slide-in_260ms_ease-out_both] sm:animate-[container-grow-in_220ms_cubic-bezier(0.34,1.56,0.64,1)_both]',
+            )}
+            style={{ transformOrigin: dialogOrigin ?? undefined }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header con degradé día/noche según el turno cargado */}
+            <div className={cn(
+              'flex items-center justify-between p-4 border-b border-border sticky top-0 z-10 bg-card/95 backdrop-blur',
+              formHasWork && (turno.noche
+                ? 'bg-gradient-to-r from-indigo-500/15 to-blue-500/10'
+                : 'bg-gradient-to-r from-amber-400/15 to-orange-400/10'),
+            )}>
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold flex items-center gap-2 capitalize">
+                  <Clock className="h-5 w-5 text-primary shrink-0" />
+                  <span className="truncate">{new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+                </h2>
+                {formHasWork && (
+                  <span className={cn(
+                    'mt-1 inline-flex items-center gap-1 text-[11px] font-medium',
+                    turno.noche ? 'text-cal-violet' : 'text-cal-amber',
+                  )}>
+                    {turno.noche ? <Moon className="h-3 w-3" /> : <Sun className="h-3 w-3" />}
+                    {turno.noche ? 'Turno noche' : 'Turno día'}
+                    {turno.cruza && ' · termina al día siguiente'}
+                  </span>
+                )}
+              </div>
+              <button onClick={closeDay} className="p-1 rounded-lg hover:bg-accent text-muted-foreground shrink-0">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -974,6 +1294,54 @@ export default function PlanillaDetailPage() {
 
               {/* Time pickers */}
               {!registroMap[selectedDate]?.bloqueado && (<>
+              {/* Contexto del día (no editable): franco por diagrama / feriado nacional */}
+              {(selFranco || selFeriado) && (
+                <div className="flex flex-wrap gap-2">
+                  {selFranco && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-violet-500/20 text-cal-violet border border-cal-violet/30">
+                      Día de Franco
+                    </span>
+                  )}
+                  {selFeriado && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-cal-amber border border-cal-amber/30">
+                      🗓 Feriado nacional{selFeriadoNombre ? ` · ${selFeriadoNombre}` : ''}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Avisos en vivo: se auto-detecta según los horarios cargados */}
+              {selFranco && formHasWork && (
+                <div className="rounded-lg border border-cal-violet/30 bg-violet-500/10 px-3 py-2 text-xs text-cal-violet font-medium">
+                  ⚡ Franco trabajado — horas al 100%
+                </div>
+              )}
+              {selFeriado && formHasWork && (
+                <div className="rounded-lg border border-cal-amber/30 bg-amber-500/10 px-3 py-2 text-xs text-cal-amber font-medium">
+                  ⚡ Feriado trabajado — horas al 100%
+                </div>
+              )}
+
+              {/* Aviso: el turno cruza la medianoche (port PWA) */}
+              {turno.cruza && formHasWork && (
+                <div className="rounded-lg border border-cal-blue/30 bg-blue-500/10 px-3 py-2 text-xs text-cal-blue flex items-start gap-2">
+                  <Moon className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>El turno cruza la medianoche: esas horas de la madrugada se cuentan en <strong>este</strong> día. No las vuelvas a cargar mañana.</span>
+                </div>
+              )}
+
+              {/* Reloj sugerido: último día trabajado del período (port PWA) */}
+              {canEdit && sugerenciaReloj && (
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, entradaTurno1: sugerenciaReloj.entrada, salidaTurno1: sugerenciaReloj.salida })}
+                  className="w-full inline-flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-muted/30 transition-colors"
+                >
+                  <span className="flex items-center gap-1.5"><Clock className="h-3 w-3" /> Sugerido (último día): {sugerenciaReloj.entrada}–{sugerenciaReloj.salida}</span>
+                  <span className="font-semibold text-primary">Usar</span>
+                </button>
+              )}
+
               {/* Quick-copy from previous day */}
               {canEdit && (() => {
                 const [y, m, d] = selectedDate.split('-').map(Number);
@@ -1137,74 +1505,14 @@ export default function PlanillaDetailPage() {
                 )}
               </div>
 
-              {/* Flags */}
-              <div className="flex flex-wrap gap-3">
-                {/* Feriado: auto-detected, read-only */}
-                {formData.esFeriado && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/20 text-cal-red border border-cal-red/30">
-                    🗓 Feriado
-                  </span>
-                )}
-
-                {/* Día no laborable: auto-detected */}
-                {formData.esNoLaborable && !formData.esFeriado && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-cal-amber border border-cal-amber/30">
-                    📋 Día no laborable
-                  </span>
-                )}
-
-                {/* Franco trabajado: read-only indicator (auto-set when opening a franco day) */}
-                {formData.esFrancoTrabajado && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-cal-amber border border-cal-amber/30">
-                    ⚡ Franco trabajado
-                  </span>
-                )}
-
-                {/* Franco compensatorio: selectable, zeroes hours */}
-                {canEdit && (() => {
-                  const saved = selectedDate ? registroMap[selectedDate] : null;
-                  const hasSavedWork = saved && !saved.esFrancoCompensatorio && (saved.entradaTurno1 || saved.salidaTurno1);
-                  return hasSavedWork ? (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted/30 text-muted-foreground border border-border">
-                      Franco comp. no disponible (tiene horario)
-                    </span>
-                  ) : (
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={formData.esFrancoCompensatorio}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          if (checked) {
-                            setFormData({
-                              ...formData,
-                              esFrancoCompensatorio: true,
-                              entradaTurno1: '00:00', salidaTurno1: '00:00',
-                            });
-                          } else {
-                            let lastEntry = '07:00';
-                            let lastExit = '15:00';
-                            try {
-                              const saved = JSON.parse(localStorage.getItem(LAST_DEFAULTS_KEY) || '{}');
-                              if (saved.entrada) lastEntry = saved.entrada;
-                              if (saved.salida) lastExit = saved.salida;
-                            } catch { /* ignore */ }
-                            setFormData({
-                              ...formData,
-                              esFrancoCompensatorio: false,
-                              entradaTurno1: lastEntry, salidaTurno1: lastExit,
-                            });
-                          }
-                        }}
-                        className="rounded border-input" />
-                      <span className="text-sm text-cal-blue">Franco comp.</span>
-                    </label>
-                  );
-                })()}
-                {!canEdit && formData.esFrancoCompensatorio && (
+              {/* Franco compensatorio: sólo lectura — se otorga vía solicitud de ausencias aprobada */}
+              {formData.esFrancoCompensatorio && (
+                <div className="flex flex-wrap gap-3">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-cal-blue border border-cal-blue/30">
                     Franco compensatorio
                   </span>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Observaciones */}
               <div>
@@ -1306,6 +1614,17 @@ export default function PlanillaDetailPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Selector de período 3×4 ── */}
+      {showPeriodPicker && (
+        <PeriodGridPicker
+          planillas={ownerPlanillas}
+          currentId={planilla.id}
+          currentFin={planilla.periodoFin}
+          onPick={(pid) => { if (pid !== planilla.id) navigate(`/planillas/${pid}`); }}
+          onClose={() => setShowPeriodPicker(false)}
+        />
       )}
 
       {/* ── Success animation overlay ── */}

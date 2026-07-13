@@ -307,8 +307,16 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     if (sectorId) where.sectorObservacionId = sectorId as string;
     if (desde || hasta) {
       where.fechaReporte = {};
-      if (desde) where.fechaReporte.gte = new Date(desde as string);
-      if (hasta) where.fechaReporte.lte = new Date(hasta as string);
+      if (desde) {
+        const d = new Date(desde as string);
+        if (isNaN(d.getTime())) { res.status(400).json({ error: 'Parámetro "desde" inválido' }); return; }
+        where.fechaReporte.gte = d;
+      }
+      if (hasta) {
+        const h = new Date(hasta as string);
+        if (isNaN(h.getTime())) { res.status(400).json({ error: 'Parámetro "hasta" inválido' }); return; }
+        where.fechaReporte.lte = h;
+      }
     }
 
     const tarjetas = await prisma.wentopTarjeta.findMany({
@@ -375,6 +383,11 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     if (!VALID_TIPOS.includes(tipoTarjeta)) {
       res.status(400).json({ error: `tipoTarjeta inválido. Valores válidos: ${VALID_TIPOS.join(', ')}` });
+      return;
+    }
+
+    if (isNaN(new Date(fechaReporte).getTime())) {
+      res.status(400).json({ error: 'fechaReporte inválida' });
       return;
     }
 
@@ -448,6 +461,16 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       recomendaciones,
       justificacionAbierta,
     } = req.body;
+
+    // Validate inputs that would otherwise reach Prisma and 500
+    if (tipoTarjeta !== undefined && !VALID_TIPOS.includes(tipoTarjeta)) {
+      res.status(400).json({ error: `tipoTarjeta inválido. Valores válidos: ${VALID_TIPOS.join(', ')}` });
+      return;
+    }
+    if (fechaReporte !== undefined && isNaN(new Date(fechaReporte).getTime())) {
+      res.status(400).json({ error: 'fechaReporte inválida' });
+      return;
+    }
 
     const updated = await prisma.wentopTarjeta.update({
       where: { id: req.params.id },

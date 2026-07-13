@@ -5,52 +5,117 @@ export function dateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Easter Sunday dates by year (month, day) */
-const EASTER_SUNDAY: Record<number, [number, number]> = {
-  2024: [3, 31], 2025: [4, 20], 2026: [4, 5], 2027: [3, 28], 2028: [4, 16],
+/**
+ * Feriados nacionales — SOLO inamovibles y trasladables (se pagan al 100% si se
+ * trabajan). Los dias "puente" y "no laborables" NO cuentan: valen como dia comun.
+ *
+ * Seed offline 2025-2026 (con traslados oficiales) + actualizacion opcional desde
+ * https://api.argentinadatos.com/v1/feriados/{year} filtrando tipo inamovible/trasladable.
+ * El cache persiste en localStorage; el seed garantiza funcionamiento offline.
+ */
+const FERIADOS_SEED: Record<string, string> = {
+  // 2025
+  '2025-01-01': 'Año Nuevo',
+  '2025-03-03': 'Carnaval',
+  '2025-03-04': 'Carnaval',
+  '2025-03-24': 'Día de la Memoria',
+  '2025-04-02': 'Veteranos de Malvinas',
+  '2025-04-18': 'Viernes Santo',
+  '2025-05-01': 'Día del Trabajador',
+  '2025-05-25': 'Revolución de Mayo',
+  '2025-06-16': 'Paso a la Inmortalidad del Gral. Güemes (trasladado)',
+  '2025-06-20': 'Paso a la Inmortalidad del Gral. Belgrano',
+  '2025-07-09': 'Día de la Independencia',
+  '2025-08-17': 'Paso a la Inmortalidad del Gral. San Martín',
+  '2025-10-12': 'Día de la Diversidad Cultural',
+  '2025-11-24': 'Día de la Soberanía Nacional (trasladado)',
+  '2025-12-08': 'Inmaculada Concepción',
+  '2025-12-25': 'Navidad',
+  // 2026
+  '2026-01-01': 'Año Nuevo',
+  '2026-02-16': 'Carnaval',
+  '2026-02-17': 'Carnaval',
+  '2026-03-24': 'Día de la Memoria',
+  '2026-04-02': 'Veteranos de Malvinas',
+  '2026-04-03': 'Viernes Santo',
+  '2026-05-01': 'Día del Trabajador',
+  '2026-05-25': 'Revolución de Mayo',
+  '2026-06-15': 'Paso a la Inmortalidad del Gral. Güemes (trasladado)',
+  '2026-06-20': 'Paso a la Inmortalidad del Gral. Belgrano',
+  '2026-07-09': 'Día de la Independencia',
+  '2026-08-17': 'Paso a la Inmortalidad del Gral. San Martín',
+  '2026-10-12': 'Día de la Diversidad Cultural',
+  '2026-11-23': 'Día de la Soberanía Nacional (trasladado)',
+  '2026-12-08': 'Inmaculada Concepción',
+  '2026-12-25': 'Navidad',
 };
 
-/** Argentine public holidays (fixed + movable) */
-export function buildArgHolidays(year: number): Set<string> {
-  const fmt = (m: number, d: number) =>
-    `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-  const fixed = [
-    fmt(1, 1),
-    fmt(3, 24), fmt(4, 2), fmt(5, 1), fmt(5, 25),
-    fmt(6, 20), fmt(7, 9), fmt(8, 17), fmt(10, 12),
-    fmt(11, 20), fmt(12, 8), fmt(12, 25),
-  ];
-  const easter = EASTER_SUNDAY[year];
-  if (easter) {
-    const [em, ed] = easter;
-    fixed.push(fmt(em, ed - 2)); // Viernes Santo
-    fixed.push(fmt(em, ed));     // Domingo Pascua
-    // Carnaval: 48 and 47 days before Easter Sunday
-    const easterDate = new Date(year, em - 1, ed);
-    const carnavalMon = new Date(easterDate);
-    carnavalMon.setDate(carnavalMon.getDate() - 48);
-    const carnavalTue = new Date(easterDate);
-    carnavalTue.setDate(carnavalTue.getDate() - 47);
-    fixed.push(dateKey(carnavalMon), dateKey(carnavalTue));
+const FERIADOS_CACHE_KEY = 'feriados-api-cache-v2';
+
+type FeriadosCache = Record<string, Record<string, string>>; // { [year]: { 'YYYY-MM-DD': nombre } }
+
+function loadFeriadosCache(): FeriadosCache {
+  try {
+    return JSON.parse(localStorage.getItem(FERIADOS_CACHE_KEY) || '{}');
+  } catch {
+    return {};
   }
-  return new Set(fixed);
 }
 
-/** Días no laborables: el empleador decide si se trabaja o no */
-export function buildDiasNoLaborables(year: number): Set<string> {
-  const fmt = (m: number, d: number) =>
-    `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-  const easter = EASTER_SUNDAY[year];
-  const dias = [
-    fmt(3, 23),
-    fmt(12, 24),
-    fmt(12, 31),
-  ];
-  if (easter) {
-    const [em, ed] = easter;
-    dias.push(fmt(em, ed - 3)); // Jueves Santo (Easter Sunday - 3)
+function buildFeriadosMap(cache: FeriadosCache): Record<string, string> {
+  // El cache de la API reemplaza COMPLETO cada año que cubre (por si un feriado
+  // trasladable cambió de fecha respecto del seed)
+  const map: Record<string, string> = {};
+  const cachedYears = new Set(Object.keys(cache));
+  for (const [key, nombre] of Object.entries(FERIADOS_SEED)) {
+    if (!cachedYears.has(key.slice(0, 4))) map[key] = nombre;
   }
-  return new Set(dias);
+  for (const yearMap of Object.values(cache)) Object.assign(map, yearMap);
+  return map;
+}
+
+let feriadosMap: Record<string, string> = buildFeriadosMap(loadFeriadosCache());
+
+/** True si la fecha (clave YYYY-MM-DD) es feriado nacional inamovible/trasladable */
+export function esFeriadoNacional(key: string): boolean {
+  return key in feriadosMap;
+}
+
+export function nombreFeriado(key: string): string | null {
+  return feriadosMap[key] ?? null;
+}
+
+/**
+ * Actualiza los feriados de los años dados desde api.argentinadatos.com
+ * (solo inamovibles/trasladables). Devuelve true si hubo cambios.
+ * Falla silenciosamente (el seed offline sigue vigente).
+ */
+export async function refreshFeriados(years: number[]): Promise<boolean> {
+  let changed = false;
+  const cache = loadFeriadosCache();
+  for (const year of years) {
+    try {
+      const res = await fetch(`https://api.argentinadatos.com/v1/feriados/${year}`);
+      if (!res.ok) continue;
+      const data: { fecha: string; tipo: string; nombre: string }[] = await res.json();
+      const yearMap: Record<string, string> = {};
+      for (const f of data) {
+        const tipo = (f.tipo || '').toLowerCase();
+        if (tipo !== 'inamovible' && tipo !== 'trasladable') continue;
+        yearMap[f.fecha] = f.nombre;
+      }
+      if (Object.keys(yearMap).length === 0) continue; // respuesta vacía: no pisar el seed
+      cache[String(year)] = yearMap;
+      changed = true;
+    } catch {
+      // offline / API caída: se mantiene el seed
+    }
+  }
+  if (changed) {
+    try { localStorage.setItem(FERIADOS_CACHE_KEY, JSON.stringify(cache)); } catch { /* ignore */ }
+    feriadosMap = buildFeriadosMap(cache);
+  }
+  return changed;
 }
 
 export interface DiagramaInfo {
@@ -84,6 +149,80 @@ export function esDiaFranco(fecha: Date, diagrama: DiagramaInfo, fechaInicio: Da
     return !diagrama.diasSemana.includes(fecha.getDay());
   }
   return false;
+}
+
+// ── Estilo "pintado" de la celda del calendario (port de la PWA, vía tokens) ──
+// Devuelve el relleno semántico de fondo + etiqueta + color de etiqueta de un día, con el ORDEN
+// DE PRIORIDAD de la PWA mapeado al modelo del destino (lugar MAYÚSCULAS, ausencias/vacaciones/
+// francos como `bloqueado`+`motivoBloqueo`). El cálculo de horas lo hace el backend: este helper
+// NO recalcula nada, sólo decide colores. Los colores van por token (`text-cal-*`) y por paleta
+// translúcida (funciona en los 6 temas claros/oscuros).
+
+/** Subconjunto del registro que necesita el estilo de celda (evita acoplar el tipo de la página). */
+export interface CellRegistro {
+  lugarTrabajo: string | null;
+  esFeriado: boolean;
+  esFrancoTrabajado: boolean;
+  esFrancoCompensatorio: boolean;
+  bloqueado: boolean;
+  motivoBloqueo: string | null;
+  horasTrabajadas: string | number;
+}
+
+export interface CellCtx {
+  /** Franco según el diagrama del usuario (contexto, no editable) */
+  isFranco: boolean;
+  /** Feriado nacional (contexto, no editable) */
+  isFeriado: boolean;
+}
+
+export interface CellVisual {
+  /** Clase(s) de fondo full-cell (puede ser '') */
+  bgClass: string;
+  /** Etiqueta corta del estado (puede ser '') */
+  label: string;
+  /** Clase de color de la etiqueta (token cal-*) */
+  labelClass: string;
+}
+
+export function cellStyle(reg: CellRegistro | undefined, ctx: CellCtx): CellVisual {
+  // Sin registro guardado → sólo contexto (feriado / franco por diagrama).
+  if (!reg) {
+    if (ctx.isFeriado) return { bgClass: 'bg-amber-500/12', label: 'Feriado', labelClass: 'text-cal-amber' };
+    if (ctx.isFranco) return { bgClass: 'bg-muted/20', label: 'Franco', labelClass: 'text-muted-foreground' };
+    return { bgClass: '', label: '', labelClass: '' };
+  }
+
+  // Día bloqueado (ausencia / vacación / falta / licencia / compensatorio gestionado fuera).
+  if (reg.bloqueado) {
+    switch (reg.motivoBloqueo) {
+      case 'VACACION':
+        return { bgClass: 'bg-teal-500/14', label: 'Vacac.', labelClass: 'text-cal-teal' };
+      case 'FALTA_INJUSTIFICADA':
+        return { bgClass: 'bg-rose-500/16', label: 'Falta', labelClass: 'text-cal-rose' };
+      case 'FALTA_JUSTIFICADA':
+      case 'CERTIFICADO_MEDICO':
+        return { bgClass: 'bg-red-500/12', label: 'Ausencia', labelClass: 'text-cal-red' };
+      case 'FRANCO_COMPENSATORIO':
+        return { bgClass: 'bg-violet-500/16', label: 'F.Comp', labelClass: 'text-cal-violet' };
+      case 'LICENCIA_ESPECIAL':
+        return { bgClass: 'bg-violet-500/12', label: 'Licencia', labelClass: 'text-cal-violet' };
+      default:
+        return { bgClass: 'bg-violet-500/12', label: 'Ausencia', labelClass: 'text-cal-violet' };
+    }
+  }
+
+  // Con registro de trabajo (orden de prioridad de la PWA).
+  if (reg.esFrancoCompensatorio) return { bgClass: 'bg-violet-500/16', label: 'F.Comp', labelClass: 'text-cal-violet' };
+  if (reg.esFrancoTrabajado) return { bgClass: 'bg-cyan-500/16', label: 'F.Trab', labelClass: 'text-cal-cyan' };
+
+  const sinHoras = Number(reg.horasTrabajadas) <= 0;
+  if (reg.esFeriado && sinHoras) return { bgClass: 'bg-amber-500/12', label: 'Feriado', labelClass: 'text-cal-amber' };
+  if (reg.esFeriado) return { bgClass: 'bg-orange-500/16', label: 'F.Trab', labelClass: 'text-cal-orange' }; // feriado trabajado
+  if (reg.lugarTrabajo === 'CAMPO') return { bgClass: 'bg-emerald-500/16', label: 'Campo', labelClass: 'text-cal-emerald' };
+  if (reg.lugarTrabajo === 'BASE') return { bgClass: 'bg-blue-500/16', label: 'Base', labelClass: 'text-cal-blue' };
+  if (ctx.isFranco) return { bgClass: 'bg-muted/20', label: 'Franco', labelClass: 'text-muted-foreground' };
+  return { bgClass: '', label: '', labelClass: '' };
 }
 
 /** Build all calendar days for a 21→20 period */

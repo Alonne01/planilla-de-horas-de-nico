@@ -150,6 +150,16 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       });
     }
 
+    // Privacy: only the sender (or RRHH+) may see the full recipient list and
+    // read-receipts of a broadcast. A plain recipient must not enumerate the rest.
+    const canSeeRecipients = isSender || (req.user!.rolNivel ?? 0) >= LEVEL_RRHH;
+    if (!canSeeRecipients) {
+      const { destinatarios, ...rest } = mensaje;
+      void destinatarios;
+      res.json(rest);
+      return;
+    }
+
     res.json(mensaje);
   } catch (error) {
     console.error('Error getting mensaje:', error);
@@ -209,8 +219,8 @@ router.post('/', requireLevel(LEVEL_RRHH), upload.single('archivo'), async (req:
       userIds = users.map(u => u.id);
     } else if (destinoTipo === 'USUARIO') {
       if (!destinoValor) { res.status(400).json({ error: 'Se requiere el usuario' }); return; }
-      // Validate all recipient IDs belong to sender's empresa
-      const rawIds = destinoValor.split(',').map(id => id.trim()).filter(Boolean);
+      // Validate all recipient IDs belong to sender's empresa; never self-address
+      const rawIds = destinoValor.split(',').map(id => id.trim()).filter(Boolean).filter(id => id !== remitenteId);
       const validUsers = await prisma.usuario.findMany({
         where: { id: { in: rawIds }, empresaId, activo: true },
         select: { id: true },

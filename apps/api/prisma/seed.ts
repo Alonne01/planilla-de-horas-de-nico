@@ -1,4 +1,4 @@
-import { PrismaClient, CctTipo, ConceptoTipo, DiagramaTipo, ContratoTipo } from '@prisma/client';
+import { PrismaClient, DiagramaTipo, ContratoTipo } from '@prisma/client';
 import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -506,183 +506,6 @@ async function main() {
   }
   console.log('✅ 9 sectores creados');
 
-  // ═════════════════════════════════════════════════
-  // 3. CCT 644/12 — PETROLEROS PRIVADOS
-  // ═════════════════════════════════════════════════
-  const convenioPP = await prisma.convenio.create({
-    data: {
-      empresaId: empresa.id,
-      nombre: 'CCT 644/12 Petroleros Privados',
-      tipo: CctTipo.PETROLEROS_PRIVADOS_644,
-      vigenteDesde: new Date('2012-01-01'),
-    },
-  });
-  console.log('✅ Convenio PP creado:', convenioPP.nombre);
-
-  // ── Categorías CCT 644/12 ──
-  const catsPP = [
-    // Título II — Tipo A (Producción y Mantenimiento)
-    { codigo: 'TII-TA-III', nombre: 'Título II Tipo A — Categoría III', orden: 3 },
-    { codigo: 'TII-TA-IV', nombre: 'Título II Tipo A — Categoría IV', orden: 4 },
-    { codigo: 'TII-TA-V', nombre: 'Título II Tipo A — Categoría V', orden: 5 },
-    { codigo: 'TII-TA-VI', nombre: 'Título II Tipo A — Categoría VI', orden: 6 },
-    { codigo: 'TII-TA-VII', nombre: 'Título II Tipo A — Categoría VII', orden: 7 },
-    { codigo: 'TII-TA-VIII', nombre: 'Título II Tipo A — Categoría VIII', orden: 8 },
-    { codigo: 'TII-TA-IX', nombre: 'Título II Tipo A — Categoría IX', orden: 9 },
-    { codigo: 'TII-TA-X', nombre: 'Título II Tipo A — Categoría X', orden: 10 },
-    { codigo: 'TII-TA-XI', nombre: 'Título II Tipo A — Categoría XI', orden: 11 },
-    // Título II — Tipo B
-    { codigo: 'TII-TB-I', nombre: 'Título II Tipo B — Categoría I', orden: 21 },
-    { codigo: 'TII-TB-II', nombre: 'Título II Tipo B — Categoría II', orden: 22 },
-    { codigo: 'TII-TB-III', nombre: 'Título II Tipo B — Categoría III', orden: 23 },
-    { codigo: 'TII-TB-IV', nombre: 'Título II Tipo B — Categoría IV', orden: 24 },
-    { codigo: 'TII-TB-V', nombre: 'Título II Tipo B — Categoría V', orden: 25 },
-    { codigo: 'TII-TB-VI', nombre: 'Título II Tipo B — Categoría VI', orden: 26 },
-    { codigo: 'TII-TB-VII', nombre: 'Título II Tipo B — Categoría VII', orden: 27 },
-    { codigo: 'TII-TB-VIII', nombre: 'Título II Tipo B — Categoría VIII', orden: 28 },
-    { codigo: 'TII-TB-IX', nombre: 'Título II Tipo B — Categoría IX', orden: 29 },
-    { codigo: 'TII-TB-X', nombre: 'Título II Tipo B — Categoría X', orden: 30 },
-    // Título III — Técnicos y Servicios
-    { codigo: 'TIII-TS-III', nombre: 'Título III Téc. y Serv. — Categoría III', orden: 43 },
-    { codigo: 'TIII-TS-VIII', nombre: 'Título III Téc. y Serv. — Categoría VIII', orden: 48 },
-    { codigo: 'TIII-TS-X', nombre: 'Título III Téc. y Serv. — Categoría X', orden: 50 },
-  ];
-
-  const categoriasPP: Record<string, string> = {};
-  for (const c of catsPP) {
-    const cat = await prisma.categoria.create({
-      data: { convenioId: convenioPP.id, ...c },
-    });
-    categoriasPP[c.codigo] = cat.id;
-  }
-  console.log(`✅ ${catsPP.length} categorías CCT 644/12 creadas`);
-
-  // ── Conceptos salariales CCT 644/12 ──
-  const conceptosPP = [
-    // REMUNERATIVOS FIJOS
-    { codigo: 'BASICO_PP', nombre: 'Sueldo Básico CCT 644/12', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Planilla CCT vigente por categoría', esPorcentual: false, baseCalculo: null, esRemunerativo: true, orden: 1 },
-    { codigo: 'TURNO_A', nombre: 'Adicional Turno A (33%)', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Turno rotativo cubriendo 24h', esPorcentual: true, porcentajeBase: 0.33, baseCalculo: 'BASICO', esRemunerativo: true, orden: 2 },
-    { codigo: 'TURNO_B', nombre: 'Adicional Turno B (22%)', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Turnos sin cubrir 24h', esPorcentual: true, porcentajeBase: 0.22, baseCalculo: 'BASICO', esRemunerativo: true, orden: 3 },
-    { codigo: 'TURNO_S', nombre: 'Adicional Turno S (33%)', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Operaciones especiales campo', esPorcentual: true, porcentajeBase: 0.33, baseCalculo: 'BASICO', esRemunerativo: true, orden: 4 },
-    { codigo: 'ZNC', nombre: 'Zona No Convencional — Vaca Muerta (85%)', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Adicional zona no convencional Vaca Muerta', esPorcentual: true, porcentajeBase: 0.85, baseCalculo: 'BASICO', esRemunerativo: true, orden: 5 },
-    { codigo: 'ADICIONAL_YAC', nombre: 'Adicional Yacimiento (5%)', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Operaciones de producción en campo', esPorcentual: true, porcentajeBase: 0.05, baseCalculo: 'BASICO', esRemunerativo: true, orden: 6 },
-    { codigo: 'ANTIGUEDAD_PP', nombre: 'Antigüedad (1% por año)', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: '1% del básico por año de antigüedad', esPorcentual: true, porcentajeBase: 0.01, baseCalculo: 'BASICO', esRemunerativo: true, orden: 7 },
-    { codigo: 'PRESENTISMO_PP', nombre: 'Presentismo (6%)', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: '6% sobre remunerativos normales y habituales', esPorcentual: true, porcentajeBase: 0.06, baseCalculo: 'REMUNERATIVO_TOTAL', esRemunerativo: true, orden: 8 },
-    { codigo: 'BONO_PAZ_PP', nombre: 'Bono Paz Social', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Planilla CCT vigente', esPorcentual: false, baseCalculo: null, esRemunerativo: true, orden: 9 },
-    { codigo: 'ADICIONAL_DISPONIB', nombre: 'Adicional Disponibilidad', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Planilla CCT vigente', esPorcentual: false, baseCalculo: null, esRemunerativo: true, orden: 10 },
-    // REMUNERATIVOS VARIABLES
-    { codigo: 'HORAS_EXTRA_50_PP', nombre: 'Horas Extra 50%', tipo: ConceptoTipo.REMUNERATIVO_VARIABLE, descripcion: '(Básico / 192) × 1.5 × hs', esPorcentual: false, baseCalculo: 'HORA_BASE_X_1.5', esRemunerativo: true, orden: 20 },
-    { codigo: 'HORAS_EXTRA_100_PP', nombre: 'Horas Extra 100%', tipo: ConceptoTipo.REMUNERATIVO_VARIABLE, descripcion: '(Básico / 192) × 2.0 × hs', esPorcentual: false, baseCalculo: 'HORA_BASE_X_2.0', esRemunerativo: true, orden: 21 },
-    { codigo: 'HORAS_VIAJE_PP', nombre: 'Horas de Viaje (47%)', tipo: ConceptoTipo.REMUNERATIVO_VARIABLE, descripcion: '(Básico / 192) × 0.47 × hs (no maneja)', esPorcentual: false, baseCalculo: 'HORA_BASE_X_0.47', esRemunerativo: true, orden: 22 },
-    { codigo: 'DESARRAIGO_HOTEL', nombre: 'Desarraigo — Hotel', tipo: ConceptoTipo.REMUNERATIVO_VARIABLE, descripcion: 'Monto por día — pernocte hotel', esPorcentual: false, baseCalculo: null, esRemunerativo: true, orden: 23 },
-    { codigo: 'DESARRAIGO_TRAILER', nombre: 'Desarraigo — Trailer/Campamento', tipo: ConceptoTipo.REMUNERATIVO_VARIABLE, descripcion: 'Monto por día — pernocte trailer', esPorcentual: false, baseCalculo: null, esRemunerativo: true, orden: 24 },
-    { codigo: 'ADICIONAL_MANEJO', nombre: 'Adicional por Manejo en Campo', tipo: ConceptoTipo.REMUNERATIVO_VARIABLE, descripcion: 'Monto por día cuando maneja en campo', esPorcentual: false, baseCalculo: null, esRemunerativo: true, orden: 25 },
-    // NO REMUNERATIVOS
-    { codigo: 'VIANDA_PP', nombre: 'Vianda — Ayuda Alimentaria', tipo: ConceptoTipo.NO_REMUNERATIVO, descripcion: 'Art. 34 CCT 644/12, monto por día campo', esPorcentual: false, baseCalculo: null, esRemunerativo: false, orden: 40 },
-    { codigo: 'DESAYUNO_PP', nombre: 'Desayuno / Merienda', tipo: ConceptoTipo.NO_REMUNERATIVO, descripcion: 'Monto por día', esPorcentual: false, baseCalculo: null, esRemunerativo: false, orden: 41 },
-    { codigo: 'AVC_FIJA_PP', nombre: 'Asignación Vianda Compl. — Fija', tipo: ConceptoTipo.NO_REMUNERATIVO, descripcion: '$440.000/mes total (desde mar/abr 2025)', esPorcentual: false, baseCalculo: null, esRemunerativo: false, orden: 42 },
-    { codigo: 'AVC_VAR_PP', nombre: 'Asignación Vianda Compl. — Variable', tipo: ConceptoTipo.NO_REMUNERATIVO, descripcion: 'Reintegro ganancias (Tít II: 100%, Tít III: tope)', esPorcentual: false, baseCalculo: null, esRemunerativo: false, orden: 43 },
-    // RETENCIONES
-    { codigo: 'RET_JUB', nombre: 'Jubilación (11%)', tipo: ConceptoTipo.RETENCION, descripcion: 'Aporte jubilatorio SIJP', esPorcentual: true, porcentajeBase: 0.11, baseCalculo: 'REMUNERATIVO_TOTAL', esRemunerativo: false, orden: 60 },
-    { codigo: 'RET_PAMI', nombre: 'PAMI — Ley 19.032 (3%)', tipo: ConceptoTipo.RETENCION, descripcion: 'Aporte PAMI', esPorcentual: true, porcentajeBase: 0.03, baseCalculo: 'REMUNERATIVO_TOTAL', esRemunerativo: false, orden: 61 },
-    { codigo: 'RET_OS', nombre: 'Obra Social (3%)', tipo: ConceptoTipo.RETENCION, descripcion: 'Aporte obra social', esPorcentual: true, porcentajeBase: 0.03, baseCalculo: 'REMUNERATIVO_TOTAL', esRemunerativo: false, orden: 62 },
-    { codigo: 'RET_SINDICAL', nombre: 'Cuota Sindical (2%)', tipo: ConceptoTipo.RETENCION, descripcion: 'Cuota sindical (actualizable según acta)', esPorcentual: true, porcentajeBase: 0.02, baseCalculo: 'REMUNERATIVO_TOTAL', esRemunerativo: false, orden: 63 },
-    { codigo: 'RET_MUTUAL', nombre: 'Mutual (~3.97%)', tipo: ConceptoTipo.RETENCION, descripcion: 'Mutual (actualizable según acta)', esPorcentual: true, porcentajeBase: 0.0397, baseCalculo: 'REMUNERATIVO_TOTAL', esRemunerativo: false, orden: 64 },
-  ];
-
-  for (const c of conceptosPP) {
-    await prisma.conceptoSalarial.create({
-      data: {
-        convenioId: convenioPP.id,
-        codigo: c.codigo,
-        nombre: c.nombre,
-        tipo: c.tipo,
-        descripcion: c.descripcion,
-        esPorcentual: c.esPorcentual,
-        porcentajeBase: c.porcentajeBase ?? null,
-        baseCalculo: c.baseCalculo,
-        esRemunerativo: c.esRemunerativo,
-        orden: c.orden,
-      },
-    });
-  }
-  console.log(`✅ ${conceptosPP.length} conceptos CCT 644/12 creados`);
-
-  // ═════════════════════════════════════════════════
-  // 4. CCT 637/11 — PETROLEROS JERÁRQUICOS
-  // ═════════════════════════════════════════════════
-  const convenioPJ = await prisma.convenio.create({
-    data: {
-      empresaId: empresa.id,
-      nombre: 'CCT 637/11 Petroleros Jerárquicos',
-      tipo: CctTipo.PETROLEROS_JERARQUICOS_637,
-      vigenteDesde: new Date('2011-01-01'),
-    },
-  });
-  console.log('✅ Convenio PJ creado:', convenioPJ.nombre);
-
-  // ── Categorías CCT 637/11 ──
-  const catsPJ = [
-    { codigo: 'SPJ', nombre: 'Sector Petrolero Jerárquico', orden: 1 },
-  ];
-
-  const categoriasPJ: Record<string, string> = {};
-  for (const c of catsPJ) {
-    const cat = await prisma.categoria.create({
-      data: { convenioId: convenioPJ.id, ...c },
-    });
-    categoriasPJ[c.codigo] = cat.id;
-  }
-  console.log(`✅ ${catsPJ.length} categorías CCT 637/11 creadas`);
-
-  // ── Conceptos salariales CCT 637/11 ──
-  const conceptosPJ = [
-    // REMUNERATIVOS FIJOS
-    { codigo: 'BASICO_PJ', nombre: 'Sueldo Básico CCT 637/11', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Planilla CCT 637/11 por categoría (superior a PP)', esPorcentual: false, baseCalculo: null, esRemunerativo: true, orden: 1 },
-    { codigo: 'TURNO_A_PJ', nombre: 'Adicional Turno A (33%)', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Turno rotativo 24h — Jerárquicos', esPorcentual: true, porcentajeBase: 0.33, baseCalculo: 'BASICO', esRemunerativo: true, orden: 2 },
-    { codigo: 'TURNO_B_PJ', nombre: 'Adicional Turno B (22%)', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Turnos sin 24h — Jerárquicos', esPorcentual: true, porcentajeBase: 0.22, baseCalculo: 'BASICO', esRemunerativo: true, orden: 3 },
-    { codigo: 'ZNC_PJ', nombre: 'Zona No Convencional (VM) — Jerárquicos', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Derivado del ZNC de PP + Art. 63 solapamiento', esPorcentual: true, porcentajeBase: 0.85, baseCalculo: 'BASICO', esRemunerativo: true, orden: 5 },
-    { codigo: 'ANTIGUEDAD_PJ', nombre: 'Antigüedad (1% por año)', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: '1% del básico PJ por año', esPorcentual: true, porcentajeBase: 0.01, baseCalculo: 'BASICO', esRemunerativo: true, orden: 7 },
-    { codigo: 'PRESENTISMO_PJ', nombre: 'Presentismo (6%)', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: '6% sobre remunerativos normales', esPorcentual: true, porcentajeBase: 0.06, baseCalculo: 'REMUNERATIVO_TOTAL', esRemunerativo: true, orden: 8 },
-    { codigo: 'BONO_PAZ_PJ', nombre: 'Bono Paz Social — Jerárquicos', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Planilla CCT vigente', esPorcentual: false, baseCalculo: null, esRemunerativo: true, orden: 9 },
-    { codigo: 'ADICIONAL_PERS_8H', nombre: 'Adicional Personal 8 Horas', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: 'Concepto específico PJ — jornada especial 8h', esPorcentual: false, baseCalculo: null, esRemunerativo: true, orden: 10 },
-    { codigo: 'FUN_JERARQUICA', nombre: 'Adicional Función Jerárquica', tipo: ConceptoTipo.REMUNERATIVO_FIJO, descripcion: '% por nivel de jefatura, configurable', esPorcentual: true, porcentajeBase: 0.10, baseCalculo: 'BASICO', esRemunerativo: true, orden: 11 },
-    // REMUNERATIVOS VARIABLES
-    { codigo: 'HORAS_EXTRA_50_PJ', nombre: 'Horas Extra 50% — Jerárquicos', tipo: ConceptoTipo.REMUNERATIVO_VARIABLE, descripcion: '(Básico PJ / 192) × 1.5 × hs', esPorcentual: false, baseCalculo: 'HORA_BASE_X_1.5', esRemunerativo: true, orden: 20 },
-    { codigo: 'HORAS_EXTRA_100_PJ', nombre: 'Horas Extra 100% — Jerárquicos', tipo: ConceptoTipo.REMUNERATIVO_VARIABLE, descripcion: '(Básico PJ / 192) × 2.0 × hs', esPorcentual: false, baseCalculo: 'HORA_BASE_X_2.0', esRemunerativo: true, orden: 21 },
-    { codigo: 'DESARRAIGO_PJ', nombre: 'Desarraigo — Jerárquicos', tipo: ConceptoTipo.REMUNERATIVO_VARIABLE, descripcion: 'Monto por día campo', esPorcentual: false, baseCalculo: null, esRemunerativo: true, orden: 23 },
-    { codigo: 'BONO_CAMPO_PJ', nombre: 'Bono Campo — Jerárquicos', tipo: ConceptoTipo.REMUNERATIVO_VARIABLE, descripcion: 'Adicional cuando trabaja en campo', esPorcentual: false, baseCalculo: null, esRemunerativo: true, orden: 26 },
-    { codigo: 'GUARDIA_PASIVA_PJ', nombre: 'Guardia Pasiva — Jerárquicos', tipo: ConceptoTipo.REMUNERATIVO_VARIABLE, descripcion: 'Médicos/enfermeros en yacimiento', esPorcentual: false, baseCalculo: null, esRemunerativo: true, orden: 27 },
-    // NO REMUNERATIVOS
-    { codigo: 'VIANDA_PJ', nombre: 'Vianda Campo — Jerárquicos', tipo: ConceptoTipo.NO_REMUNERATIVO, descripcion: 'Monto por día en campo', esPorcentual: false, baseCalculo: null, esRemunerativo: false, orden: 40 },
-    { codigo: 'AVC_FIJA_PJ', nombre: 'Asignación Vianda Compl. Fija — Jerárquicos', tipo: ConceptoTipo.NO_REMUNERATIVO, descripcion: '$440.000/mes total (igual PP, desde abr 2025)', esPorcentual: false, baseCalculo: null, esRemunerativo: false, orden: 42 },
-    { codigo: 'AVC_VAR_PJ', nombre: 'Asignación Vianda Compl. Variable — Jerárquicos', tipo: ConceptoTipo.NO_REMUNERATIVO, descripcion: 'Reintegro 50% ganancias hasta tope', esPorcentual: false, baseCalculo: null, esRemunerativo: false, orden: 43 },
-    // RETENCIONES (misma estructura que PP)
-    { codigo: 'RET_JUB_PJ', nombre: 'Jubilación (11%)', tipo: ConceptoTipo.RETENCION, descripcion: 'Aporte jubilatorio SIJP', esPorcentual: true, porcentajeBase: 0.11, baseCalculo: 'REMUNERATIVO_TOTAL', esRemunerativo: false, orden: 60 },
-    { codigo: 'RET_PAMI_PJ', nombre: 'PAMI — Ley 19.032 (3%)', tipo: ConceptoTipo.RETENCION, descripcion: 'Aporte PAMI', esPorcentual: true, porcentajeBase: 0.03, baseCalculo: 'REMUNERATIVO_TOTAL', esRemunerativo: false, orden: 61 },
-    { codigo: 'RET_OS_PJ', nombre: 'Obra Social (3%)', tipo: ConceptoTipo.RETENCION, descripcion: 'Aporte obra social', esPorcentual: true, porcentajeBase: 0.03, baseCalculo: 'REMUNERATIVO_TOTAL', esRemunerativo: false, orden: 62 },
-    { codigo: 'RET_SINDICAL_PJ', nombre: 'Cuota Sindical (2%)', tipo: ConceptoTipo.RETENCION, descripcion: 'Cuota sindical', esPorcentual: true, porcentajeBase: 0.02, baseCalculo: 'REMUNERATIVO_TOTAL', esRemunerativo: false, orden: 63 },
-    { codigo: 'RET_MUTUAL_PJ', nombre: 'Mutual (~3.97%)', tipo: ConceptoTipo.RETENCION, descripcion: 'Mutual', esPorcentual: true, porcentajeBase: 0.0397, baseCalculo: 'REMUNERATIVO_TOTAL', esRemunerativo: false, orden: 64 },
-  ];
-
-  for (const c of conceptosPJ) {
-    await prisma.conceptoSalarial.create({
-      data: {
-        convenioId: convenioPJ.id,
-        codigo: c.codigo,
-        nombre: c.nombre,
-        tipo: c.tipo,
-        descripcion: c.descripcion,
-        esPorcentual: c.esPorcentual,
-        porcentajeBase: c.porcentajeBase ?? null,
-        baseCalculo: c.baseCalculo,
-        esRemunerativo: c.esRemunerativo,
-        orden: c.orden,
-      },
-    });
-  }
-  console.log(`✅ ${conceptosPJ.length} conceptos CCT 637/11 creados`);
-
   // ─────────────────────────────────
   // 5. DIAGRAMAS DE TRABAJO
   // ─────────────────────────────────
@@ -863,8 +686,6 @@ async function main() {
       rol: 'ADMIN',
       tipoContrato: ContratoTipo.INDEFINIDO,
       fechaIngreso: new Date('2024-01-01'),
-      convenioId: convenioPJ.id,
-      categoriaId: categoriasPJ['SPJ'],
       primerLogin: true,
     },
   });
@@ -884,12 +705,8 @@ async function main() {
     'TESTING': sectores['Testing'],
   };
 
-  // Merge all categories into a single lookup
-  const allCategorias: Record<string, string> = { ...categoriasPP, ...categoriasPJ };
-
   let userCount = 0;
   for (const emp of EMPLEADOS) {
-    const esPJ = emp.convenio === 'PJ';
     await prisma.usuario.create({
       data: {
         empresaId: empresa.id,
@@ -906,8 +723,6 @@ async function main() {
         telefono: emp.telefono || null,
         tipoContrato: ContratoTipo.INDEFINIDO,
         fechaIngreso: new Date(emp.fechaIngreso),
-        convenioId: esPJ ? convenioPJ.id : convenioPP.id,
-        categoriaId: allCategorias[emp.categoria] ?? (esPJ ? categoriasPJ['SPJ'] : categoriasPP['TII-TA-VII']),
         primerLogin: true,
       },
     });

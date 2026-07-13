@@ -21,15 +21,10 @@ interface User {
   fechaIngreso: string;
   primerLogin: boolean;
   diagramaColor: string | null;
-  sueldoBasicoOverride: string | null;
   sector: { id: string; nombre: string } | null;
-  categoria: { id: string; codigo: string; nombre: string } | null;
-  convenio: { id: string; nombre: string } | null;
 }
 
 interface Sector { id: string; nombre: string }
-interface Categoria { id: string; codigo: string; nombre: string }
-interface Convenio { id: string; nombre: string }
 interface RolConfig { id: string; codigo: string; nombre: string; color: string | null }
 interface Diagrama {
   id: string;
@@ -87,18 +82,6 @@ export default function UsuariosPage() {
   const { data: sectores = [] } = useQuery<Sector[]>({
     queryKey: ['sectores'],
     queryFn: async () => (await api.get('/admin/sectores')).data,
-    enabled: canEdit,
-  });
-
-  const { data: convenios = [] } = useQuery<Convenio[]>({
-    queryKey: ['convenios'],
-    queryFn: async () => (await api.get('/admin/convenios')).data,
-    enabled: canEdit,
-  });
-
-  const { data: categorias = [] } = useQuery<Categoria[]>({
-    queryKey: ['categorias'],
-    queryFn: async () => (await api.get('/admin/categorias')).data,
     enabled: canEdit,
   });
 
@@ -239,7 +222,6 @@ export default function UsuariosPage() {
                 {/* Sector */}
                 <div className="hidden sm:block text-right">
                   <p className="text-xs text-muted-foreground">{u.sector?.nombre ?? '—'}</p>
-                  <p className="text-xs text-muted-foreground">{u.categoria?.codigo ?? ''}</p>
                 </div>
 
                 {/* Expand arrow */}
@@ -261,14 +243,6 @@ export default function UsuariosPage() {
                     <div>
                       <span className="text-muted-foreground">Sector:</span>
                       <p className="font-medium">{u.sector?.nombre || '—'}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Categoría:</span>
-                      <p className="font-medium">{u.categoria?.nombre || '—'}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Convenio:</span>
-                      <p className="font-medium">{u.convenio?.nombre || '—'}</p>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Contrato:</span>
@@ -336,8 +310,6 @@ export default function UsuariosPage() {
         <UserFormModal
           user={editingUser}
           sectores={sectores}
-          convenios={convenios}
-          categorias={categorias}
           roles={rolesConfig}
           diagramas={diagramas}
           onClose={() => { setShowForm(false); setEditingUser(null); }}
@@ -366,8 +338,6 @@ export default function UsuariosPage() {
 function UserFormModal({
   user,
   sectores,
-  convenios,
-  categorias,
   roles,
   diagramas,
   onClose,
@@ -375,8 +345,6 @@ function UserFormModal({
 }: {
   user: User | null;
   sectores: Sector[];
-  convenios: Convenio[];
-  categorias: Categoria[];
   roles: RolConfig[];
   diagramas: Diagrama[];
   onClose: () => void;
@@ -421,12 +389,9 @@ function UserFormModal({
     password: '',
     rol: user?.rol ?? 'OPERADOR',
     sectorId: user?.sector?.id ?? '',
-    categoriaId: user?.categoria?.id ?? '',
-    convenioId: user?.convenio?.id ?? '',
     legajo: user?.legajo ?? '',
     tipoContrato: user?.tipoContrato ?? 'INDEFINIDO',
     fechaIngreso: user?.fechaIngreso ? new Date(user.fechaIngreso).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-    sueldoBasicoOverride: user?.sueldoBasicoOverride ?? '',
     diagramaColor: user?.diagramaColor ?? '',
   });
 
@@ -442,12 +407,9 @@ function UserFormModal({
         email: form.email,
         rol: form.rol,
         sectorId: form.sectorId || null,
-        categoriaId: form.categoriaId || null,
-        convenioId: form.convenioId || null,
         legajo: form.legajo || null,
         tipoContrato: form.tipoContrato,
         fechaIngreso: new Date(form.fechaIngreso).toISOString(),
-        sueldoBasicoOverride: form.sueldoBasicoOverride !== '' ? parseFloat(String(form.sueldoBasicoOverride)) : null,
         diagramaColor: form.diagramaColor || null,
       };
 
@@ -556,23 +518,6 @@ function UserFormModal({
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground">Convenio</label>
-              <select className={inputClass} value={form.convenioId} onChange={(e) => setForm({ ...form, convenioId: e.target.value })}>
-                <option value="">Sin convenio</option>
-                {convenios.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">Categoría</label>
-              <select className={inputClass} value={form.categoriaId} onChange={(e) => setForm({ ...form, categoriaId: e.target.value })}>
-                <option value="">Sin categoría</option>
-                {categorias.map((c) => <option key={c.id} value={c.id}>{c.codigo} - {c.nombre}</option>)}
-              </select>
-            </div>
-            <div>
               <label className="text-xs font-medium text-muted-foreground">Contrato</label>
               <select className={inputClass} value={form.tipoContrato} onChange={(e) => setForm({ ...form, tipoContrato: e.target.value })}>
                 <option value="INDEFINIDO">Indefinido</option>
@@ -586,20 +531,6 @@ function UserFormModal({
           <div>
             <label className="text-xs font-medium text-muted-foreground">Fecha ingreso *</label>
             <input type="date" className={inputClass} value={form.fechaIngreso} onChange={(e) => setForm({ ...form, fechaIngreso: e.target.value })} required />
-          </div>
-
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">Sueldo básico (override)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              className={inputClass}
-              value={form.sueldoBasicoOverride}
-              onChange={(e) => setForm({ ...form, sueldoBasicoOverride: e.target.value })}
-              placeholder="Usa valor del convenio si está vacío"
-            />
-            <p className="text-[10px] text-muted-foreground mt-0.5">Dejar vacío para usar escala salarial del convenio</p>
           </div>
 
           {/* ── Diagrama de trabajo ─────────── */}

@@ -53,7 +53,19 @@ fun RegistroHorasDialog(
     var lugar by remember { mutableStateOf(registroEdicion?.lugarTrabajo ?: "Base") }
     var pernocte by remember { mutableStateOf(registroEdicion?.pernocte ?: "NO") }
     var maneja by remember { mutableStateOf(registroEdicion?.maneja ?: false) }
-    var horasViajeActivo by remember { mutableStateOf((registroEdicion?.horasViaje ?: 0.0) > 0.0) }
+    val hvInicial = registroEdicion?.horasViaje ?: 0.0
+    var horasViajeActivo by remember { mutableStateOf(hvInicial > 0.0) }
+    var distanciaViaje by remember {
+        mutableStateOf(
+            when {
+                hvInicial == 3.0 -> "CORTA"
+                hvInicial == 5.0 -> "MEDIA"
+                hvInicial > 0.0 -> "LARGA"
+                else -> ""
+            }
+        )
+    }
+    var horasViajeManual by remember { mutableStateOf(if (hvInicial > 0.0) hvInicial.toString() else "") }
     var esFeriado by remember { mutableStateOf(registroEdicion?.esFeriado ?: false) }
     var esFrancoCompensatorio by remember { mutableStateOf(registroEdicion?.esFrancoCompensatorio ?: false) }
     var esFrancoTrabajado by remember { mutableStateOf(registroEdicion?.esFrancoTrabajado ?: false) }
@@ -199,14 +211,57 @@ fun RegistroHorasDialog(
                         }
 
                         // Horas Viaje
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Switch(
-                                checked = horasViajeActivo,
-                                onCheckedChange = { horasViajeActivo = it },
-                                enabled = lugar != "Base"
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Horas de viaje (Sí/No)", color = ColorTexto)
+                        if (lugar == "Base") {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Switch(
+                                    checked = horasViajeActivo,
+                                    onCheckedChange = { horasViajeActivo = it }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Viaje a base (+1h)", color = ColorTexto)
+                            }
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Switch(
+                                    checked = horasViajeActivo,
+                                    onCheckedChange = {
+                                        horasViajeActivo = it
+                                        if (!it) {
+                                            distanciaViaje = ""
+                                            horasViajeManual = ""
+                                            maneja = false
+                                        }
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Viaje (Sí/No)", color = ColorTexto)
+                            }
+
+                            if (horasViajeActivo) {
+                                Text("Distancia", style = MaterialTheme.typography.labelMedium, color = ColorTextoSec)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf("CORTA" to "-250km (3h)", "MEDIA" to "+350km (5h)", "LARGA" to "+500km").forEach { (value, label) ->
+                                        FilterChip(
+                                            selected = distanciaViaje == value,
+                                            onClick = { distanciaViaje = value },
+                                            label = { Text(label) },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = ColorPrimarioPale,
+                                                selectedLabelColor = ColorPrimario
+                                            )
+                                        )
+                                    }
+                                }
+                                if (distanciaViaje == "LARGA") {
+                                    OutlinedTextField(
+                                        value = horasViajeManual,
+                                        onValueChange = { horasViajeManual = it },
+                                        label = { Text("Horas de viaje") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                }
+                            }
                         }
 
                             // Opciones de Franco (Trabajado vs No Trabajado)
@@ -317,7 +372,13 @@ fun RegistroHorasDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
-                            val hv = if (horasViajeActivo) 2.0 else 0.0
+                            val hv = if (!horasViajeActivo) 0.0 else when {
+                                lugar == "Base" -> 1.0
+                                distanciaViaje == "CORTA" -> 3.0
+                                distanciaViaje == "MEDIA" -> 5.0
+                                distanciaViaje == "LARGA" -> horasViajeManual.replace(',', '.').toDoubleOrNull() ?: 0.0
+                                else -> 0.0
+                            }
                             if (lugar == "Franco") {
                                 // Clear times if franco
                                 onSave(fechaMs, null, null, null, null, lugar, "NO", false, 0.0, esFeriado, esFrancoCompensatorio, false, obs)

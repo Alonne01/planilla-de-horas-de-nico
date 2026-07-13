@@ -113,42 +113,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       })));
     }
 
-    // Recibo firmas
-    if (!tipo || tipo === 'recibo') {
-      const reciboFirmas = await prisma.reciboSueldo.findMany({
-        where: {
-          usuario: { empresaId },
-          firmadoEmpleadoAt: { not: null },
-          ...(usuarioId ? { usuarioId: usuarioId as string } : {}),
-          ...(desde || hasta ? {
-            firmadoEmpleadoAt: {
-              ...(desde ? { gte: new Date(desde as string) } : {}),
-              ...(hasta ? { lte: new Date(hasta as string) } : {}),
-            },
-          } : {}),
-        },
-        include: {
-          usuario: { select: { id: true, nombre: true, apellido: true } },
-          planilla: { select: { periodoInicio: true } },
-        },
-        orderBy: { firmadoEmpleadoAt: 'desc' },
-        take: maxRows,
-      });
-      results.push(...reciboFirmas.map((r) => ({
-        id: r.id,
-        tipo: 'RECIBO_FIRMA',
-        entidadId: r.id,
-        entidadLabel: `Recibo firmado — ${r.usuario.apellido} (${new Date(r.planilla.periodoInicio).toLocaleDateString('es-AR')})`,
-        estadoAnterior: 'PENDIENTE',
-        estadoNuevo: 'FIRMADO',
-        paso: null,
-        comentario: `IP: ${r.ipFirma || 'N/A'}`,
-        usuario: r.usuario,
-        createdAt: r.firmadoEmpleadoAt!,
-      })));
-    }
-
-    // AuditoriaLog (admin changes: salary, conceptos, etc.)
+    // AuditoriaLog (admin changes)
     if (!tipo || tipo === 'admin') {
       const adminLogs = await prisma.auditoriaLog.findMany({
         where: {
@@ -194,7 +159,7 @@ router.get('/stats', async (req: AuthRequest, res: Response): Promise<void> => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const [planillas, vacaciones, ausencias, recibos, adminChanges] = await Promise.all([
+    const [planillas, vacaciones, ausencias, adminChanges] = await Promise.all([
       prisma.planillaHistorial.count({
         where: { planilla: { usuario: { empresaId } }, createdAt: { gte: thirtyDaysAgo } },
       }),
@@ -204,16 +169,13 @@ router.get('/stats', async (req: AuthRequest, res: Response): Promise<void> => {
       prisma.ausenciaHistorial.count({
         where: { ausencia: { usuario: { empresaId } }, createdAt: { gte: thirtyDaysAgo } },
       }),
-      prisma.reciboSueldo.count({
-        where: { usuario: { empresaId }, firmadoEmpleadoAt: { gte: thirtyDaysAgo } },
-      }),
       prisma.auditoriaLog.count({
         where: { usuario: { empresaId }, createdAt: { gte: thirtyDaysAgo } },
       }),
     ]);
 
     res.json({
-      ultimos30Dias: { planillas, vacaciones, ausencias, recibos, admin: adminChanges, total: planillas + vacaciones + ausencias + recibos + adminChanges },
+      ultimos30Dias: { planillas, vacaciones, ausencias, admin: adminChanges, total: planillas + vacaciones + ausencias + adminChanges },
     });
   } catch (err) {
     console.error('Error fetching audit stats:', err);

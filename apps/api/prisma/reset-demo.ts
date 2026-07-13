@@ -1,6 +1,6 @@
 /**
  * reset-demo.ts — Limpia datos transaccionales y usuarios,
- * preserva: Empresa, Sectores, Roles, Flujos, Convenios, Categorías, Conceptos, Diagramas, Config.
+ * preserva: Empresa, Sectores, Roles, Flujos, Diagramas, Config.
  * Crea ~10 usuarios demo por sector con roles variados.
  *
  * Ejecutar:  npx ts-node prisma/reset-demo.ts
@@ -168,10 +168,6 @@ async function main() {
   const rh = await prisma.registroHoras.deleteMany();
   console.log(`   Registros horas: ${rh.count}`);
 
-  // Recibos (references Planilla without cascade — must go BEFORE planillas)
-  const rec = await prisma.reciboSueldo.deleteMany();
-  console.log(`   Recibos: ${rec.count}`);
-
   // Ausencias (has nullable planillaId FK — delete before planillas)
   const au = await prisma.ausencia.deleteMany();
   console.log(`   Ausencias: ${au.count}`);
@@ -235,32 +231,18 @@ async function main() {
   const flujoCount = await prisma.flujoAprobacion.count();
   const pasoCount = await prisma.flujoPaso.count();
   const asignCount = await prisma.flujoAsignacion.count();
-  const convCount = await prisma.convenio.count();
-  const catCount = await prisma.categoria.count();
-  const conceptoCount = await prisma.conceptoSalarial.count();
   const diagCount = await prisma.diagrama.count();
 
   console.log('\n✅ Datos preservados:');
   console.log(`   ${sectorCount} sectores`);
   console.log(`   ${rolCount} roles`);
   console.log(`   ${flujoCount} flujos de aprobación (${pasoCount} pasos, ${asignCount} asignaciones)`);
-  console.log(`   ${convCount} convenios (${catCount} categorías, ${conceptoCount} conceptos)`);
   console.log(`   ${diagCount} diagramas`);
 
   // 5. Build lookup maps
   const sectoresDB = await prisma.sector.findMany({ where: { empresaId: empresa.id } });
   const sectorMap: Record<string, string> = {};
   for (const s of sectoresDB) sectorMap[s.nombre] = s.id;
-
-  const conveniosDB = await prisma.convenio.findMany({ where: { empresaId: empresa.id }, include: { categorias: true } });
-  const convenioPP = conveniosDB.find(c => c.tipo === 'PETROLEROS_PRIVADOS_644');
-  const convenioPJ = conveniosDB.find(c => c.tipo === 'PETROLEROS_JERARQUICOS_637');
-  if (!convenioPP || !convenioPJ) throw new Error('Convenios PP/PJ no encontrados');
-
-  const catMapPP: Record<string, string> = {};
-  for (const c of convenioPP.categorias) catMapPP[c.codigo] = c.id;
-  const catMapPJ: Record<string, string> = {};
-  for (const c of convenioPJ.categorias) catMapPJ[c.codigo] = c.id;
 
   // 6. Create admin user
   console.log('\n👤 Creando usuarios demo...');
@@ -279,8 +261,6 @@ async function main() {
       rol: 'ADMIN',
       tipoContrato: ContratoTipo.INDEFINIDO,
       fechaIngreso: new Date('2024-01-01'),
-      convenioId: convenioPJ.id,
-      categoriaId: catMapPJ['SPJ'],
       primerLogin: false,
     },
   });
@@ -293,10 +273,6 @@ async function main() {
 
   // First pass: create all users
   for (const u of DEMO_USERS) {
-    const esPJ = u.convenio === 'PJ';
-    const catMap = esPJ ? catMapPJ : catMapPP;
-    const catId = catMap[u.categoria] ?? (esPJ ? catMapPJ['SPJ'] : catMapPP['TII-TA-VII']);
-
     const created = await prisma.usuario.create({
       data: {
         empresaId: empresa.id,
@@ -309,8 +285,6 @@ async function main() {
         rol: u.rol,
         tipoContrato: ContratoTipo.INDEFINIDO,
         fechaIngreso: new Date('2024-06-01'),
-        convenioId: esPJ ? convenioPJ.id : convenioPP.id,
-        categoriaId: catId,
         primerLogin: false,
       },
     });

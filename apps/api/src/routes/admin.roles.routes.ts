@@ -2,15 +2,15 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
-import { requireLevel, LEVEL_ADMIN } from '../middleware/roles.middleware.js';
+import { requireLevel, LEVEL_ADMIN, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 
 const prisma = new PrismaClient();
 const router = Router();
 
 router.use(authMiddleware);
 
-// GET /roles — list all roles for the empresa
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+// GET /roles — list all roles for the empresa (RRHH+ only; used by user/role admin screens)
+router.get('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const empresaId = req.user!.empresaId;
     const roles = await prisma.rolConfig.findMany({
@@ -90,6 +90,19 @@ router.put('/:id', requireLevel(LEVEL_ADMIN), async (req: AuthRequest, res: Resp
     if (!existing) {
       res.status(404).json({ error: 'Rol no encontrado' });
       return;
+    }
+
+    // System roles (ADMIN, RRHH, …) must never be deactivated or have their level
+    // changed — doing so could lock every user out of privileged actions.
+    if (existing.esSistema) {
+      if (parsed.data.activo === false) {
+        res.status(403).json({ error: 'No se puede desactivar un rol del sistema' });
+        return;
+      }
+      if (parsed.data.nivel !== undefined && parsed.data.nivel !== existing.nivel) {
+        res.status(403).json({ error: 'No se puede cambiar el nivel de un rol del sistema' });
+        return;
+      }
     }
 
     const rol = await prisma.rolConfig.update({
