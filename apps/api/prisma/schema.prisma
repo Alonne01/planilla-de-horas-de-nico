@@ -441,11 +441,13 @@ model RegistroHoras {
   bloqueado             Boolean       @default(false)
   motivoBloqueo         String?       @map("motivo_bloqueo")
   proyectoId            String?       @map("proyecto_id")
+  marcaManualId         String?       @map("marca_manual_id")
   createdAt             DateTime      @default(now()) @map("created_at")
   updatedAt             DateTime      @updatedAt @map("updated_at")
 
   planilla Planilla  @relation(fields: [planillaId], references: [id], onDelete: Cascade)
   proyecto Proyecto? @relation(fields: [proyectoId], references: [id])
+  marcaManual Ausencia? @relation("registro_marca_manual", fields: [marcaManualId], references: [id], onDelete: SetNull)
 
   @@unique([planillaId, fecha])
   @@map("registros_horas")
@@ -565,6 +567,7 @@ model Ausencia {
   aprobada            Boolean        @default(true)
   aprobadaPorId       String?        @map("aprobada_por_id")
   aprobadaAt          DateTime?      @map("aprobada_at")
+  cargaManual         Boolean        @default(false) @map("carga_manual")
   createdAt           DateTime       @default(now()) @map("created_at")
 
   usuario     Usuario              @relation(fields: [usuarioId], references: [id])
@@ -572,6 +575,7 @@ model Ausencia {
   aprobadaPor Usuario?             @relation("ausencia_aprobador", fields: [aprobadaPorId], references: [id])
   flujo       FlujoAprobacion?     @relation(fields: [flujoId], references: [id])
   historial   AusenciaHistorial[]
+  registrosMarcados   RegistroHoras[]      @relation("registro_marca_manual")
 
   @@map("ausencias")
 }
