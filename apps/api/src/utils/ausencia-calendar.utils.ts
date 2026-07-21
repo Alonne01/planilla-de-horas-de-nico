@@ -200,14 +200,17 @@ export async function backfillAusenciasEnPlanilla(
 // ─── Helpers ─────────────────────────────────────
 
 function buildDaysBetween(start: Date, end: Date): Date[] {
+  // Se normaliza en UTC (no con setHours/getDate en hora local): las fechas de
+  // este dominio (RegistroHoras.fecha, Ausencia.fechaInicio/Fin, Planilla.periodo*)
+  // se guardan como medianoche UTC del día calendario. Usar setHours (hora local)
+  // en un servidor con TZ != UTC (p. ej. America/Buenos_Aires, UTC-3) desplaza el
+  // día hacia atrás y rompe la coincidencia con esos registros.
   const days: Date[] = [];
-  const cur = new Date(start);
-  cur.setHours(0, 0, 0, 0);
-  const last = new Date(end);
-  last.setHours(0, 0, 0, 0);
+  const cur = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+  const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
   while (cur <= last) {
     days.push(new Date(cur));
-    cur.setDate(cur.getDate() + 1);
+    cur.setUTCDate(cur.getUTCDate() + 1);
   }
   return days;
 }

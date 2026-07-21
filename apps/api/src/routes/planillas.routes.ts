@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { PrismaClient, PlanillaEstado, LugarTrabajo, PernocteEnum } from '@prisma/client';
+import { PrismaClient, PlanillaEstado, LugarTrabajo, PernocteEnum, Prisma, AusenciaTipo } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { z } from 'zod';
 import { fechaFlexible } from '../utils/zod.utils.js';
@@ -14,7 +14,9 @@ import {
   recalcularTotalesPlanilla,
   getPeriodoActual,
 } from '../utils/calculo.utils.js';
-import { backfillAusenciasEnPlanilla } from '../utils/ausencia-calendar.utils.js';
+import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
+import { logAuditoria } from '../lib/auditoria.js';
+import { canManageUser } from '../utils/user-scope.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -1208,6 +1210,175 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
     });
   } catch (error) {
     console.error('Error deleting planilla:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ═══════════════════════════════════════════════════
+// MARCAS MANUALES DE DÍAS (plan B)
+// ═══════════════════════════════════════════════════
+
+const ESTADOS_OWNER = ['BORRADOR', 'RECHAZADA'];
+const ESTADOS_MANAGER = ['BORRADOR', 'RECHAZADA', 'ENVIADA', 'EN_REVISION'];
+
+const marcarDiaSchema = z.object({
+  fecha: fechaFlexible,
+  tipo: z.nativeEnum(AusenciaTipo),
+  descripcion: z.string().max(500).optional(),
+});
+
+function ymd(d: Date): string { return d.toISOString().split('T')[0]; }
+
+// ─── POST /planillas/:id/marcar-dia ──────────────
+router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const parsed = marcarDiaSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+    const planillaId = req.params.id as string;
+    const actorId = req.user!.userId;
+    const actorNivel = req.user!.rolNivel ?? 0;
+    const empresaId = req.user!.empresaId;
+
+    const planilla = await prisma.planilla.findUnique({
+      where: { id: planillaId },
+      include: { usuario: { select: { id: true, empresaId: true } } },
+    });
+    if (!planilla || planilla.usuario.empresaId !== empresaId) {
+      res.status(404).json({ error: 'Planilla no encontrada' });
+      return;
+    }
+
+    const isOwner = planilla.usuarioId === actorId;
+    const isManager = !isOwner && await canManageUser(actorId, actorNivel, planilla.usuarioId, empresaId);
+    if (!isOwner && !isManager) {
+      res.status(403).json({ error: 'No autorizado para marcar días en esta planilla' });
+      return;
+    }
+
+    const allowed = isOwner ? ESTADOS_OWNER : ESTADOS_MANAGER;
+    if (!allowed.includes(planilla.estado)) {
+      res.status(400).json({ error: `No se puede marcar días con la planilla en estado ${planilla.estado}` });
+      return;
+    }
+
+    // No usar setHours (hora local): desplazaría la fecha un día por el huso horario
+    // del servidor y rompería la igualdad con las fechas guardadas como UTC-medianoche
+    // (mismo patrón que el resto del archivo, p. ej. POST /:id/registros).
+    const fecha = new Date(parsed.data.fecha);
+    const ini = new Date(planilla.periodoInicio);
+    const fin = new Date(planilla.periodoFin);
+    if (fecha < ini || fecha > fin) {
+      res.status(400).json({ error: 'La fecha está fuera del período de la planilla' });
+      return;
+    }
+
+    // El día no debe estar ya bloqueado (ausencia formal, vacación u otra marca)
+    const existingReg = await prisma.registroHoras.findUnique({
+      where: { planillaId_fecha: { planillaId, fecha } },
+    });
+    if (existingReg?.bloqueado) {
+      res.status(409).json({ error: `El día ya está bloqueado (${existingReg.motivoBloqueo ?? 'ausencia/vacación'})` });
+      return;
+    }
+
+    const tipo = parsed.data.tipo;
+    const anio = fecha.getFullYear();
+    const autoValidada = isManager;
+
+    let ausencia;
+    try {
+      ausencia = await prisma.$transaction(async (tx) => {
+        if (tipo === 'FRANCO_COMPENSATORIO') {
+          const saldo = await tx.vacacionSaldo.findUnique({ where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } } });
+          const disponible = (saldo?.compensatoriosAcumulados ?? 0) - (saldo?.compensatoriosUsados ?? 0) - (saldo?.compensatoriosPendientes ?? 0);
+          if (disponible < 1) throw Object.assign(new Error('SALDO_COMPENSATORIO_INSUFICIENTE'), { disponible });
+          await tx.vacacionSaldo.upsert({
+            where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
+            update: { compensatoriosPendientes: { increment: 1 } },
+            create: { usuarioId: planilla.usuarioId, anio, diasCorrespondientes: 0, compensatoriosPendientes: 1 },
+          });
+        }
+
+        const aus = await tx.ausencia.create({
+          data: {
+            usuarioId: planilla.usuarioId,
+            cargadaPorId: actorId,
+            planillaId,
+            cargaManual: true,
+            tipo,
+            estado: autoValidada ? 'APROBADA' : 'PENDIENTE',
+            pasoActual: 0,
+            fechaInicio: fecha,
+            fechaFin: fecha,
+            diasAusencia: 1,
+            descripcion: parsed.data.descripcion ?? null,
+            descuentaSueldo: tipo === 'FALTA_INJUSTIFICADA',
+            porcentajeDescuento: tipo === 'FALTA_INJUSTIFICADA' ? 100 : 0,
+            requiereAprobacion: !autoValidada,
+            aprobada: autoValidada,
+            ...(autoValidada ? { aprobadaPorId: actorId, aprobadaAt: new Date() } : {}),
+            flujoId: null,
+          },
+        });
+
+        await tx.ausenciaHistorial.create({
+          data: {
+            ausenciaId: aus.id,
+            usuarioId: actorId,
+            estadoNuevo: autoValidada ? 'APROBADA' : 'PENDIENTE',
+            comentario: autoValidada ? 'Marca manual (auto-validada por superior)' : 'Marca manual del empleado (sin validar)',
+          },
+        });
+
+        if (autoValidada && tipo === 'FRANCO_COMPENSATORIO') {
+          await tx.vacacionSaldo.update({
+            where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
+            data: { compensatoriosPendientes: { decrement: 1 }, compensatoriosUsados: { increment: 1 } },
+          });
+        }
+
+        return aus;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (err: any) {
+      if (err?.message === 'SALDO_COMPENSATORIO_INSUFICIENTE') {
+        res.status(400).json({ error: `Saldo de compensatorios insuficiente. Disponible: ${err.disponible} días` });
+        return;
+      }
+      if ((err as { code?: string }).code === 'P2034') {
+        res.status(409).json({ error: 'Conflicto de transacción, intente de nuevo' });
+        return;
+      }
+      throw err;
+    }
+
+    // Inyectar/reemplazar el día bloqueado, ligado a la marca
+    const tipoLabel = formatTipoAusencia(tipo);
+    await inyectarDiasBloqueados({
+      usuarioId: planilla.usuarioId,
+      fechaInicio: fecha,
+      fechaFin: fecha,
+      motivoBloqueo: tipo,
+      observaciones: `${tipoLabel} (marca manual)${parsed.data.descripcion ? ` — ${parsed.data.descripcion}` : ''}`,
+      marcaManualId: ausencia.id,
+    });
+
+    await recalcularTotalesPlanilla(planillaId);
+    await logAuditoria({
+      entidad: 'Ausencia', entidadId: ausencia.id, accion: 'CREAR',
+      descripcion: `Marca manual ${tipo} ${ymd(fecha)}${autoValidada ? ' (validada)' : ' (sin validar)'}`,
+      usuarioId: actorId,
+    });
+
+    const registro = await prisma.registroHoras.findUnique({
+      where: { planillaId_fecha: { planillaId, fecha } },
+      include: { marcaManual: { select: { id: true, estado: true, tipo: true, cargadaPorId: true, aprobadaPorId: true } } },
+    });
+    res.status(201).json(registro);
+  } catch (error) {
+    console.error('Error marcando día:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
