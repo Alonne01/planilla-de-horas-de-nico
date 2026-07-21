@@ -1383,4 +1383,119 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
   }
 });
 
+// ─── POST /planillas/:id/marcas/:ausenciaId/validar ──────
+router.post('/:id/marcas/:ausenciaId/validar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const planillaId = req.params.id as string;
+    const ausenciaId = req.params.ausenciaId as string;
+    const actorId = req.user!.userId;
+    const actorNivel = req.user!.rolNivel ?? 0;
+
+    const planilla = await prisma.planilla.findUnique({
+      where: { id: planillaId },
+      include: { usuario: { select: { id: true, empresaId: true } } },
+    });
+    if (!planilla || planilla.usuario.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Planilla no encontrada' });
+      return;
+    }
+    if (planilla.usuarioId === actorId) {
+      res.status(403).json({ error: 'No podés validar tus propias marcas' });
+      return;
+    }
+    if (!await canManageUser(actorId, actorNivel, planilla.usuarioId, req.user!.empresaId)) {
+      res.status(403).json({ error: 'No autorizado para validar marcas de este empleado' });
+      return;
+    }
+
+    const ausencia = await prisma.ausencia.findFirst({ where: { id: ausenciaId, planillaId, cargaManual: true } });
+    if (!ausencia) {
+      res.status(404).json({ error: 'Marca no encontrada' });
+      return;
+    }
+    if (ausencia.estado !== 'PENDIENTE') {
+      res.status(400).json({ error: 'La marca no está pendiente de validación' });
+      return;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.ausencia.update({
+        where: { id: ausenciaId },
+        data: { estado: 'APROBADA', aprobada: true, aprobadaPorId: actorId, aprobadaAt: new Date() },
+      });
+      await tx.ausenciaHistorial.create({
+        data: { ausenciaId, usuarioId: actorId, estadoAnterior: 'PENDIENTE', estadoNuevo: 'APROBADA', comentario: 'Marca manual validada' },
+      });
+      if (ausencia.tipo === 'FRANCO_COMPENSATORIO') {
+        const anio = new Date(ausencia.fechaInicio).getFullYear();
+        await tx.vacacionSaldo.update({
+          where: { usuarioId_anio: { usuarioId: ausencia.usuarioId, anio } },
+          data: { compensatoriosPendientes: { decrement: 1 }, compensatoriosUsados: { increment: 1 } },
+        });
+      }
+    });
+
+    await logAuditoria({ entidad: 'Ausencia', entidadId: ausenciaId, accion: 'EDITAR', campo: 'estado', valorAnterior: 'PENDIENTE', valorNuevo: 'APROBADA', descripcion: 'Marca manual validada', usuarioId: actorId });
+    const updated = await prisma.ausencia.findUnique({ where: { id: ausenciaId } });
+    res.json(updated);
+  } catch (error) {
+    console.error('Error validando marca:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /planillas/:id/marcas/validar-todo ─────────────
+router.post('/:id/marcas/validar-todo', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const planillaId = req.params.id as string;
+    const actorId = req.user!.userId;
+    const actorNivel = req.user!.rolNivel ?? 0;
+
+    const planilla = await prisma.planilla.findUnique({
+      where: { id: planillaId },
+      include: { usuario: { select: { id: true, empresaId: true } } },
+    });
+    if (!planilla || planilla.usuario.empresaId !== req.user!.empresaId) {
+      res.status(404).json({ error: 'Planilla no encontrada' });
+      return;
+    }
+    if (planilla.usuarioId === actorId) {
+      res.status(403).json({ error: 'No podés validar tus propias marcas' });
+      return;
+    }
+    if (!await canManageUser(actorId, actorNivel, planilla.usuarioId, req.user!.empresaId)) {
+      res.status(403).json({ error: 'No autorizado para validar marcas de este empleado' });
+      return;
+    }
+
+    const pendientes = await prisma.ausencia.findMany({ where: { planillaId, cargaManual: true, estado: 'PENDIENTE' } });
+    if (pendientes.length === 0) { res.json({ validadas: 0 }); return; }
+
+    await prisma.$transaction(async (tx) => {
+      for (const aus of pendientes) {
+        await tx.ausencia.update({
+          where: { id: aus.id },
+          data: { estado: 'APROBADA', aprobada: true, aprobadaPorId: actorId, aprobadaAt: new Date() },
+        });
+        await tx.ausenciaHistorial.create({
+          data: { ausenciaId: aus.id, usuarioId: actorId, estadoAnterior: 'PENDIENTE', estadoNuevo: 'APROBADA', comentario: 'Marca manual validada (lote)' },
+        });
+        if (aus.tipo === 'FRANCO_COMPENSATORIO') {
+          const anio = new Date(aus.fechaInicio).getFullYear();
+          await tx.vacacionSaldo.update({
+            where: { usuarioId_anio: { usuarioId: aus.usuarioId, anio } },
+            data: { compensatoriosPendientes: { decrement: 1 }, compensatoriosUsados: { increment: 1 } },
+          });
+        }
+      }
+    });
+
+    await logAuditoria({ entidad: 'Planilla', entidadId: planillaId, accion: 'EDITAR', descripcion: `Validó ${pendientes.length} marca(s) manual(es) en lote`, usuarioId: actorId });
+    res.json({ validadas: pendientes.length });
+  } catch (error) {
+    console.error('Error validando marcas en lote:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 export default router;

@@ -163,6 +163,55 @@ async function main() {
     assert(/insuficiente/i.test(JSON.stringify(body)), `msg=${JSON.stringify(body)}`);
   });
 
+  // ═══ C. validar ═══
+  await scenario('C1 owner no puede validar su propia marca → 403', async () => {
+    const pid = await nuevaPlanilla('2026-11-15');
+    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-15', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+    const { status } = await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, owner.token);
+    assertStatus(status, 403, 'owner self-validate');
+  });
+  await scenario('C2 supervisor valida marca pendiente del owner → 200 APROBADA', async () => {
+    const pid = await nuevaPlanilla('2026-11-16');
+    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-16', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+    const { status, body } = await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
+    assertStatus(status, 200, JSON.stringify(body));
+    assert(body.estado === 'APROBADA', `estado=${body.estado}`);
+  });
+  await scenario('C3 unrelated supervisor valida → 403', async () => {
+    const pid = await nuevaPlanilla('2026-11-17');
+    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-17', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+    const { status } = await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, otherSup.token);
+    assertStatus(status, 403, 'unrelated validate');
+  });
+  await scenario('C4 validar una marca ya APROBADA → 400', async () => {
+    const pid = await nuevaPlanilla('2026-11-18');
+    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-18', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+    await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
+    const { status } = await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
+    assertStatus(status, 400, 'no pendiente');
+  });
+  await scenario('C5 validar-todo valida todas las pendientes → 200', async () => {
+    const { status: ps, body: pb } = await post('/planillas', { periodoInicio: '2026-11-20', periodoFin: '2026-11-22' }, owner.token);
+    assertStatus(ps, 201, JSON.stringify(pb)); createdPlanillas.push(pb.id);
+    await post(`/planillas/${pb.id}/marcar-dia`, { fecha: '2026-11-20', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+    await post(`/planillas/${pb.id}/marcar-dia`, { fecha: '2026-11-21', tipo: 'FALTA_INJUSTIFICADA' }, owner.token);
+    const { status, body } = await post(`/planillas/${pb.id}/marcas/validar-todo`, {}, sup.token);
+    assertStatus(status, 200, JSON.stringify(body));
+    assert(body.validadas === 2, `validadas=${body.validadas}`);
+  });
+  await scenario('C6 validar compensatorio pendiente → usados +1, pendientes -1', async () => {
+    await put(`/vacacion-saldos/${saldoId}`, { compensatoriosAcumulados: 5, compensatoriosUsados: 0 }, ana.token);
+    const before = await getCompSaldo(owner.token);
+    const pid = await nuevaPlanilla('2026-11-24');
+    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-24', tipo: 'FRANCO_COMPENSATORIO' }, owner.token);
+    const midPend = (await getCompSaldo(owner.token)).pend;
+    assert(midPend === before.pend + 1, `pend tras marcar ${before.pend}→${midPend}`);
+    const { status } = await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
+    assertStatus(status, 200, 'validar comp');
+    const after = await getCompSaldo(owner.token);
+    assert(after.pend === midPend - 1 && after.usados === before.usados + 1, `pend ${midPend}→${after.pend} usados ${before.usados}→${after.usados}`);
+  });
+
   // ── Resumen ──
   const passed = results.filter(r => r.passed).length;
   const failed = results.length - passed;
