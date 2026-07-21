@@ -212,6 +212,42 @@ async function main() {
     assert(after.pend === midPend - 1 && after.usados === before.usados + 1, `pend ${midPend}→${after.pend} usados ${before.usados}→${after.usados}`);
   });
 
+  // ═══ D. quitar / rechazar ═══
+  await scenario('D1 owner quita su marca PENDIENTE → 204, día desbloqueado', async () => {
+    const pid = await nuevaPlanilla('2026-11-26');
+    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-26', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+    const { status } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, owner.token);
+    assertStatus(status, 204, 'quitar');
+    const { body: pl } = await get(`/planillas/${pid}`, owner.token);
+    const dia = (pl.registros as any[]).find(r => r.fecha.startsWith('2026-11-26'));
+    assert(!dia || dia.bloqueado === false, `día sigue bloqueado: ${JSON.stringify(dia)}`);
+  });
+  await scenario('D2 owner NO puede quitar una marca ya APROBADA → 400', async () => {
+    const pid = await nuevaPlanilla('2026-11-27');
+    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-27', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+    await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
+    const { status } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, owner.token);
+    assertStatus(status, 400, 'owner reject aprobada');
+  });
+  await scenario('D3 supervisor rechaza marca APROBADA → 200 RECHAZADA, día desbloqueado', async () => {
+    const pid = await nuevaPlanilla('2026-11-28');
+    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-28', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+    await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
+    const { status, body } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, sup.token);
+    assertStatus(status, 200, JSON.stringify(body));
+    assert(body.estado === 'RECHAZADA', `estado=${body.estado}`);
+  });
+  await scenario('D4 rechazar compensatorio PENDIENTE libera pendientes (-1)', async () => {
+    await put(`/vacacion-saldos/${saldoId}`, { compensatoriosAcumulados: 5, compensatoriosUsados: 0 }, ana.token);
+    const before = await getCompSaldo(owner.token);
+    const pid = await nuevaPlanilla('2026-11-29');
+    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-29', tipo: 'FRANCO_COMPENSATORIO' }, owner.token);
+    assert((await getCompSaldo(owner.token)).pend === before.pend + 1, 'reservó pendiente');
+    const { status } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, sup.token);
+    assertStatus(status, 200, 'rechazar comp');
+    assert((await getCompSaldo(owner.token)).pend === before.pend, 'liberó pendiente');
+  });
+
   // ── Resumen ──
   const passed = results.filter(r => r.passed).length;
   const failed = results.length - passed;
