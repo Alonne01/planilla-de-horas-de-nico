@@ -248,6 +248,29 @@ async function main() {
     assert((await getCompSaldo(owner.token)).pend === before.pend, 'liberó pendiente');
   });
 
+  // ═══ E. gating de aprobación ═══
+  await scenario('E1 avanzar con marca sin validar → 400; validar → avanzar 200', async () => {
+    const pid = await nuevaPlanilla('2026-12-02');
+    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-12-02', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+    const enviar = await post(`/planillas/${pid}/enviar`, {}, owner.token);
+    assertStatus(enviar.status, 200, `enviar: ${JSON.stringify(enviar.body)}`);
+    assert(enviar.body.estado === 'ENVIADA', `estado=${enviar.body.estado}`);
+    const avA = await post(`/planillas/${pid}/avanzar`, {}, sup.token);
+    assertStatus(avA.status, 400, JSON.stringify(avA.body));
+    assert(avA.body.marcasPendientes === 1, `marcasPendientes=${avA.body.marcasPendientes}`);
+    await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
+    const avB = await post(`/planillas/${pid}/avanzar`, {}, sup.token);
+    assertStatus(avB.status, 200, JSON.stringify(avB.body));
+    assert(avB.body.estado === 'APROBADA', `estado=${avB.body.estado}`);
+  });
+  await scenario('E2 GET /planillas/:id incluye marcaManual en el registro', async () => {
+    const pid = await nuevaPlanilla('2026-12-04');
+    await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-12-04', tipo: 'LICENCIA_ESPECIAL' }, owner.token);
+    const { body } = await get(`/planillas/${pid}`, owner.token);
+    const dia = (body.registros as any[]).find(r => r.fecha.startsWith('2026-12-04'));
+    assert(dia && dia.marcaManual && dia.marcaManual.estado === 'PENDIENTE', `marcaManual=${JSON.stringify(dia?.marcaManual)}`);
+  });
+
   // ── Resumen ──
   const passed = results.filter(r => r.passed).length;
   const failed = results.length - passed;

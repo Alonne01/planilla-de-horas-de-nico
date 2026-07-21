@@ -280,7 +280,10 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
         },
         registros: {
           orderBy: { fecha: 'asc' },
-          include: { proyecto: { select: { codigo: true, nombre: true } } },
+          include: {
+            proyecto: { select: { codigo: true, nombre: true } },
+            marcaManual: { select: { id: true, estado: true, tipo: true, cargadaPorId: true, aprobadaPorId: true } },
+          },
         },
         flujo: { select: { nombre: true, pasos: { orderBy: { orden: 'asc' } } } },
       },
@@ -488,6 +491,15 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
     }
     if (planilla.estado !== 'ENVIADA' && planilla.estado !== 'EN_REVISION') {
       res.status(400).json({ error: 'La planilla no está en estado de revisión' });
+      return;
+    }
+
+    // Gating plan B: no se puede avanzar/aprobar con marcas manuales sin validar
+    const marcasPendientes = await prisma.ausencia.count({
+      where: { planillaId, cargaManual: true, estado: { notIn: ['APROBADA', 'RECHAZADA'] } },
+    });
+    if (marcasPendientes > 0) {
+      res.status(400).json({ error: `Hay ${marcasPendientes} marca(s) manual(es) sin validar. Validalas antes de aprobar.`, marcasPendientes });
       return;
     }
 
