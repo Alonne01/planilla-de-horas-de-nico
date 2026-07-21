@@ -292,6 +292,22 @@ async function main() {
     assertStatus(status, 400, 'reject en planilla aprobada');
   });
 
+  // ═══ G. limpieza al borrar planilla ═══
+  await scenario('G1 borrar planilla con marca comp libera el saldo reservado', async () => {
+    await put(`/vacacion-saldos/${saldoId}`, { compensatoriosAcumulados: 5, compensatoriosUsados: 0 }, ana.token);
+    const before = await getCompSaldo(owner.token);
+    const pid = await nuevaPlanilla('2026-12-10');
+    await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-12-10', tipo: 'FRANCO_COMPENSATORIO' }, owner.token);
+    assert((await getCompSaldo(owner.token)).pend === before.pend + 1, 'reservó pendiente');
+    const d = await del(`/planillas/${pid}`, owner.token);
+    assertStatus(d.status, 204, `borrar planilla: ${JSON.stringify(d.body)}`);
+    assert((await getCompSaldo(owner.token)).pend === before.pend, 'liberó el pendiente al borrar la planilla');
+    // la ausencia manual no debe quedar como fantasma
+    const { body: aus } = await get(`/ausencias?scope=mio`, owner.token);
+    const leftover = (aus as any[]).filter(a => a.fechaInicio && String(a.fechaInicio).startsWith('2026-12-10'));
+    assert(leftover.length === 0, `quedó marca huérfana: ${JSON.stringify(leftover)}`);
+  });
+
   // ── Resumen ──
   const passed = results.filter(r => r.passed).length;
   const failed = results.length - passed;
