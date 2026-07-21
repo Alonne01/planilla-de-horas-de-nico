@@ -17,6 +17,7 @@ interface AusenciaRange {
   fechaFin: Date;
   motivoBloqueo: string;
   observaciones: string;
+  marcaManualId?: string;
 }
 
 /**
@@ -50,6 +51,7 @@ export async function inyectarDiasBloqueados(range: AusenciaRange): Promise<void
       update: {
         bloqueado: true,
         motivoBloqueo: range.motivoBloqueo,
+        marcaManualId: range.marcaManualId ?? null,
         observaciones: range.observaciones,
         // Zero out hours — absence days have no worked hours
         entradaTurno1: null,
@@ -68,6 +70,7 @@ export async function inyectarDiasBloqueados(range: AusenciaRange): Promise<void
         fecha: day,
         bloqueado: true,
         motivoBloqueo: range.motivoBloqueo,
+        marcaManualId: range.marcaManualId ?? null,
         observaciones: range.observaciones,
         horasTrabajadas: ZERO,
         horasNormales: ZERO,
