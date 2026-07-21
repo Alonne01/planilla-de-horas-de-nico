@@ -46,6 +46,13 @@ interface Registro {
   observaciones: string | null;
   bloqueado: boolean;
   motivoBloqueo: string | null;
+  marcaManual?: {
+    id: string;
+    estado: string;
+    tipo: string;
+    cargadaPorId: string;
+    aprobadaPorId: string | null;
+  } | null;
 }
 
 interface PlanillaDetalle {
@@ -322,6 +329,45 @@ export default function PlanillaDetailPage() {
     return map;
   }, [planilla]);
 
+  const marcarDiaMutation = useMutation({
+    mutationFn: (vars: { fecha: string; tipo: string }) => api.post(`/planillas/${id}/marcar-dia`, vars),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); setSelectedDate(null); },
+    onError: (err: any) => toast({ title: 'No se pudo marcar', description: err.response?.data?.error ?? 'Error al marcar el día', variant: 'destructive' }),
+  });
+  const validarMarcaMutation = useMutation({
+    mutationFn: (ausenciaId: string) => api.post(`/planillas/${id}/marcas/${ausenciaId}/validar`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); setSelectedDate(null); },
+    onError: (err: any) => toast({ title: 'No se pudo validar', description: err.response?.data?.error ?? 'Error al validar', variant: 'destructive' }),
+  });
+  const validarTodoMutation = useMutation({
+    mutationFn: () => api.post(`/planillas/${id}/marcas/validar-todo`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); },
+    onError: (err: any) => toast({ title: 'No se pudo validar', description: err.response?.data?.error ?? 'Error al validar', variant: 'destructive' }),
+  });
+  const quitarMarcaMutation = useMutation({
+    mutationFn: (ausenciaId: string) => api.delete(`/planillas/${id}/marcas/${ausenciaId}`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); setSelectedDate(null); },
+    onError: (err: any) => toast({ title: 'No se pudo quitar', description: err.response?.data?.error ?? 'Error', variant: 'destructive' }),
+  });
+
+  const TIPOS_MARCA: { value: string; label: string }[] = [
+    { value: 'FRANCO_COMPENSATORIO', label: 'Franco compensatorio' },
+    { value: 'FALTA_JUSTIFICADA', label: 'Falta justificada' },
+    { value: 'FALTA_INJUSTIFICADA', label: 'Falta injustificada' },
+    { value: 'CERTIFICADO_MEDICO', label: 'Certificado médico' },
+    { value: 'LICENCIA_ESPECIAL', label: 'Licencia especial' },
+  ];
+
+  const handleMarcar = async (tipo: string) => {
+    if (!selectedDate) return;
+    const existing = registroMap[selectedDate];
+    if (existing && !existing.bloqueado && existing.entradaTurno1) {
+      const ok = await dialog.confirm({ title: 'Reemplazar día', message: 'Este día tiene horas cargadas. Se reemplazarán por la marca. ¿Continuar?', variant: 'danger' });
+      if (!ok) return;
+    }
+    marcarDiaMutation.mutate({ fecha: selectedDate, tipo });
+  };
+
   // Build calendar
   const weeks = useMemo((): (Date | null)[][] => {
     if (!planilla) return [];
@@ -379,6 +425,10 @@ export default function PlanillaDetailPage() {
     !!currentStep &&
     (currentStep.rolAprobador === user?.rol || userNivel >= 90) &&
     (planilla.estado === 'ENVIADA' || planilla.estado === 'EN_REVISION');
+  // Marca manual (plan B): quién puede marcar/validar y cuántas quedan sin validar
+  const canMarkAsManager = !isOwner && userNivel >= 60 &&
+    ['BORRADOR', 'RECHAZADA', 'ENVIADA', 'EN_REVISION'].includes(planilla.estado);
+  const marcasPendientes = planilla.registros.filter(r => r.marcaManual?.estado === 'PENDIENTE').length;
   const totalHoras = Number(planilla.totalHorasNormales) + Number(planilla.totalHorasExtra50) + Number(planilla.totalHorasExtra100);
   // Planillas del MISMO usuario → alimentan el selector de período 3×4.
   const ownerPlanillas: PeriodoItem[] = todasLasPlanillas
@@ -857,9 +907,17 @@ export default function PlanillaDetailPage() {
             Enviar
           </button>
         )}
+        {marcasPendientes > 0 && canApprove && (
+          <button onClick={() => validarTodoMutation.mutate()} disabled={validarTodoMutation.isPending}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cal-amber/90 text-white text-sm font-medium hover:bg-cal-amber disabled:opacity-50">
+            {validarTodoMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            Aprobar todas las marcas ({marcasPendientes})
+          </button>
+        )}
         {canApprove && (
           <>
-            <button onClick={() => setShowConfirmApproval(true)} disabled={avanzarMutation.isPending}
+            <button onClick={() => setShowConfirmApproval(true)} disabled={avanzarMutation.isPending || marcasPendientes > 0}
+              title={marcasPendientes > 0 ? `Validá las ${marcasPendientes} marca(s) manual(es) primero` : undefined}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors">
               {avanzarMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               Aprobar
@@ -1193,6 +1251,9 @@ export default function PlanillaDetailPage() {
                             : reg.motivoBloqueo ?? 'Ausencia'}
                         </span>
                       </div>
+                      {reg?.marcaManual?.estado === 'PENDIENTE' && (
+                        <span className="mt-0.5 block text-[9px] font-semibold text-cal-amber">sin validar</span>
+                      )}
                       {reg.observaciones && (
                         <p className="text-[8px] text-muted-foreground/70 leading-tight truncate max-w-full">
                           {reg.observaciones}
@@ -1275,7 +1336,7 @@ export default function PlanillaDetailPage() {
                     {registroMap[selectedDate].observaciones ?? registroMap[selectedDate].motivoBloqueo ?? 'Ausencia / Vacación'}
                   </p>
                   <p className="text-[10px] text-muted-foreground mt-2">Este día no se puede modificar.</p>
-                  {registroMap[selectedDate]?.motivoBloqueo === 'FRANCO_COMPENSATORIO' && user && (user.rolNivel ?? 0) >= 60 && (
+                  {registroMap[selectedDate]?.motivoBloqueo === 'FRANCO_COMPENSATORIO' && !registroMap[selectedDate]?.marcaManual && user && (user.rolNivel ?? 0) >= 60 && (
                     <button
                       onClick={async () => {
                         try {
@@ -1289,11 +1350,62 @@ export default function PlanillaDetailPage() {
                       Revocar compensatorio
                     </button>
                   )}
+                  {registroMap[selectedDate]?.marcaManual && (
+                    <div className="mt-2 space-y-2">
+                      {registroMap[selectedDate]!.marcaManual!.estado === 'PENDIENTE' ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-cal-amber border border-cal-amber/30">
+                          ⏳ Sin validar
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-600 border border-emerald-500/30">
+                          ✓ Validado
+                        </span>
+                      )}
+
+                      {isOwner && canEdit && registroMap[selectedDate]!.marcaManual!.estado === 'PENDIENTE' && (
+                        <button onClick={() => quitarMarcaMutation.mutate(registroMap[selectedDate]!.marcaManual!.id)}
+                          disabled={quitarMarcaMutation.isPending}
+                          className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted/30 disabled:opacity-50">
+                          Quitar marca
+                        </button>
+                      )}
+
+                      {canMarkAsManager && registroMap[selectedDate]!.marcaManual!.estado === 'PENDIENTE' && (
+                        <div className="flex gap-2">
+                          <button onClick={() => validarMarcaMutation.mutate(registroMap[selectedDate]!.marcaManual!.id)}
+                            disabled={validarMarcaMutation.isPending}
+                            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                            Validar
+                          </button>
+                          <button onClick={async () => { if (await dialog.confirm({ message: '¿Rechazar esta marca? El día quedará libre.', variant: 'danger' })) quitarMarcaMutation.mutate(registroMap[selectedDate]!.marcaManual!.id); }}
+                            disabled={quitarMarcaMutation.isPending}
+                            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+                            Rechazar
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Time pickers */}
               {!registroMap[selectedDate]?.bloqueado && (<>
+              {((canEdit) || canMarkAsManager) && (
+                <details className="rounded-lg border border-border">
+                  <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/30 rounded-lg">
+                    Marcar día especial (ausencia / compensatorio)
+                  </summary>
+                  <div className="p-2 grid grid-cols-1 gap-1">
+                    {TIPOS_MARCA.map(t => (
+                      <button key={t.value} type="button" onClick={() => handleMarcar(t.value)} disabled={marcarDiaMutation.isPending}
+                        className="text-left px-3 py-2 rounded-md text-sm hover:bg-accent disabled:opacity-50">
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </details>
+              )}
               {/* Contexto del día (no editable): franco por diagrama / feriado nacional */}
               {(selFranco || selFeriado) && (
                 <div className="flex flex-wrap gap-2">
