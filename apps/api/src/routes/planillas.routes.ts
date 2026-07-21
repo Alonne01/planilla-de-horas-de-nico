@@ -1295,6 +1295,10 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
       res.status(409).json({ error: `El día ya está bloqueado (${existingReg.motivoBloqueo ?? 'ausencia/vacación'})` });
       return;
     }
+    if (existingReg?.esFrancoCompensatorio) {
+      res.status(409).json({ error: 'El día ya está declarado como franco compensatorio. Quitá esa marca antes de marcarlo manualmente.' });
+      return;
+    }
 
     const tipo = parsed.data.tipo;
     const anio = fecha.getFullYear();
@@ -1550,6 +1554,11 @@ router.delete('/:id/marcas/:ausenciaId', async (req: AuthRequest, res: Response)
         res.status(400).json({ error: 'Solo podés quitar marcas sin validar' });
         return;
       }
+    }
+
+    if (isManager && !ESTADOS_MANAGER.includes(planilla.estado)) {
+      res.status(400).json({ error: `No se puede rechazar marcas con la planilla en estado ${planilla.estado}` });
+      return;
     }
 
     const anio = new Date(ausencia.fechaInicio).getFullYear();

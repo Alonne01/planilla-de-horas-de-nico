@@ -271,6 +271,27 @@ async function main() {
     assert(dia && dia.marcaManual && dia.marcaManual.estado === 'PENDIENTE', `marcaManual=${JSON.stringify(dia?.marcaManual)}`);
   });
 
+  // ═══ F. endurecimiento (guards de correctitud) ═══
+  await scenario('F1 marcar comp sobre un día con esFrancoCompensatorio ya declarado → 409', async () => {
+    const pid = await nuevaPlanilla('2026-12-06');
+    const r = await post(`/planillas/${pid}/registros`, { fecha: '2026-12-06', esFrancoCompensatorio: true }, owner.token);
+    assertStatus(r.status, 201, `crear registro comp: ${JSON.stringify(r.body)}`);
+    const { status } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-12-06', tipo: 'FRANCO_COMPENSATORIO' }, owner.token);
+    assertStatus(status, 409, 'esFrancoCompensatorio ya declarado');
+  });
+  await scenario('F2 superior NO puede rechazar marca en planilla ya APROBADA → 400', async () => {
+    const pid = await nuevaPlanilla('2026-12-08');
+    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-12-08', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+    await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
+    const enviar = await post(`/planillas/${pid}/enviar`, {}, owner.token);
+    assertStatus(enviar.status, 200, `enviar: ${JSON.stringify(enviar.body)}`);
+    const av = await post(`/planillas/${pid}/avanzar`, {}, sup.token);
+    assertStatus(av.status, 200, `avanzar: ${JSON.stringify(av.body)}`);
+    assert(av.body.estado === 'APROBADA', `estado=${av.body.estado}`);
+    const { status } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, sup.token);
+    assertStatus(status, 400, 'reject en planilla aprobada');
+  });
+
   // ── Resumen ──
   const passed = results.filter(r => r.passed).length;
   const failed = results.length - passed;
