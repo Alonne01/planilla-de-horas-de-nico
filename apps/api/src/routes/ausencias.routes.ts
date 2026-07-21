@@ -8,6 +8,7 @@ import { inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-ca
 import { notificarAusencia, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import { fechaFlexible, spanDiasCalendario } from '../utils/zod.utils.js';
+import { canManageUser } from '../utils/user-scope.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -45,29 +46,6 @@ const updateAusenciaSchema = z.object({
   porcentajeDescuento: z.number().min(0).max(100).optional(),
   aprobada: z.boolean().optional(),
 });
-
-// ─── Helper: check if user can manage target employee ────
-
-async function canManageUser(actorId: string, actorNivel: number, targetUserId: string, empresaId: string): Promise<boolean> {
-  if (actorNivel >= 90) return true; // RRHH/ADMIN can manage anyone
-
-  const target = await prisma.usuario.findUnique({
-    where: { id: targetUserId },
-    select: { empresaId: true, supervisorId: true, coordinadorId: true, sectorId: true },
-  });
-  if (!target || target.empresaId !== empresaId) return false;
-
-  // Direct supervisor or coordinator
-  if (target.supervisorId === actorId || target.coordinadorId === actorId) return true;
-
-  // Same sector for COORDINADOR+
-  if (actorNivel >= 70 && target.sectorId) {
-    const actor = await prisma.usuario.findUnique({ where: { id: actorId }, select: { sectorId: true } });
-    if (actor?.sectorId === target.sectorId) return true;
-  }
-
-  return false;
-}
 
 // ─── GET /ausencias ──────────────────────────────
 
