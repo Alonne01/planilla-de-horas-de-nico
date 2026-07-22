@@ -209,7 +209,7 @@ if %API_ATTEMPTS% gtr 20 (
     echo [ERROR] La API no responde en el puerto 4000. Revisa la ventana API-Server.
     goto cleanup
 )
-powershell -NoProfile -Command "try { Invoke-RestMethod http://localhost:4000/api/v1/health -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+powershell -NoProfile -Command "try { Invoke-RestMethod http://127.0.0.1:4000/api/v1/health -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% neq 0 goto wait_api
 echo       API respondiendo OK
 
@@ -226,7 +226,7 @@ if %WEB_ATTEMPTS% gtr 20 (
     echo [ERROR] El frontend no responde en el puerto 3000. Revisa la ventana Frontend-Server.
     goto cleanup
 )
-powershell -NoProfile -Command "try { Invoke-WebRequest http://localhost:3000 -TimeoutSec 2 -UseBasicParsing | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+powershell -NoProfile -Command "try { Invoke-WebRequest http://127.0.0.1:3000 -TimeoutSec 2 -UseBasicParsing | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% neq 0 goto wait_web
 echo       Frontend respondiendo OK
 
@@ -313,10 +313,17 @@ pause >nul
 :cleanup
 echo.
 echo Deteniendo servicios...
-taskkill /FI "WINDOWTITLE eq API-Server*" /F >nul 2>&1
-taskkill /FI "WINDOWTITLE eq Frontend-Server*" /F >nul 2>&1
-taskkill /FI "WINDOWTITLE eq Cloudflare-Tunnel*" /F >nul 2>&1
+:: Matar por PUERTO (deterministico: netstat da el PID real) con arbol de hijos (/T).
+:: taskkill por titulo de ventana solo mata el cmd contenedor y deja huerfano el node/vite hijo.
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr /R /C:":3000 .*LISTENING" /C:":4000 .*LISTENING"') do (
+    taskkill /PID %%p /T /F >nul 2>&1
+)
+:: Matar el tunel de Cloudflare
 taskkill /IM cloudflared.exe /F >nul 2>&1
+:: Red de seguridad: por titulo de ventana, arbol completo (/T)
+taskkill /FI "WINDOWTITLE eq API-Server*" /T /F >nul 2>&1
+taskkill /FI "WINDOWTITLE eq Frontend-Server*" /T /F >nul 2>&1
+taskkill /FI "WINDOWTITLE eq Cloudflare-Tunnel*" /T /F >nul 2>&1
 
 echo Limpiando...
 if exist "%TEMP_DIR%" rmdir /s /q "%TEMP_DIR%"
