@@ -90,7 +90,7 @@ export default function CierrePage() {
 
   const { data: allUsers = [] } = useQuery<{ id: string; nombre: string; apellido: string; legajo: string | null; activo: boolean; rol: string; sector?: { id: string; nombre: string } }[]>({
     queryKey: ['usuarios-cierre'],
-    queryFn: async () => (await api.get('/admin/usuarios')).data,
+    queryFn: async () => (await api.get('/usuarios')).data,
     enabled: isRRHH,
   });
 

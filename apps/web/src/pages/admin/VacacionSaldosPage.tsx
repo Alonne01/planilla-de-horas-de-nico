@@ -56,7 +56,7 @@ export default function VacacionSaldosPage() {
 
   const { data: sectores = [] } = useQuery<Sector[]>({
     queryKey: ['sectores'],
-    queryFn: () => api.get('/admin/sectores').then(r => r.data),
+    queryFn: () => api.get('/analytics/sectores').then(r => r.data),
   });
 
   const generarMutation = useMutation({

@@ -81,7 +81,7 @@ export default function UsuariosPage() {
 
   const { data: sectores = [] } = useQuery<Sector[]>({
     queryKey: ['sectores'],
-    queryFn: async () => (await api.get('/admin/sectores')).data,
+    queryFn: async () => (await api.get('/analytics/sectores')).data,
     enabled: canEdit,
   });
 
@@ -92,7 +92,7 @@ export default function UsuariosPage() {
 
   const { data: diagramas = [] } = useQuery<Diagrama[]>({
     queryKey: ['diagramas'],
-    queryFn: async () => (await api.get('/admin/diagramas')).data,
+    queryFn: async () => (await api.get('/analytics/diagramas')).data,
     enabled: canEdit,
   });
 

@@ -277,7 +277,7 @@ export default function WentopPage() {
   const { data: sectores = [] } = useQuery<Sector[]>({
     queryKey: ['sectores'],
     queryFn: async () => {
-      const { data } = await api.get('/admin/sectores');
+      const { data } = await api.get('/analytics/sectores');
       return data;
     },
   });

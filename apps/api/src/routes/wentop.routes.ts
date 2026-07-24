@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, WentopEstado, WentopTipoTarjeta } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH, LEVEL_CMASS } from '../middleware/roles.middleware.js';
 import { upload } from '../middleware/upload.middleware.js';
@@ -302,8 +302,18 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     const where: any = await buildVisibilityWhere(req.user!);
 
-    if (estado) where.estado = estado as string;
-    if (tipoTarjeta) where.tipoTarjeta = tipoTarjeta as string;
+    if (estado) {
+      if (!Object.values(WentopEstado).includes(estado as WentopEstado)) {
+        res.status(400).json({ error: 'Parámetro "estado" inválido' }); return;
+      }
+      where.estado = estado as string;
+    }
+    if (tipoTarjeta) {
+      if (!Object.values(WentopTipoTarjeta).includes(tipoTarjeta as WentopTipoTarjeta)) {
+        res.status(400).json({ error: 'Parámetro "tipoTarjeta" inválido' }); return;
+      }
+      where.tipoTarjeta = tipoTarjeta as string;
+    }
     if (sectorId) where.sectorObservacionId = sectorId as string;
     if (desde || hasta) {
       where.fechaReporte = {};

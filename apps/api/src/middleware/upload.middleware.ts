@@ -22,7 +22,9 @@ const fileFilter = (_req: Express.Request, file: Express.Multer.File, cb: multer
   if (allowedExts.includes(ext) && allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Solo se permiten imágenes (jpg, png, gif, webp) y PDF'));
+    const err: any = new Error('Solo se permiten imágenes (jpg, png, gif, webp) y PDF');
+    err.status = 400;
+    cb(err);
   }
 };
 

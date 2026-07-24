@@ -132,6 +132,21 @@ router.get('/sectores', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest
   }
 });
 
+// ─── GET /analytics/diagramas (catálogo de lectura, ≥COORDINADOR) ─
+// Selects de asignación (UsuariosPage, etc.) que no deben requerir nivel ADMIN.
+router.get('/diagramas', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const diagramas = await prisma.diagrama.findMany({
+      where: { empresaId: req.user!.empresaId, activo: true },
+      orderBy: { nombre: 'asc' },
+    });
+    res.json(diagramas);
+  } catch (error) {
+    console.error('Error listing diagramas:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ─── GET /analytics/sector/:id ───────────────────
 
 router.get('/sector/:sid', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {

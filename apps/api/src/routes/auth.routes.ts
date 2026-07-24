@@ -38,6 +38,7 @@ const loginSchema = z.object({
 });
 
 const changePasswordSchema = z.object({
+  currentPassword: z.string().optional(),
   newPassword: z
     .string()
     .min(8, 'Mínimo 8 caracteres')
@@ -325,7 +326,7 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
       return;
     }
 
-    const { newPassword } = parsed.data;
+    const { newPassword, currentPassword } = parsed.data;
 
     const usuario = await prisma.usuario.findUnique({
       where: { id: req.user!.userId },
@@ -334,6 +335,20 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
     if (!usuario) {
       res.status(404).json({ error: 'Usuario no encontrado' });
       return;
+    }
+
+    // Salvo en el cambio forzado de primer-login, exigir y verificar la contraseña
+    // actual (evita que una sesión secuestrada cambie la clave sin conocerla).
+    if (!usuario.primerLogin) {
+      if (!currentPassword) {
+        res.status(400).json({ error: 'Debés ingresar tu contraseña actual' });
+        return;
+      }
+      const valida = await bcrypt.compare(currentPassword, usuario.passwordHash);
+      if (!valida) {
+        res.status(401).json({ error: 'La contraseña actual es incorrecta' });
+        return;
+      }
     }
 
     const newHash = await bcrypt.hash(newPassword, 12);
@@ -345,6 +360,9 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
         primerLogin: false,
       },
     });
+
+    // Revocar todos los refresh tokens tras el cambio (igual que reset-password).
+    await revokeAllRefreshTokensForUser(usuario.id);
 
     res.json({ message: 'Contraseña actualizada correctamente' });
   } catch (error) {

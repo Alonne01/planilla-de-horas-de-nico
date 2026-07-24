@@ -47,12 +47,15 @@ const createPlanillaSchema = z.object({
   periodoFin: fechaFlexible.optional(),
 });
 
+// Turno horario: fecha/hora válida, o cadena vacía / null / ausente
+const horaOpcional = z.union([fechaFlexible, z.literal('')]).nullable().optional();
+
 const createRegistroSchema = z.object({
-  fecha: z.string(),
-  entradaTurno1: z.string().nullable().optional(),
-  salidaTurno1: z.string().nullable().optional(),
-  entradaTurno2: z.string().nullable().optional(),
-  salidaTurno2: z.string().nullable().optional(),
+  fecha: fechaFlexible,
+  entradaTurno1: horaOpcional,
+  salidaTurno1: horaOpcional,
+  entradaTurno2: horaOpcional,
+  salidaTurno2: horaOpcional,
   lugarTrabajo: z.nativeEnum(LugarTrabajo).nullable().optional(),
   pernocte: z.nativeEnum(PernocteEnum).optional(),
   maneja: z.boolean().optional(),
@@ -1076,6 +1079,11 @@ router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR)
     const rid = req.params.rid as string;
     const { activar } = req.body; // boolean
 
+    if (typeof activar !== 'boolean') {
+      res.status(400).json({ error: 'El campo "activar" (boolean) es requerido' });
+      return;
+    }
+
     const planilla = await prisma.planilla.findUnique({
       where: { id: planillaId },
       include: { usuario: { select: { empresaId: true, id: true } } },
@@ -1086,11 +1094,26 @@ router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR)
       return;
     }
 
+    // Alcance: sólo quien gestiona al empleado (supervisor/coordinador directo,
+    // coordinador+ del sector, o RRHH+) puede tocar su franco compensatorio.
+    const puedeGestionar = await canManageUser(req.user!.userId, req.user!.rolNivel ?? 0, planilla.usuarioId, req.user!.empresaId);
+    if (!puedeGestionar) {
+      res.status(403).json({ error: 'No tenés alcance sobre este empleado' });
+      return;
+    }
+
+    // Una planilla cerrada es inmutable.
+    if (planilla.estado === 'CERRADA') {
+      res.status(400).json({ error: 'La planilla está cerrada y no puede modificarse' });
+      return;
+    }
+
     const registro = await prisma.registroHoras.findUnique({ where: { id: rid } });
     if (!registro || registro.planillaId !== planillaId) {
       res.status(404).json({ error: 'Registro no encontrado' });
       return;
     }
+    const wasComp = registro.esFrancoCompensatorio; // para idempotencia del saldo
 
     const aprobador = await prisma.usuario.findUnique({
       where: { id: req.user!.userId },
@@ -1118,20 +1141,22 @@ router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR)
         },
       });
 
-      // Increment compensatoriosPendientes on the user's VacacionSaldo
-      const anio = new Date(registro.fecha).getFullYear();
-      await prisma.vacacionSaldo.upsert({
-        where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
-        create: {
-          usuarioId: planilla.usuarioId,
-          anio,
-          diasCorrespondientes: 0,
-          compensatoriosPendientes: 1,
-        },
-        update: {
-          compensatoriosPendientes: { increment: 1 },
-        },
-      });
+      // Increment compensatoriosPendientes sólo si no era ya compensatorio (idempotente)
+      if (!wasComp) {
+        const anio = new Date(registro.fecha).getFullYear();
+        await prisma.vacacionSaldo.upsert({
+          where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
+          create: {
+            usuarioId: planilla.usuarioId,
+            anio,
+            diasCorrespondientes: 0,
+            compensatoriosPendientes: 1,
+          },
+          update: {
+            compensatoriosPendientes: { increment: 1 },
+          },
+        });
+      }
 
       res.json(updated);
     } else {
@@ -1145,24 +1170,26 @@ router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR)
         },
       });
 
-      // Decrement compensatoriosPendientes or compensatoriosUsados
-      const anio = new Date(registro.fecha).getFullYear();
-      const saldo = await prisma.vacacionSaldo.findUnique({
-        where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
-      });
-      if (saldo) {
-        if (planilla.estado === 'APROBADA') {
-          // Already approved: decrement usados
-          await prisma.vacacionSaldo.update({
-            where: { id: saldo.id },
-            data: { compensatoriosUsados: { decrement: 1 } },
-          });
-        } else {
-          // Still pending: decrement pendientes
-          await prisma.vacacionSaldo.update({
-            where: { id: saldo.id },
-            data: { compensatoriosPendientes: { decrement: 1 } },
-          });
+      // Decrement sólo si el registro ERA compensatorio (idempotente: evita saldo negativo)
+      if (wasComp) {
+        const anio = new Date(registro.fecha).getFullYear();
+        const saldo = await prisma.vacacionSaldo.findUnique({
+          where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
+        });
+        if (saldo) {
+          if (planilla.estado === 'APROBADA') {
+            // Already approved: decrement usados (sin bajar de 0)
+            await prisma.vacacionSaldo.update({
+              where: { id: saldo.id },
+              data: { compensatoriosUsados: { decrement: Math.min(1, saldo.compensatoriosUsados) } },
+            });
+          } else {
+            // Still pending: decrement pendientes (sin bajar de 0)
+            await prisma.vacacionSaldo.update({
+              where: { id: saldo.id },
+              data: { compensatoriosPendientes: { decrement: Math.min(1, saldo.compensatoriosPendientes) } },
+            });
+          }
         }
       }
 

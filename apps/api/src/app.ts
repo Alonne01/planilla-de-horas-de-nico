@@ -106,7 +106,31 @@ app.use('/api/v1', routes);
 
 // ─── Error handler global ────────────────────────
 
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // body-parser (JSON malformado) y errores tipados adjuntan status/statusCode 4xx
+  const status = err?.status ?? err?.statusCode;
+  if (err?.type === 'entity.parse.failed') {
+    res.status(400).json({ error: 'JSON inválido en el cuerpo de la solicitud' });
+    return;
+  }
+  if (typeof status === 'number' && status >= 400 && status < 500) {
+    res.status(status).json({ error: err.message ?? 'Solicitud inválida' });
+    return;
+  }
+  // Multer: campo inesperado, límite de tamaño, etc.
+  if (err?.name === 'MulterError') {
+    res.status(400).json({ error: `Error de carga de archivo: ${err.message}` });
+    return;
+  }
+  // Prisma: referencia inválida / dato fuera de rango → 400, no encontrado → 404
+  if (err?.code === 'P2003' || err?.code === 'P2000' || err?.code === 'P2011') {
+    res.status(400).json({ error: 'Referencia o dato inválido' });
+    return;
+  }
+  if (err?.code === 'P2025') {
+    res.status(404).json({ error: 'Recurso no encontrado' });
+    return;
+  }
   console.error('Error no manejado:', err);
   res.status(500).json({ error: 'Error interno del servidor' });
 });
