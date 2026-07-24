@@ -172,6 +172,19 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       return;
     }
 
+    // Access control: below RRHH can only see themselves or users in their own
+    // sector (mirror the visibility rule of GET /usuarios). 404 to avoid leaking
+    // the existence of out-of-scope users.
+    const RRHH_LEVEL = 90;
+    const userNivel = req.user!.rolNivel ?? 0;
+    if (userNivel < RRHH_LEVEL && usuario.id !== req.user!.userId) {
+      const me = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } });
+      if (!me?.sectorId || me.sectorId !== usuario.sectorId) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+    }
+
     const { passwordHash: _omit, ...safeUsuario } = usuario;
     res.json({
       ...safeUsuario,
@@ -216,6 +229,18 @@ router.post('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respons
 
     // Privilege-escalation guard: cannot create a user above the caller's level
     if (!(await assertCanAssignRole(req, res, parsed.data.rol))) return;
+
+    // Tenant isolation: a provided sector must belong to the caller's empresa
+    if (parsed.data.sectorId) {
+      const sector = await prisma.sector.findFirst({
+        where: { id: parsed.data.sectorId, empresaId: req.user!.empresaId },
+        select: { id: true },
+      });
+      if (!sector) {
+        res.status(400).json({ error: 'Sector inexistente' });
+        return;
+      }
+    }
 
     const passwordHash = await bcrypt.hash(parsed.data.password, 12);
 
@@ -484,6 +509,18 @@ router.patch('/:id/sector', requireLevel(LEVEL_ADMIN), async (req: AuthRequest, 
     if (!existing) {
       res.status(404).json({ error: 'Usuario no encontrado' });
       return;
+    }
+
+    // Tenant isolation: a provided sector must belong to the caller's empresa
+    if (parsed.data.sectorId) {
+      const sector = await prisma.sector.findFirst({
+        where: { id: parsed.data.sectorId, empresaId: req.user!.empresaId },
+        select: { id: true },
+      });
+      if (!sector) {
+        res.status(400).json({ error: 'Sector inexistente' });
+        return;
+      }
     }
 
     const usuario = await prisma.usuario.update({

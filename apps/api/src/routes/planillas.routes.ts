@@ -512,6 +512,16 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
 
     // pasoActual is 1-based (matches FlujoPaso.orden). 0 = not started, 1..N = current step.
     if (pasoActual > totalPasos || totalPasos === 0) {
+      // No flow configured: block self-approval and require RRHH+ to approve
+      // (mirror the guard already present in ausencias/vacaciones avanzar).
+      if (planilla.usuario.id === req.user!.userId) {
+        res.status(403).json({ error: 'No podés aprobar tu propia planilla' });
+        return;
+      }
+      if ((req.user!.rolNivel ?? 0) < 90) {
+        res.status(403).json({ error: 'Se requiere nivel RRHH o superior para aprobar sin flujo de aprobación' });
+        return;
+      }
       nuevoEstado = 'APROBADA';
       nuevoPaso = pasoActual;
     } else {

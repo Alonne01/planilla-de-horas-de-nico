@@ -547,7 +547,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
     const vacacion = await prisma.vacacion.findUnique({
       where: { id: vacId },
       include: {
-        usuario: { select: { id: true, nombre: true, apellido: true, empresaId: true, sector: { select: { nombre: true } } } },
+        usuario: { select: { id: true, nombre: true, apellido: true, empresaId: true, sectorId: true, supervisorId: true, coordinadorId: true, sector: { select: { nombre: true } } } },
         flujo: { select: { nombre: true, pasos: { orderBy: { orden: 'asc' } } } },
         historial: {
           include: { usuario: { select: { nombre: true, apellido: true, rol: true } } },
@@ -559,11 +559,22 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       res.status(404).json({ error: 'Vacación no encontrada' });
       return;
     }
-    // Authorization: owner, same-company supervisor+, or RRHH/ADMIN
+    // Authorization: owner, RRHH/ADMIN, or a superior with scope over the owner.
+    // Mirrors the list-scoping in GET /vacaciones so the detail never 403s a
+    // record the list already shows (direct report or same sector).
     const isOwner = vacacion.usuario.id === userId;
     const isSameCompany = vacacion.usuario.empresaId === empresaId;
-    const isSuperiorOrRRHH = userNivel >= 60;
-    if (!isOwner && !(isSameCompany && isSuperiorOrRRHH)) {
+    let autorizado = isOwner || (isSameCompany && userNivel >= 90);
+    if (!autorizado && isSameCompany && userNivel >= 60) {
+      const owner = vacacion.usuario;
+      if (owner.supervisorId === userId || owner.coordinadorId === userId) {
+        autorizado = true;
+      } else if (owner.sectorId) {
+        const me = await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } });
+        if (me?.sectorId && me.sectorId === owner.sectorId) autorizado = true;
+      }
+    }
+    if (!autorizado) {
       res.status(403).json({ error: 'No autorizado' });
       return;
     }
