@@ -361,13 +361,16 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const periodoInicio = req.query.periodoInicio as string | undefined;
     const periodoFin = req.query.periodoFin as string | undefined;
     if (periodoInicio && periodoFin) {
-      const fin = new Date(periodoFin); fin.setHours(23, 59, 59, 999);
+      const ini = new Date(periodoInicio);
+      const fin = new Date(periodoFin);
+      if (isNaN(ini.getTime()) || isNaN(fin.getTime())) { res.status(400).json({ error: 'periodoInicio/periodoFin inválido' }); return; }
+      fin.setHours(23, 59, 59, 999);
       where = {
         AND: [
           where,
           {
             fechaInicio: {
-              gte: new Date(periodoInicio),
+              gte: ini,
               lte: fin,
             },
           },

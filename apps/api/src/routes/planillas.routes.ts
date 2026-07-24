@@ -107,9 +107,15 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     const periodoInicio = req.query.periodoInicio as string | undefined;
     const periodoFin = req.query.periodoFin as string | undefined;
-    if (periodoInicio) where.periodoInicio = { gte: new Date(periodoInicio) };
+    if (periodoInicio) {
+      const d = new Date(periodoInicio);
+      if (isNaN(d.getTime())) { res.status(400).json({ error: 'periodoInicio inválido' }); return; }
+      where.periodoInicio = { gte: d };
+    }
     if (periodoFin) {
-      const fin = new Date(periodoFin); fin.setHours(23, 59, 59, 999);
+      const fin = new Date(periodoFin);
+      if (isNaN(fin.getTime())) { res.status(400).json({ error: 'periodoFin inválido' }); return; }
+      fin.setHours(23, 59, 59, 999);
       where.periodoFin = { lte: fin };
     }
 

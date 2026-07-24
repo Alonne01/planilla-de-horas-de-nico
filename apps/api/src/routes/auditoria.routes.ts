@@ -17,6 +17,9 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const { tipo, usuarioId, desde, hasta, limit: lim } = req.query;
     const maxRows = Math.min(Number(lim) || 100, 500);
 
+    if (desde && isNaN(new Date(desde as string).getTime())) { res.status(400).json({ error: 'Parámetro "desde" inválido' }); return; }
+    if (hasta && isNaN(new Date(hasta as string).getTime())) { res.status(400).json({ error: 'Parámetro "hasta" inválido' }); return; }
+
     const dateFilter = (field: string) => {
       const cond: any = {};
       if (desde) cond[field] = { ...cond[field], gte: new Date(desde as string) };

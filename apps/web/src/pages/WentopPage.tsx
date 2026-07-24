@@ -254,9 +254,10 @@ export default function WentopPage() {
   const queryClient = useQueryClient();
   const dialog = useDialogStore();
 
-  const isHighLevel = (user?.rolNivel ?? 0) >= 75;
+  // Alta/baja de gestores: el backend exige RRHH (POST/DELETE /wentop/gestores),
+  // así que no mostramos el botón a CMASS/GERENTE (evita 403).
   const canManageGestores =
-    user?.rol === 'CMASS' || user?.rol === 'RRHH' || user?.rol === 'ADMIN' || isHighLevel;
+    user?.rol === 'RRHH' || user?.rol === 'ADMIN' || (user?.rolNivel ?? 0) >= 90;
 
   const [activeTab, setActiveTab] = useState<'tarjetas' | 'analytics' | 'gestores'>('tarjetas');
 

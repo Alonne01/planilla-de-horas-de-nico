@@ -372,7 +372,7 @@ export default function AusenciasPage() {
                       <Send className="h-3.5 w-3.5" /> Enviar
                     </button>
                   )}
-                  {a.estado === 'BORRADOR' && (
+                  {a.estado === 'BORRADOR' && isRRHH && (
                     <button
                       onClick={async () => { if (await dialog.confirm({ message: '¿Eliminar esta ausencia?', variant: 'danger' })) deleteMutation.mutate(a.id); }}
                       className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"

@@ -423,7 +423,9 @@ export default function PlanillaDetailPage() {
   const userNivel = user?.rolNivel ?? 0;
   const canApprove = !isOwner &&
     !!currentStep &&
-    (currentStep.rolAprobador === user?.rol || userNivel >= 90) &&
+    (currentStep.rolAprobador === user?.rol
+      || user?.rol === 'ADMIN'
+      || (userNivel >= 90 && currentStep.rolAprobador === 'RRHH')) &&
     (planilla.estado === 'ENVIADA' || planilla.estado === 'EN_REVISION');
   // Marca manual (plan B): quién puede marcar/validar y cuántas quedan sin validar
   const canMarkAsManager = !isOwner && userNivel >= 60 &&
@@ -956,12 +958,14 @@ export default function PlanillaDetailPage() {
             <Eraser className="h-4 w-4" /> Borrar días
           </button>
         )}
+        {(isOwner || userNivel >= 90) && (
         <button onClick={async () => {
             try { const res = await api.get(`/export/planilla/${id}`, { responseType: 'blob' }); const url = window.URL.createObjectURL(new Blob([res.data])); const a = document.createElement('a'); a.href = url; a.download = `planilla_${planilla.usuario.apellido}.xlsx`; a.click(); window.URL.revokeObjectURL(url); } catch { /* noop */ }
           }}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted/30 transition-colors">
           <Download className="h-4 w-4" /> Excel
         </button>
+        )}
         <button onClick={handleExportPDF}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted/30 transition-colors">
           <Printer className="h-4 w-4" /> PDF

@@ -59,7 +59,7 @@ const navItems: NavItem[] = [
   { label: 'Calendario de Equipo', path: '/calendario', icon: CalendarRange, requireCalendarAccess: true },
   { label: 'Capacitaciones', path: '/capacitaciones', icon: GraduationCap },
   { label: 'Mi Equipo', path: '/equipo', icon: Users },
-  { label: 'Cambios Diagrama', path: '/cambios-diagrama', icon: ArrowLeftRight, minLevel: 70 },
+  { label: 'Cambios Diagrama', path: '/cambios-diagrama', icon: ArrowLeftRight, minLevel: 60 },
   { label: 'WENTOP', path: '/wentop', icon: AlertTriangle },
   { label: 'Analytics', path: '/analytics', icon: FileBarChart },
 ];
