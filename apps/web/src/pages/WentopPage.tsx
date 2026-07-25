@@ -1141,7 +1141,7 @@ function GestoresTab({ sectores }: { sectores: Sector[] }) {
 // ---------------------------------------------------------------------------
 
 function TarjetaDetailModal({
-  tarjeta,
+  tarjeta: tarjetaDelListado,
   canManage,
   isCreator,
   onClose,
@@ -1162,6 +1162,20 @@ function TarjetaDetailModal({
   const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null);
   const [showCierreForm, setShowCierreForm] = useState(false);
   const [accionCierre, setAccionCierre] = useState('');
+
+  // El listado no trae la relación `fotos` (solo `_count.fotos`, para no
+  // engordar la respuesta de hasta 500 tarjetas). El detalle sí la trae y ya
+  // está bien autorizado (GET /wentop/:id, wentop.routes.ts:426); acá se pinta
+  // primero con lo que ya tenemos (placeholderData) y se completa al llegar.
+  const { data: detalle } = useQuery({
+    queryKey: ['wentop', 'tarjeta', tarjetaDelListado.id],
+    queryFn: async () => {
+      const { data } = await api.get(`/wentop/${tarjetaDelListado.id}`);
+      return data as WentopTarjeta;
+    },
+    placeholderData: tarjetaDelListado,
+  });
+  const tarjeta = detalle ?? tarjetaDelListado;
 
   const canDelete = isCreator && tarjeta.estado === 'ABIERTA';
 
