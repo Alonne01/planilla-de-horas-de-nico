@@ -48,6 +48,17 @@ interface Sector {
   activo: boolean;
 }
 
+interface Rol {
+  codigo: string;
+  nombre: string;
+  color: string;
+  activo: boolean;
+}
+
+// Respaldo de presentación: solo se usa si un paso ya guardado referencia un
+// código de rol que ya no está entre los roles activos del servidor (por
+// ejemplo, un rol borrado). El selector de aprobador se arma con los roles
+// reales via GET /admin/roles, no con esta lista fija.
 const ROL_LABELS: Record<string, string> = {
   OPERADOR: 'Operador',
   SUPERVISOR: 'Supervisor',
@@ -82,6 +93,7 @@ function StepRow({
   paso,
   idx,
   total,
+  roles,
   onChange,
   onRemove,
   onMoveUp,
@@ -90,6 +102,7 @@ function StepRow({
   paso: PasoForm;
   idx: number;
   total: number;
+  roles: Rol[];
   onChange: (idx: number, field: string, value: unknown) => void;
   onRemove: (idx: number) => void;
   onMoveUp: (idx: number) => void;
@@ -121,8 +134,8 @@ function StepRow({
           value={paso.rolAprobador}
           onChange={(e) => onChange(idx, 'rolAprobador', e.target.value)}
         >
-          {Object.entries(ROL_LABELS).map(([val, label]) => (
-            <option key={val} value={val}>{label}</option>
+          {roles.filter((r) => r.activo).map((r) => (
+            <option key={r.codigo} value={r.codigo}>{r.nombre}</option>
           ))}
         </select>
 
@@ -240,7 +253,7 @@ function usePasosEditor(initial: PasoForm[]) {
 
 // ─── Create Modal ─────────────────────────────────────────────────
 
-function CreateFlujoModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function CreateFlujoModal({ roles, onClose, onSuccess }: { roles: Rol[]; onClose: () => void; onSuccess: () => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [nombre, setNombre] = useState('');
@@ -314,6 +327,7 @@ function CreateFlujoModal({ onClose, onSuccess }: { onClose: () => void; onSucce
                   paso={paso}
                   idx={idx}
                   total={pasos.length}
+                  roles={roles}
                   onChange={updatePaso}
                   onRemove={removePaso}
                   onMoveUp={moveUp}
@@ -344,10 +358,12 @@ function CreateFlujoModal({ onClose, onSuccess }: { onClose: () => void; onSucce
 
 function EditFlujoModal({
   flujo,
+  roles,
   onClose,
   onSuccess,
 }: {
   flujo: Flujo;
+  roles: Rol[];
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -447,6 +463,7 @@ function EditFlujoModal({
                   paso={paso}
                   idx={idx}
                   total={pasos.length}
+                  roles={roles}
                   onChange={updatePaso}
                   onRemove={removePaso}
                   onMoveUp={moveUp}
@@ -494,6 +511,23 @@ export default function FlujosPage() {
     queryKey: ['admin-flujos'],
     queryFn: async () => (await api.get('/admin/flujos')).data,
   });
+
+  // Roles reales de la empresa: alimentan el selector de aprobador. Esta
+  // pantalla es nivel 100 y GET /admin/roles exige nivel 90+, así que el
+  // acceso está garantizado.
+  const { data: roles = [] } = useQuery<Rol[]>({
+    queryKey: ['roles'],
+    queryFn: async () => (await api.get('/admin/roles')).data,
+  });
+
+  // Nombre a mostrar para un código de rol. Un paso ya guardado puede
+  // referenciar un código que ya no está entre los roles activos (por
+  // ejemplo, un rol borrado); en ese caso cae al respaldo fijo y, si tampoco
+  // está ahí, muestra el código crudo en vez de romper o dejar vacío.
+  const nombreDeRol = useCallback(
+    (codigo: string) => roles.find((r) => r.codigo === codigo)?.nombre ?? ROL_LABELS[codigo] ?? codigo,
+    [roles],
+  );
 
   const { data: sectores = [], isError: sectoresError } = useQuery<Sector[]>({
     queryKey: ['admin-sectores'],
@@ -649,7 +683,7 @@ export default function FlujosPage() {
                           <div className="flex items-center justify-between">
                             <span className="text-sm font-medium">{paso.nombrePaso}</span>
                             <span className={cn('text-xs px-2 py-0.5 rounded-full', ROL_COLORS[paso.rolAprobador] ?? 'bg-muted text-muted-foreground')}>
-                              {ROL_LABELS[paso.rolAprobador] ?? paso.rolAprobador}
+                              {nombreDeRol(paso.rolAprobador)}
                             </span>
                           </div>
                           <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
@@ -806,6 +840,7 @@ export default function FlujosPage() {
       {/* Create Modal */}
       {showCreateModal && (
         <CreateFlujoModal
+          roles={roles}
           onClose={() => setShowCreateModal(false)}
           onSuccess={() => {
             setShowCreateModal(false);
@@ -818,6 +853,7 @@ export default function FlujosPage() {
       {editingFlujo && (
         <EditFlujoModal
           flujo={editingFlujo}
+          roles={roles}
           onClose={() => setEditingFlujo(null)}
           onSuccess={() => {
             setEditingFlujo(null);
