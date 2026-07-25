@@ -43,9 +43,9 @@ interface WentopTarjeta {
   cliente: string | null;
   lugarPozoLocacion: string | null;
   tipoTarjeta: string;
-  calidad: string[];
-  medioambiente: string[];
-  seguridadSalud: string[];
+  calidad?: string[];
+  medioambiente?: string[];
+  seguridadSalud?: string[];
   descripcion: string;
   accionesInmediatas: string | null;
   recomendaciones: string | null;
@@ -62,7 +62,7 @@ interface WentopTarjeta {
     sector: { id: string; nombre: string } | null;
   };
   sectorObservacion: { id: string; nombre: string } | null;
-  fotos: { id: string; url: string; createdAt: string }[];
+  fotos?: { id: string; url: string; createdAt: string }[];
   _count?: { fotos: number };
 }
 
@@ -783,7 +783,7 @@ function TarjetasTab({
               </p>
 
               {/* Photo count */}
-              {(t.fotos?.length > 0 || (t._count?.fotos ?? 0) > 0) && (
+              {((t.fotos?.length ?? 0) > 0 || (t._count?.fotos ?? 0) > 0) && (
                 <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
                   <Camera className="h-3.5 w-3.5" />
                   {t.fotos?.length ?? t._count?.fotos} foto
@@ -1220,10 +1220,10 @@ function TarjetaDetailModal({
 
           {/* Categories */}
           <div className="space-y-3">
-            {tarjeta.calidad.length > 0 && (
+            {(tarjeta.calidad?.length ?? 0) > 0 && (
               <Field label="Calidad">
                 <div className="flex flex-wrap gap-1.5 mt-1">
-                  {tarjeta.calidad.map((c) => (
+                  {tarjeta.calidad?.map((c) => (
                     <span
                       key={c}
                       className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs text-foreground"
@@ -1234,10 +1234,10 @@ function TarjetaDetailModal({
                 </div>
               </Field>
             )}
-            {tarjeta.medioambiente.length > 0 && (
+            {(tarjeta.medioambiente?.length ?? 0) > 0 && (
               <Field label="Medioambiente">
                 <div className="flex flex-wrap gap-1.5 mt-1">
-                  {tarjeta.medioambiente.map((m) => (
+                  {tarjeta.medioambiente?.map((m) => (
                     <span
                       key={m}
                       className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs text-foreground"
@@ -1248,10 +1248,10 @@ function TarjetaDetailModal({
                 </div>
               </Field>
             )}
-            {tarjeta.seguridadSalud.length > 0 && (
+            {(tarjeta.seguridadSalud?.length ?? 0) > 0 && (
               <Field label="Seguridad y Salud">
                 <div className="flex flex-wrap gap-1.5 mt-1">
-                  {tarjeta.seguridadSalud.map((s) => (
+                  {tarjeta.seguridadSalud?.map((s) => (
                     <span
                       key={s}
                       className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs text-foreground"
@@ -1308,13 +1308,13 @@ function TarjetaDetailModal({
           )}
 
           {/* Photos — 2 cols on mobile, 3 on sm+ */}
-          {tarjeta.fotos.length > 0 && (
+          {(tarjeta.fotos?.length ?? 0) > 0 && (
             <div>
               <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Evidencia fotográfica
               </p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                {tarjeta.fotos.map((f) => (
+                {tarjeta.fotos?.map((f) => (
                   <div key={f.id} className="group relative aspect-square rounded-lg overflow-hidden border border-border bg-muted">
                     <img
                       src={getUploadUrl(f.url)}
@@ -1657,7 +1657,7 @@ function TarjetaFormModal({
 
   // --- Evidencia fotográfica ----------------------------------------------
   const bytesActuales = newFiles.reduce((acc, f) => acc + f.size, 0);
-  const fotosExistentes = isEdit ? tarjeta.fotos.length : 0;
+  const fotosExistentes = isEdit ? (tarjeta.fotos?.length ?? tarjeta._count?.fotos ?? 0) : 0;
   const fotosTotales = fotosExistentes + newFiles.length;
 
   const agregarArchivos = (seleccion: File[]) => {
@@ -2123,11 +2123,11 @@ function TarjetaFormModal({
                     </div>
                   )}
 
-                  {isEdit && tarjeta.fotos.length > 0 && (
+                  {isEdit && (tarjeta.fotos?.length ?? 0) > 0 && (
                     <div className="mt-3">
                       <p className="mb-1 text-xs text-muted-foreground">Fotos ya cargadas</p>
                       <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-                        {tarjeta.fotos.map((f) => (
+                        {tarjeta.fotos?.map((f) => (
                           <div
                             key={f.id}
                             className="relative aspect-square rounded-lg overflow-hidden border border-border bg-muted"
