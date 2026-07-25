@@ -9,7 +9,8 @@ import {
   AlertTriangle, Users, Filter, RotateCcw, ShieldAlert
 } from 'lucide-react';
 import { toast } from '@/stores/toastStore';
-import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
+import PeriodSelector from '@/components/layout/PeriodSelector';
+import { usePeriodoActual } from '@/hooks/usePeriodoConfig';
 
 interface Sector {
   id: string;
@@ -68,7 +69,7 @@ export default function CierrePage() {
   const [reabrirLoading, setReabrirLoading] = useState(false);
 
   // Period selector state
-  const [periodo, setPeriodo] = useState(getCurrentPeriod());
+  const { periodo, setPeriodo, listo } = usePeriodoActual();
 
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
   const isAdmin = user?.rol === 'ADMIN';
@@ -80,9 +81,9 @@ export default function CierrePage() {
   });
 
   const { data: allPlanillas = [], isLoading: loadingPlanillas } = useQuery<Planilla[]>({
-    queryKey: ['planillas-cierre', periodo.inicio, periodo.fin],
-    queryFn: async () => (await api.get(`/planillas?periodoInicio=${encodeURIComponent(periodo.inicio)}&periodoFin=${encodeURIComponent(periodo.fin)}`)).data,
-    enabled: isRRHH,
+    queryKey: ['planillas-cierre', periodo?.inicio, periodo?.fin],
+    queryFn: async () => (await api.get(`/planillas?periodoInicio=${encodeURIComponent(periodo!.inicio)}&periodoFin=${encodeURIComponent(periodo!.fin)}`)).data,
+    enabled: isRRHH && !!periodo,
   });
 
   const planillasAprobadas = allPlanillas.filter((p) => p.estado === 'APROBADA');
@@ -217,6 +218,14 @@ export default function CierrePage() {
     );
   }
 
+  if (!listo) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
     { key: 'exportar', label: 'Exportar', icon: <FileSpreadsheet className="h-4 w-4" /> },
     { key: 'pendientes', label: 'Pendientes', icon: <AlertTriangle className="h-4 w-4" /> },
@@ -231,11 +240,13 @@ export default function CierrePage() {
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Lock className="h-6 w-6 text-amber-400" /> Cierre de Período
           </h1>
-          <p className="text-sm text-muted-foreground">
-            Período: {new Date(periodo.inicio).toLocaleDateString('es-AR')} — {new Date(periodo.fin).toLocaleDateString('es-AR')}
-          </p>
+          {periodo && (
+            <p className="text-sm text-muted-foreground">
+              Período: {new Date(periodo.inicio).toLocaleDateString('es-AR')} — {new Date(periodo.fin).toLocaleDateString('es-AR')}
+            </p>
+          )}
         </div>
-        <PeriodSelector value={periodo} onChange={setPeriodo} />
+        {periodo && <PeriodSelector value={periodo} onChange={setPeriodo} />}
       </div>
 
       {/* Tabs */}

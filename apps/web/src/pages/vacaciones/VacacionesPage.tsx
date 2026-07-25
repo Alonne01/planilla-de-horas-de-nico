@@ -11,7 +11,8 @@ import {
   Loader2, X, Calendar, ChevronLeft, ChevronRight, Filter, UserCheck, Clock,
   ChevronDown, ChevronUp, User,
 } from 'lucide-react';
-import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
+import PeriodSelector from '@/components/layout/PeriodSelector';
+import { usePeriodoActual } from '@/hooks/usePeriodoConfig';
 import ScopeToggle from '@/components/layout/ScopeToggle';
 
 
@@ -215,7 +216,7 @@ export default function VacacionesPage({ embedded = false }: VacacionesPageProps
     return params.get('crear') === 'true' && ['OPERADOR', 'SUPERVISOR', 'COORDINADOR', 'GERENTE'].includes(rol);
   });
   const [filterSector, setFilterSector] = useState('');
-  const [periodo, setPeriodo] = useState(getCurrentPeriod());
+  const { periodo, setPeriodo, listo } = usePeriodoActual();
   const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
   const canApprove = useCanApprove();
@@ -229,13 +230,14 @@ export default function VacacionesPage({ embedded = false }: VacacionesPageProps
   });
 
   const { data: vacaciones = [], isLoading } = useQuery<Vacacion[]>({
-    queryKey: ['vacaciones', periodo.inicio, periodo.fin, scope],
+    queryKey: ['vacaciones', periodo?.inicio, periodo?.fin, scope],
     queryFn: async () => {
-      const params = new URLSearchParams({ periodoInicio: periodo.inicio, periodoFin: periodo.fin });
+      const params = new URLSearchParams({ periodoInicio: periodo!.inicio, periodoFin: periodo!.fin });
       if (showScopeToggle && scope === 'mio') params.set('scope', 'mio');
       else if (!showScopeToggle && canApprove !== true) params.set('scope', 'mio');
       return (await api.get(`/vacaciones?${params.toString()}`)).data;
     },
+    enabled: !!periodo,
   });
 
   const { data: saldo } = useQuery<Saldo>({
@@ -257,6 +259,14 @@ export default function VacacionesPage({ embedded = false }: VacacionesPageProps
 
   const canCreate = ['OPERADOR', 'SUPERVISOR', 'COORDINADOR', 'GERENTE'].includes(user?.rol ?? '');
 
+  if (!listo) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {!embedded && (
@@ -270,7 +280,7 @@ export default function VacacionesPage({ embedded = false }: VacacionesPageProps
         </div>
       )}
       <div className="flex flex-wrap items-center gap-3">
-        <PeriodSelector value={periodo} onChange={setPeriodo} />
+        {periodo && <PeriodSelector value={periodo} onChange={setPeriodo} />}
         {showScopeToggle && <ScopeToggle value={scope} onChange={setScope} />}
         {isRRHH && sectores.length > 0 && (
           <div className="flex items-center gap-2">

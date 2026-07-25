@@ -11,7 +11,8 @@ import {
   CheckCircle2, XCircle, Loader2, Clock, Palmtree, Calendar,
   History, AlertCircle, ChevronRight, ChevronDown, X, Send, AlertTriangle, Filter
 } from 'lucide-react';
-import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
+import PeriodSelector from '@/components/layout/PeriodSelector';
+import { usePeriodoActual } from '@/hooks/usePeriodoConfig';
 import ScopeToggle from '@/components/layout/ScopeToggle';
 import ApprovalProgressBar, { type PasoAprobacion } from '@/components/ui/ApprovalProgressBar';
 
@@ -162,7 +163,7 @@ export default function AprobacionesPage() {
   const [confirmandoNombre, setConfirmandoNombre] = useState('');
   const [confirmandoChecked, setConfirmandoChecked] = useState(false);
   const [filterSector, setFilterSector] = useState('');
-  const [periodo, setPeriodo] = useState(getCurrentPeriod());
+  const { periodo, setPeriodo, listo } = usePeriodoActual();
   const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
   const [faltantesPeriodoTab, setFaltantesPeriodoTab] = useState<'actual' | 'anterior'>('actual');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
@@ -177,15 +178,15 @@ export default function AprobacionesPage() {
   });
 
   const { data, isLoading, refetch } = useQuery<AprobacionesData>({
-    queryKey: ['aprobaciones', periodo.inicio, periodo.fin, scope],
+    queryKey: ['aprobaciones', periodo?.inicio, periodo?.fin, scope],
     queryFn: () => {
-      const params = new URLSearchParams({ periodoInicio: periodo.inicio, periodoFin: periodo.fin });
+      const params = new URLSearchParams({ periodoInicio: periodo!.inicio, periodoFin: periodo!.fin });
       if (showScopeToggle && scope === 'mio') params.set('scope', 'mio');
       return api.get(`/aprobaciones?${params.toString()}`).then(r => r.data);
     },
     refetchInterval: 15000,
     refetchOnWindowFocus: true,
-    enabled: canApprove !== false,
+    enabled: canApprove !== false && !!periodo,
   });
 
   const filterBySector = <T extends { usuario: { sector?: { nombre: string } | null } }>(items: T[]) =>
@@ -270,6 +271,14 @@ export default function AprobacionesPage() {
     );
   }
 
+  if (!listo) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -287,7 +296,7 @@ export default function AprobacionesPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
-        <PeriodSelector value={periodo} onChange={setPeriodo} />
+        {periodo && <PeriodSelector value={periodo} onChange={setPeriodo} />}
         {showScopeToggle && <ScopeToggle value={scope} onChange={setScope} />}
         {sectores.length > 0 && (
         <div className="flex items-center gap-2">

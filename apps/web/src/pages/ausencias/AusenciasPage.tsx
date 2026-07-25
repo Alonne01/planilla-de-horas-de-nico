@@ -12,7 +12,8 @@ import {
   Calendar, FileText, Send, Upload, Palmtree,
   Clock, UserCheck, RotateCcw, Filter, XCircle,
 } from 'lucide-react';
-import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
+import PeriodSelector from '@/components/layout/PeriodSelector';
+import { usePeriodoActual } from '@/hooks/usePeriodoConfig';
 import ScopeToggle from '@/components/layout/ScopeToggle';
 import { useDialogStore } from '@/stores/dialogStore';
 
@@ -96,7 +97,7 @@ export default function AusenciasPage() {
   const [showSolicitarForm, setShowSolicitarForm] = useState(false);
   const [filterTipo, setFilterTipo] = useState('');
   const [filterSector, setFilterSector] = useState('');
-  const [periodo, setPeriodo] = useState(getCurrentPeriod());
+  const { periodo, setPeriodo, listo } = usePeriodoActual();
   const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
   const canApprove = useCanApprove();
@@ -112,16 +113,17 @@ export default function AusenciasPage() {
   const isSuperior = (user?.rolNivel ?? 0) >= 60;
 
   const { data: ausencias = [], isLoading } = useQuery<Ausencia[]>({
-    queryKey: ['ausencias', filterTipo, periodo.inicio, periodo.fin, scope],
+    queryKey: ['ausencias', filterTipo, periodo?.inicio, periodo?.fin, scope],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filterTipo) params.set('tipo', filterTipo);
-      params.set('periodoInicio', periodo.inicio);
-      params.set('periodoFin', periodo.fin);
+      params.set('periodoInicio', periodo!.inicio);
+      params.set('periodoFin', periodo!.fin);
       if (showScopeToggle && scope === 'mio') params.set('scope', 'mio');
       else if (!showScopeToggle && canApprove !== true) params.set('scope', 'mio');
       return (await api.get(`/ausencias?${params.toString()}`)).data;
     },
+    enabled: !!periodo,
   });
 
   const { data: saldo } = useQuery<CompensatorioSaldo>({
@@ -164,6 +166,14 @@ export default function AusenciasPage() {
     today.setHours(0, 0, 0, 0);
     return new Date(a.fechaInicio) >= today;
   };
+
+  if (!listo) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -250,7 +260,7 @@ export default function AusenciasPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
-        <PeriodSelector value={periodo} onChange={setPeriodo} />
+        {periodo && <PeriodSelector value={periodo} onChange={setPeriodo} />}
         {showScopeToggle && <ScopeToggle value={scope} onChange={setScope} />}
         {isRRHH && sectores.length > 0 && (
           <div className="flex items-center gap-2">

@@ -8,7 +8,8 @@ import {
   Loader2, Clock, Palmtree, AlertTriangle,
   Car, Bed, CalendarCheck, Award, Building2,
 } from 'lucide-react';
-import PeriodSelector, { getCurrentPeriod } from '@/components/layout/PeriodSelector';
+import PeriodSelector from '@/components/layout/PeriodSelector';
+import { usePeriodoActual } from '@/hooks/usePeriodoConfig';
 import { ESTADO_COLORS } from '@/constants/planillaConstants';
 
 interface EmpresaAnalytics {
@@ -82,7 +83,7 @@ export default function AnalyticsPage() {
 }
 
 function EmpresaDashboard() {
-  const [periodo, setPeriodo] = useState(getCurrentPeriod());
+  const { periodo, setPeriodo, listo } = usePeriodoActual();
   const [filterSector, setFilterSector] = useState('');
 
   const { data: sectores = [] } = useQuery<{ id: string; nombre: string }[]>({
@@ -91,15 +92,16 @@ function EmpresaDashboard() {
   });
 
   const { data, isLoading } = useQuery<EmpresaAnalytics>({
-    queryKey: ['analytics-empresa', periodo.inicio, periodo.fin, filterSector],
+    queryKey: ['analytics-empresa', periodo?.inicio, periodo?.fin, filterSector],
     queryFn: async () => {
-      let url = `/analytics/empresa?periodoInicio=${encodeURIComponent(periodo.inicio)}&periodoFin=${encodeURIComponent(periodo.fin)}`;
+      let url = `/analytics/empresa?periodoInicio=${encodeURIComponent(periodo!.inicio)}&periodoFin=${encodeURIComponent(periodo!.fin)}`;
       if (filterSector) url += `&sectorId=${encodeURIComponent(filterSector)}`;
       return (await api.get(url)).data;
     },
+    enabled: !!periodo,
   });
 
-  if (isLoading || !data) {
+  if (!listo || isLoading || !data) {
     return <div className="flex items-center justify-center h-64"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
@@ -134,7 +136,7 @@ function EmpresaDashboard() {
               <option key={s.id} value={s.id}>{s.nombre}</option>
             ))}
           </select>
-          <PeriodSelector value={periodo} onChange={setPeriodo} />
+          {periodo && <PeriodSelector value={periodo} onChange={setPeriodo} />}
         </div>
       </div>
 
