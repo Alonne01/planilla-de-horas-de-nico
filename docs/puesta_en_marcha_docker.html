@@ -1,0 +1,1165 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Planilla de Horas — Puesta en marcha del servidor Docker</title>
+<style>
+  @page { size: A4; margin: 13mm 12mm; }
+  * { box-sizing: border-box; }
+  html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+    color: #1e293b; margin: 0; font-size: 11px; line-height: 1.5;
+  }
+  h1 { font-size: 25px; margin: 0 0 4px; color: #0f172a; letter-spacing: -.3px; }
+  h2 {
+    font-size: 16px; margin: 0 0 10px; color: #0f172a;
+    border-left: 5px solid #0d9488; padding-left: 10px;
+  }
+  h3 { font-size: 12.5px; margin: 14px 0 5px; color: #0f766e; }
+  h4 { font-size: 11.5px; margin: 10px 0 4px; color: #0f172a; }
+  p { margin: 0 0 8px; }
+  .section { page-break-inside: avoid; margin-bottom: 22px; }
+  .lead { color: #475569; }
+  .muted { color: #64748b; }
+  .cover {
+    background: linear-gradient(135deg, #0f766e 0%, #0e7490 100%);
+    color: #fff; padding: 40px 34px; border-radius: 14px; margin-bottom: 24px;
+  }
+  .cover h1 { color: #fff; font-size: 30px; }
+  .cover .sub { color: #d1fae5; font-size: 14px; margin-top: 6px; }
+  .cover .badge {
+    display:inline-block; margin-top:16px; background: rgba(255,255,255,.16);
+    padding: 5px 12px; border-radius: 999px; font-size: 11px; letter-spacing:.4px;
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .card {
+    border: 1px solid #e2e8f0; border-radius: 10px; padding: 11px 13px; background: #fff;
+    page-break-inside: avoid;
+  }
+  .card h4 { margin: 0 0 4px; font-size: 12px; color: #0f172a; }
+  .card p { font-size: 10.5px; color:#475569; margin: 0; }
+  .chip {
+    display:inline-block; font-size:9.5px; font-weight:600; padding:1.5px 7px;
+    border-radius:999px; color:#fff;
+  }
+  .chip.teal { background:#0d9488; } .chip.blue { background:#2563eb; }
+  .chip.amber { background:#d97706; } .chip.rose { background:#e11d48; }
+  .chip.slate { background:#64748b; }
+  .fig { text-align:center; margin: 8px 0 4px; }
+  .fig svg { width: 100%; height: auto; }
+  .caption { font-size: 9.5px; color:#64748b; text-align:center; margin-top: 2px; }
+  .note {
+    background:#f0fdfa; border:1px solid #99f6e4; border-radius:8px; padding:8px 11px;
+    font-size:10px; color:#115e59; margin-top:8px;
+  }
+  .note b { color:#0f766e; }
+  .warn {
+    background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:8px 11px;
+    font-size:10px; color:#92400e; margin-top:8px;
+  }
+  .warn b { color:#b45309; }
+  .danger {
+    background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:8px 11px;
+    font-size:10px; color:#991b1b; margin-top:8px;
+  }
+  table { width:100%; border-collapse: collapse; font-size:10px; margin-top:4px; }
+  th, td { text-align:left; padding:5px 8px; border-bottom:1px solid #e2e8f0; vertical-align: top; }
+  th { background:#f1f5f9; color:#334155; font-weight:600; }
+  td code, p code, li code, th code {
+    background:#f1f5f9; border-radius:3px; padding:0 3px;
+    font-family: "Cascadia Mono", Consolas, monospace; font-size:9.5px; color:#0f766e;
+  }
+  pre {
+    background:#0f172a; color:#e2e8f0; border-radius:8px; padding:9px 12px;
+    font-family: "Cascadia Mono", Consolas, monospace; font-size:9.3px; line-height:1.55;
+    overflow-x:auto; margin: 5px 0 8px; white-space: pre-wrap; word-break: break-word;
+    page-break-inside: avoid;
+  }
+  pre .c { color:#7dd3fc; }        /* comentario */
+  pre .v { color:#fcd34d; }        /* valor destacado */
+  .pagebreak { page-break-before: always; }
+  ul.tight, ol.tight { margin:4px 0 8px; padding-left:16px; }
+  ul.tight li, ol.tight li { margin-bottom:3px; font-size:10.5px; color:#475569; }
+  .step {
+    display:flex; gap:10px; margin-bottom:10px; page-break-inside:avoid;
+  }
+  .step .n {
+    flex:0 0 22px; height:22px; border-radius:50%; background:#0d9488; color:#fff;
+    font-weight:700; font-size:11px; display:flex; align-items:center; justify-content:center;
+  }
+  .step .body { flex:1; }
+  .step .body h4 { margin:2px 0 4px; }
+  .footer { text-align:center; color:#94a3b8; font-size:9px; margin-top:10px; }
+  .toc { columns:2; column-gap:22px; font-size:10.5px; color:#475569; }
+  .toc div { margin-bottom:3px; break-inside:avoid; }
+  .toc b { color:#0f172a; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>Puesta en marcha del servidor</h1>
+  <div class="sub">Planilla de Horas — despliegue con Docker en el servidor definitivo</div>
+  <div class="badge">Linux y Windows · HTTPS · Backups · Operación diaria</div>
+</div>
+
+<div class="section">
+  <h2>Contenido</h2>
+  <div class="toc">
+    <div><b>1</b> · Qué se levanta</div>
+    <div><b>2</b> · Requisitos del servidor</div>
+    <div><b>3</b> · Cómo va a entrar la gente</div>
+    <div><b>4</b> · Instalación en Linux</div>
+    <div><b>5</b> · Instalación en Windows</div>
+    <div><b>6</b> · Publicar con HTTPS</div>
+    <div><b>7</b> · Primer ingreso</div>
+    <div><b>8</b> · Operación diaria</div>
+    <div><b>9</b> · Actualizar a una versión nueva</div>
+    <div><b>10</b> · Backups y restauración</div>
+    <div><b>11</b> · Problemas frecuentes</div>
+    <div><b>11.1</b> · Aviso de servidor caído</div>
+    <div><b>11.2</b> · Verificar CGNAT</div>
+    <div><b>A</b> · Variables del archivo .env</div>
+    <div><b>B</b> · Archivos de infraestructura</div>
+  </div>
+  <div class="note">
+    Esta guía asume que el servidor arranca <b>desde cero</b>. Todo el procedimiento está
+    automatizado en un único archivo: <code>instalar-servidor.bat</code> en Windows y
+    <code>deploy/bootstrap.sh</code> en Linux. Los capítulos 4 y 5 son ese archivo paso a paso,
+    para saber qué está haciendo y poder intervenir si algo falla.
+  </div>
+</div>
+
+<!-- ══════════════════ 1 ══════════════════ -->
+<div class="section">
+  <h2>1 · Qué se levanta</h2>
+  <p class="lead">
+    La aplicación no es un solo programa: son <b>cuatro contenedores</b> que Docker arranca y
+    conecta entre sí. Cada uno hace una cosa y solo el primero está expuesto a la red.
+  </p>
+
+  <div class="fig">
+  <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial">
+    <defs>
+      <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+        <path d="M0,0 L7,3 L0,6 Z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+
+    <!-- usuario -->
+    <g font-size="10" text-anchor="middle">
+      <rect x="8" y="90" width="86" height="46" rx="9" fill="#f8fafc" stroke="#cbd5e1"/>
+      <text x="51" y="110" font-weight="700" fill="#334155">Navegador</text>
+      <text x="51" y="124" fill="#64748b" font-size="9">empleado</text>
+    </g>
+
+    <!-- caja servidor -->
+    <rect x="120" y="16" width="592" height="218" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-dasharray="4 3"/>
+    <text x="132" y="32" font-size="9.5" fill="#64748b" font-family="Segoe UI, Arial">Servidor · red interna de Docker</text>
+
+    <g font-size="10" text-anchor="middle">
+      <!-- nginx -->
+      <rect x="136" y="88" width="104" height="52" rx="9" fill="#ecfeff" stroke="#67e8f9"/>
+      <text x="188" y="107" font-weight="700" fill="#155e75">nginx</text>
+      <text x="188" y="120" fill="#0e7490" font-size="9">puertos 80/443</text>
+      <text x="188" y="132" fill="#0e7490" font-size="9">TLS + reparte</text>
+
+      <!-- web -->
+      <rect x="288" y="36" width="104" height="48" rx="9" fill="#f0fdfa" stroke="#5eead4"/>
+      <text x="340" y="55" font-weight="700" fill="#115e59">web</text>
+      <text x="340" y="69" fill="#0f766e" font-size="9">pantallas (React)</text>
+
+      <!-- api -->
+      <rect x="288" y="106" width="104" height="52" rx="9" fill="#eff6ff" stroke="#bfdbfe"/>
+      <text x="340" y="125" font-weight="700" fill="#1e40af">api</text>
+      <text x="340" y="139" fill="#2563eb" font-size="9">reglas + login</text>
+      <text x="340" y="151" fill="#2563eb" font-size="9">puerto 4000</text>
+
+      <!-- db -->
+      <rect x="452" y="106" width="104" height="52" rx="9" fill="#fdf4ff" stroke="#f0abfc"/>
+      <text x="504" y="125" font-weight="700" fill="#86198f">db</text>
+      <text x="504" y="139" fill="#a21caf" font-size="9">PostgreSQL 16</text>
+      <text x="504" y="151" fill="#a21caf" font-size="9">todos los datos</text>
+
+      <!-- volumenes -->
+      <rect x="600" y="46" width="96" height="42" rx="8" fill="#fff" stroke="#cbd5e1"/>
+      <text x="648" y="62" font-weight="700" fill="#334155" font-size="9.5">pgdata</text>
+      <text x="648" y="76" fill="#64748b" font-size="8.5">base de datos</text>
+
+      <rect x="600" y="98" width="96" height="42" rx="8" fill="#fff" stroke="#cbd5e1"/>
+      <text x="648" y="114" font-weight="700" fill="#334155" font-size="9.5">uploads</text>
+      <text x="648" y="128" fill="#64748b" font-size="8.5">archivos subidos</text>
+
+      <rect x="600" y="150" width="96" height="42" rx="8" fill="#fff" stroke="#cbd5e1"/>
+      <text x="648" y="166" font-weight="700" fill="#334155" font-size="9.5">backups</text>
+      <text x="648" y="180" fill="#64748b" font-size="8.5">dumps diarios</text>
+
+      <text x="648" y="208" fill="#64748b" font-size="9">volúmenes: sobreviven</text>
+      <text x="648" y="220" fill="#64748b" font-size="9">a cualquier reinicio</text>
+    </g>
+
+    <!-- flechas -->
+    <g stroke="#94a3b8" fill="none" marker-end="url(#ar)">
+      <path d="M96 113 L132 113"/>
+      <path d="M240 104 L284 62"/>
+      <path d="M240 122 L284 130"/>
+      <path d="M394 132 L448 132"/>
+      <path d="M556 124 L596 74"/>
+      <path d="M394 118 L448 118" stroke="none"/>
+      <path d="M394 145 L596 172"/>
+    </g>
+    <g font-size="8.5" fill="#64748b" font-family="Segoe UI, Arial">
+      <text x="248" y="78">/ (pantallas)</text>
+      <text x="248" y="140">/api/</text>
+    </g>
+  </svg>
+  </div>
+  <div class="caption">Los cuatro contenedores y los tres volúmenes de datos.</div>
+
+  <table>
+    <tr><th style="width:70px">Contenedor</th><th>Qué hace</th><th style="width:150px">Expuesto</th></tr>
+    <tr><td><b>nginx</b></td><td>Única puerta de entrada. Termina el HTTPS y decide si el pedido va a las pantallas o al API.</td><td>Sí — puertos 80 y 443</td></tr>
+    <tr><td><b>web</b></td><td>Sirve las pantallas ya compiladas (HTML, JS, CSS). No tiene lógica ni datos.</td><td>No</td></tr>
+    <tr><td><b>api</b></td><td>Todas las reglas: login, planillas, aprobaciones, vacaciones, exportaciones. También genera el backup diario.</td><td>No</td></tr>
+    <tr><td><b>db</b></td><td>PostgreSQL 16. Guarda absolutamente todo.</td><td>No</td></tr>
+  </table>
+
+  <div class="note">
+    <b>Por qué importa que solo nginx esté expuesto:</b> la base de datos no tiene puerto abierto
+    hacia afuera. Aunque alguien conozca la IP del servidor, no puede conectarse a Postgres:
+    solo existe dentro de la red privada de Docker.
+  </div>
+
+  <div class="warn">
+    <b>Sin Redis.</b> Las versiones anteriores de la configuración levantaban un contenedor Redis.
+    El código de la aplicación nunca lo usó, así que se quitó: era memoria RAM ocupada sin función.
+    Lo mismo con las claves VAPID de notificaciones push — las notificaciones funcionan por
+    consulta periódica, no por push del navegador.
+  </div>
+</div>
+
+<!-- ══════════════════ 2 ══════════════════ -->
+<div class="section pagebreak">
+  <h2>2 · Requisitos del servidor</h2>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Hardware mínimo</h4>
+      <ul class="tight">
+        <li><b>2 núcleos</b> de CPU</li>
+        <li><b>4 GB de RAM</b> (2 GB alcanza pero deja poco margen para la compilación de imágenes)</li>
+        <li><b>20 GB de disco</b> libres</li>
+        <li>Conexión de red estable y, si va a entrar gente de afuera, IP alcanzable o túnel</li>
+      </ul>
+      <p class="muted" style="font-size:9.5px;margin-top:4px">
+        Para ~100 empleados esto sobra. El consumo real en reposo ronda 1 GB de RAM.
+      </p>
+    </div>
+    <div class="card">
+      <h4>Software</h4>
+      <ul class="tight">
+        <li><b>Docker Engine 24+</b> con el plugin <code>compose</code> v2 (Linux), o
+            <b>Docker Desktop 4.30+</b> (Windows)</li>
+        <li><b>git</b> para traer el código (o una copia del proyecto en un pendrive)</li>
+        <li>Nada más: Node.js, PostgreSQL y nginx <b>no</b> se instalan en el servidor,
+            van adentro de los contenedores</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>2.1 · Qué sistema operativo conviene</h3>
+  <table>
+    <tr><th style="width:110px">Opción</th><th>Ventajas</th><th>Cosas a tener en cuenta</th></tr>
+    <tr>
+      <td><b>Ubuntu Server 24.04 LTS</b><br><span class="chip teal">recomendado</span></td>
+      <td>Docker nativo y liviano; se administra por SSH; se reinicia solo tras un corte de luz; es el entorno donde más se prueba este tipo de stack.</td>
+      <td>Requiere manejarse por línea de comandos.</td>
+    </tr>
+    <tr>
+      <td><b>Windows 11 / Server + Docker Desktop</b></td>
+      <td>Entorno familiar, interfaz gráfica para ver contenedores y logs.</td>
+      <td>Docker Desktop corre sobre WSL2: consume ~2 GB de RAM extra. Hay que configurar el inicio automático y que la sesión de Windows quede iniciada.</td>
+    </tr>
+  </table>
+
+  <div class="note">
+    Los dos caminos usan <b>exactamente los mismos archivos</b> del proyecto. La única diferencia
+    es el script de arranque (<code>.sh</code> o <code>.ps1</code>) y cómo se instala Docker.
+    Si mañana se cambia de Windows a Linux, la migración es copiar los backups y volver a correr
+    el script.
+  </div>
+</div>
+
+<!-- ══════════════════ 3 ══════════════════ -->
+<div class="section">
+  <h2>3 · Cómo va a entrar la gente</h2>
+  <p class="lead">
+    Esta es la decisión que hay que tomar <b>antes</b> de instalar, porque cambia dos líneas del
+    archivo de configuración. Todo lo demás es igual.
+  </p>
+
+  <table>
+    <tr>
+      <th style="width:118px">Opción</th><th style="width:56px">Costo</th>
+      <th style="width:64px">Abrir puertos</th><th>Cómo entra el usuario</th>
+    </tr>
+    <tr>
+      <td><b>DuckDNS<br>+ Let's Encrypt</b><br><span class="chip teal">recomendado</span></td>
+      <td>Gratis</td>
+      <td>Sí (80 y 443)</td>
+      <td><code>https://wenlenplanilla.duckdns.org</code> — dirección fija y gratuita, con certificado real. Se actualiza sola cuando el proveedor de internet cambia la IP.</td>
+    </tr>
+    <tr>
+      <td><b>Cloudflare Tunnel<br>+ dominio propio</b></td>
+      <td>~USD 12/año<br>(el dominio)</td>
+      <td>No</td>
+      <td><code>https://planilla.tuempresa.com</code> — la dirección más corta y presentable. El túnel sale <b>desde</b> el servidor: no hace falta tocar el router ni tener IP fija.</td>
+    </tr>
+    <tr>
+      <td><b>Dominio propio<br>+ Let's Encrypt</b></td>
+      <td>~USD 12/año</td>
+      <td>Sí (80 y 443)</td>
+      <td><code>https://planilla.tuempresa.com</code> — el certificado lo emite y renueva certbot en el propio servidor. Requiere IP pública fija o DNS dinámico.</td>
+    </tr>
+    <tr>
+      <td><b>Solo red interna</b></td>
+      <td>Gratis</td>
+      <td>No</td>
+      <td><code>http://192.168.1.50</code> — solo desde la red de la oficina o por VPN. Sin certificados.</td>
+    </tr>
+  </table>
+
+  <h3>3.1 · Sobre el HTTPS: cuándo es obligatorio</h3>
+  <p>
+    Si la aplicación se va a usar <b>solo dentro de la oficina</b>, HTTP alcanza. En cuanto se
+    accede desde afuera —celular, casa, obra— el HTTPS deja de ser opcional:
+  </p>
+  <ul class="tight">
+    <li>El usuario y la contraseña viajan en cada ingreso. Sin cifrar, cualquiera en el camino
+        (un WiFi público, un proveedor intermedio) los puede leer en texto plano.</li>
+    <li>Chrome y Edge muestran el cartel <b>“No es seguro”</b> junto al formulario de acceso.</li>
+    <li>Sin HTTPS el navegador bloquea la instalación de la app en el celular y las
+        notificaciones del sistema.</li>
+  </ul>
+
+  <div class="danger">
+    <b>Lo que no funciona:</b> publicar la IP con un puerto (<code>http://186.x.x.x:3000</code>) y
+    “disfrazarla” con un acortador de links. El acortador solo redirige: la barra del navegador
+    termina mostrando la IP igual, y <b>Let's Encrypt no emite certificados para direcciones IP</b>,
+    así que no hay forma de tener HTTPS por ese camino. Sumado a que la IP hogareña o de oficina
+    suele cambiar sola cada vez que se reinicia el módem, dejando la app inaccesible sin aviso.
+  </div>
+
+  <h3>3.2 · Conseguir la dirección sin comprar nada</h3>
+  <p>
+    <b>DuckDNS</b> regala subdominios permanentes. El alta lleva dos minutos: entrar a
+    <code>duckdns.org</code>, ingresar con una cuenta de Google o GitHub, elegir un nombre libre
+    —por ejemplo <code>wenlenplanilla</code>— y copiar el token que muestra la página. Eso deja
+    <code>https://wenlenplanilla.duckdns.org</code> reservado para siempre, sin costo ni tarjeta.
+  </p>
+  <p>
+    Sobre esa dirección se emite un certificado de Let's Encrypt igual que con un dominio pago: el
+    candado del navegador es idéntico, no hay pantallas intermedias ni publicidad. La única
+    diferencia real es estética — es más larga que un <code>.com</code> propio.
+  </p>
+  <div class="warn">
+    <b>Lo que sí necesita:</b> abrir los puertos 80 y 443 del router hacia el servidor, y que el
+    proveedor de internet dé una IP pública real. Si la conexión está detrás de <b>CGNAT</b> —una
+    IP compartida entre varios clientes— no hay puerto que abrir y esta opción no sirve; ahí la
+    única salida es un túnel, que sí requiere dominio propio. Cómo verificarlo, en el capítulo 11.
+  </div>
+  <div class="note">
+    <b>Camino más corto para arrancar hoy:</b> instalar con la opción <b>HTTP puro</b>
+    (capítulo 4 o 5) y usar la aplicación en la red interna. Cuando la dirección de DuckDNS esté
+    lista, se cambian dos líneas del <code>.env</code>, se emite el certificado y queda publicada.
+    No hay que reinstalar nada ni se pierden datos.
+  </div>
+</div>
+
+<!-- ══════════════════ 4 ══════════════════ -->
+<div class="section pagebreak">
+  <h2>4 · Instalación en Linux (Ubuntu / Debian)</h2>
+  <p class="lead">Del sistema recién instalado a la aplicación funcionando. Todo por SSH.</p>
+
+  <div class="step">
+    <div class="n">1</div>
+    <div class="body">
+      <h4>Instalar Docker</h4>
+      <pre><span class="c"># Script oficial de Docker: instala el motor y el plugin compose</span>
+curl -fsSL https://get.docker.com | sudo sh
+
+<span class="c"># Permitir usar docker sin sudo (cerrar sesión y volver a entrar después)</span>
+sudo usermod -aG docker $USER
+
+<span class="c"># Que arranque solo cuando se prende el servidor</span>
+sudo systemctl enable --now docker</pre>
+      <p class="muted" style="font-size:9.5px">Verificación: <code>docker compose version</code> debe responder <code>v2.x</code>.</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">2</div>
+    <div class="body">
+      <h4>Traer el proyecto</h4>
+      <pre>sudo mkdir -p /opt/planilla && sudo chown $USER /opt/planilla
+git clone &lt;URL-DEL-REPOSITORIO&gt; /opt/planilla
+cd /opt/planilla</pre>
+      <p class="muted" style="font-size:9.5px">
+        Si no hay repositorio remoto, copiar la carpeta del proyecto por <code>scp</code> o pendrive.
+        No hace falta traer <code>node_modules</code> ni <code>dist</code>: se generan al construir las imágenes.
+      </p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">3</div>
+    <div class="body">
+      <h4>Correr el script de puesta en marcha</h4>
+      <pre>bash deploy/bootstrap.sh</pre>
+      <p style="font-size:10.5px">Va a preguntar dos cosas y hacer el resto solo:</p>
+      <ul class="tight">
+        <li><b>URL pública</b> — <code>https://planilla.tuempresa.com</code>, o
+            <code>http://192.168.1.50</code> si por ahora es solo red interna.</li>
+        <li><b>Modo de publicación</b> — <code>1</code> para HTTPS con dominio propio,
+            <code>2</code> para HTTP puro (LAN o detrás de un túnel).</li>
+      </ul>
+      <p style="font-size:10.5px">Después, sin intervención:</p>
+      <ul class="tight">
+        <li>Genera el archivo <code>.env</code> con contraseñas aleatorias (permisos <code>600</code>).</li>
+        <li>Construye las imágenes de <code>api</code> y <code>web</code> — la primera vez son
+            entre 5 y 15 minutos según la conexión.</li>
+        <li>Levanta los cuatro contenedores.</li>
+        <li>Aplica las migraciones de la base de datos.</li>
+        <li>Espera a que el API conteste sano.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">4</div>
+    <div class="body">
+      <h4>Cargar los datos iniciales</h4>
+      <p style="font-size:10.5px">
+        Si la base está vacía, el script pregunta si cargar el <b>seed</b>: crea la empresa, los
+        sectores, los flujos de aprobación, los feriados y la nómina de empleados. Responder
+        <b>s</b> la primera vez. En cualquier reinstalación posterior sobre datos existentes,
+        responder <b>N</b>.
+      </p>
+      <div class="warn">
+        El seed <b>solo debe correrse una vez</b>, sobre una base vacía. Si se corre de nuevo con
+        datos cargados, falla por registros duplicados (no borra nada, pero deja el proceso a medias).
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">5</div>
+    <div class="body">
+      <h4>Emitir el certificado (solo si se eligió HTTPS)</h4>
+      <p style="font-size:10.5px">
+        Hay un orden obligatorio acá: nginx <b>no arranca</b> si el certificado no existe, pero
+        Let's Encrypt necesita que nginx esté sirviendo el puerto 80 para verificar el dominio.
+        Por eso el script deja el stack en modo HTTP y después se pasa a HTTPS:
+      </p>
+      <pre><span class="c"># 1. Emitir el certificado (el stack ya está arriba en modo HTTP)</span>
+docker compose -f docker-compose.prod.yml --profile certbot run --rm certbot \
+  certonly --webroot -w /var/www/certbot \
+  -d planilla.tuempresa.com --agree-tos -m admin@tuempresa.com
+
+<span class="c"># 2. Cambiar el modo en el archivo .env</span>
+<span class="c">#    NGINX_CONF=./nginx.http.conf  →  NGINX_CONF=./nginx.conf</span>
+
+<span class="c"># 3. Recrear nginx, ahora con TLS</span>
+docker compose -f docker-compose.prod.yml up -d nginx</pre>
+      <p class="muted" style="font-size:9.5px">
+        Requisito: el dominio ya debe apuntar a la IP del servidor y el puerto 80 estar accesible
+        desde internet — así verifica Let's Encrypt que el dominio es tuyo. Si el paso 1 falla,
+        casi siempre es porque el DNS todavía no propagó o el router no reenvía el puerto 80.
+      </p>
+    </div>
+  </div>
+
+  <h3>4.1 · Que arranque solo después de un corte de luz</h3>
+  <p>
+    Ya está resuelto: los contenedores tienen <code>restart: always</code> y Docker está habilitado
+    en systemd. Cuando el servidor vuelve, la aplicación vuelve sola. Para comprobarlo:
+    <code>sudo reboot</code> y verificar a los dos minutos que la página responde.
+  </p>
+</div>
+
+<!-- ══════════════════ 5 ══════════════════ -->
+<div class="section pagebreak">
+  <h2>5 · Instalación en Windows</h2>
+  <p class="lead">
+    Mismo resultado que en Linux, con Docker Desktop sobre WSL2. Acá hay un
+    <b>único archivo para ejecutar</b> —<code>instalar-servidor.bat</code>— que verifica la
+    máquina, instala lo que falte y deja la aplicación funcionando.
+  </p>
+
+  <div class="step">
+    <div class="n">1</div>
+    <div class="body">
+      <h4>Copiar el proyecto a la máquina</h4>
+      <pre>cd C:\
+git clone &lt;URL-DEL-REPOSITORIO&gt; C:\planilla</pre>
+      <p class="muted" style="font-size:9.5px">
+        O copiar la carpeta con un pendrive. Evitar rutas con espacios o acentos, y no ponerlo
+        en OneDrive: la sincronización interfiere con los archivos que Docker monta.
+      </p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">2</div>
+    <div class="body">
+      <h4>Ejecutar <code>instalar-servidor.bat</code></h4>
+      <p style="font-size:10.5px">
+        Doble clic sobre el archivo, en la raíz del proyecto. Es lo único que hay que ejecutar:
+        el asistente se encarga del resto.
+      </p>
+      <pre><span class="c">  Donde se va a instalar el servidor?</span>
+
+    [1] En ESTA maquina Windows
+    [2] En un servidor Linux (te doy el comando exacto)
+    [3] Solo verificar requisitos (no instala nada)
+    [4] Salir</pre>
+      <p style="font-size:10.5px">
+        Conviene empezar por la <b>opción 3</b>: revisa la máquina sin tocar nada y muestra qué
+        falta. Verifica versión de Windows, arquitectura, memoria, espacio en disco,
+        virtualización habilitada en la BIOS, salida a internet, puertos 80 y 443 libres, y si
+        Docker está instalado y corriendo.
+      </p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">3</div>
+    <div class="body">
+      <h4>Elegir la opción 1 e ir contestando</h4>
+      <p style="font-size:10.5px">Con los requisitos en orden, el asistente:</p>
+      <ul class="tight">
+        <li>Ofrece <b>instalar Docker Desktop</b> si falta (lo baja con winget). Después de eso
+            hay que abrirlo una vez, esperar a que diga <b>“Engine running”</b> y volver a
+            ejecutar el instalador.</li>
+        <li>Pregunta la <b>dirección pública</b>: DuckDNS —pide subdominio y token— o red interna,
+            en cuyo caso propone la IP local detectada.</li>
+        <li>Genera el <code>.env</code> con claves aleatorias.</li>
+        <li>Construye las imágenes y levanta los cuatro contenedores.</li>
+        <li>Espera a que la aplicación responda y ofrece cargar los <b>datos iniciales</b>.</li>
+        <li>Deja Docker Desktop configurado para arrancar con el equipo.</li>
+        <li>Al final muestra la dirección, las credenciales de ingreso y —si eligió DuckDNS— el
+            comando exacto para emitir el certificado.</li>
+      </ul>
+      <p class="muted" style="font-size:9.5px">
+        Es seguro volver a ejecutarlo: si ya existe un <code>.env</code>, lo conserva y solo
+        actualiza la aplicación. No se pierden datos.
+      </p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">4</div>
+    <div class="body">
+      <h4>Abrir los puertos en el Firewall de Windows</h4>
+      <pre><span class="c"># En PowerShell como administrador</span>
+New-NetFirewallRule -DisplayName "Planilla HTTP"  -Direction Inbound -Protocol TCP -LocalPort 80  -Action Allow
+New-NetFirewallRule -DisplayName "Planilla HTTPS" -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow</pre>
+      <p class="muted" style="font-size:9.5px">
+        Además hay que reenviar esos mismos puertos en el router hacia esta máquina. Innecesario
+        si se usa Cloudflare Tunnel: ahí la conexión sale desde el servidor y no entra nada.
+      </p>
+    </div>
+  </div>
+
+  <div class="warn">
+    <b>El punto flojo de Windows:</b> Docker Desktop necesita que haya una sesión de usuario
+    iniciada. Si el servidor se reinicia y queda en la pantalla de bloqueo sin que nadie entre,
+    la aplicación <b>no levanta</b>. Configurar el inicio de sesión automático
+    (<code>netplwiz</code> → destildar “Los usuarios deben escribir su nombre y contraseña”) y
+    acostumbrarse a <b>bloquear</b> la pantalla en lugar de cerrar sesión.
+  </div>
+
+  <div class="note">
+    <b>Certificados en Windows:</b> el comando de certbot del capítulo 6.1 funciona igual, porque
+    Docker es el mismo. Cambia solo el carácter de continuación de línea: en PowerShell es el
+    acento grave <code>`</code> en lugar de la barra <code>\</code>.
+  </div>
+</div>
+
+<!-- ══════════════════ 6 ══════════════════ -->
+<div class="section pagebreak">
+  <h2>6 · Publicar con HTTPS</h2>
+
+  <h3>6.1 · DuckDNS + Let's Encrypt <span class="chip teal">dirección fija, gratis</span></h3>
+  <p>
+    El camino sin costo: una dirección permanente propia y un certificado real. Requiere abrir
+    dos puertos en el router.
+  </p>
+
+  <div class="step">
+    <div class="n">1</div>
+    <div class="body">
+      <h4>Reservar la dirección</h4>
+      <p style="font-size:10.5px">
+        En <code>duckdns.org</code>, ingresar con Google o GitHub, escribir el nombre deseado y
+        presionar <b>add domain</b>. Anotar el <b>token</b> que aparece arriba de la página: es la
+        credencial de la cuenta.
+      </p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">2</div>
+    <div class="body">
+      <h4>Reenviar los puertos en el router</h4>
+      <p style="font-size:10.5px">
+        En la configuración del router, sección <i>Port forwarding</i> (o <i>Redirección de
+        puertos</i> / <i>Servidores virtuales</i>), crear dos reglas hacia la IP local del
+        servidor: <b>80 → 80</b> y <b>443 → 443</b>, protocolo TCP. Conviene además reservarle esa
+        IP al servidor en el DHCP para que no cambie sola.
+      </p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">3</div>
+    <div class="body">
+      <h4>Configurar el stack</h4>
+      <p style="font-size:10.5px">En el archivo <code>.env</code>:</p>
+      <pre>DUCKDNS_SUBDOMAIN=wenlenplanilla
+DUCKDNS_TOKEN=&lt;el token de duckdns.org&gt;
+PUBLIC_URL=https://wenlenplanilla.duckdns.org
+NGINX_CONF=./nginx.http.conf   <span class="c"># temporal: hasta emitir el certificado</span></pre>
+      <pre>docker compose -f docker-compose.prod.yml --profile duckdns up -d</pre>
+      <p style="font-size:10.5px">
+        El contenedor <code>duckdns</code> queda corriendo y avisa la IP pública cada cinco
+        minutos, así la dirección sigue funcionando aunque el proveedor la cambie.
+      </p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">4</div>
+    <div class="body">
+      <h4>Emitir el certificado y pasar a HTTPS</h4>
+      <pre>docker compose -f docker-compose.prod.yml --profile certbot run --rm certbot \
+  certonly --webroot -w /var/www/certbot \
+  -d wenlenplanilla.duckdns.org --agree-tos -m TU_EMAIL
+
+<span class="c"># Cambiar en .env:  NGINX_CONF=./nginx.conf</span>
+docker compose -f docker-compose.prod.yml up -d nginx</pre>
+      <p class="muted" style="font-size:9.5px">
+        La renovación automática es la misma del punto 6.3 — no es opcional.
+      </p>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Para verificar que quedó bien</b>, probar la dirección desde un celular <b>con los datos
+    móviles</b>, no desde el WiFi de la oficina: así se comprueba que entra de verdad desde
+    afuera y no por la red interna.
+  </div>
+
+  <h4>Dos direcciones: pruebas y producción</h4>
+  <p>
+    DuckDNS permite varios subdominios en la misma cuenta, así que conviene separarlos:
+  </p>
+  <table>
+    <tr><th style="width:150px">Dirección</th><th style="width:110px">Apunta a</th><th>Uso</th></tr>
+    <tr>
+      <td><code>planillawenlen</code><br><code>.duckdns.org</code></td>
+      <td>Servidor Docker</td>
+      <td>La que usa la empresa. Puertos 80 y 443, con HTTPS.</td>
+    </tr>
+    <tr>
+      <td><code>planillawenlentest</code><br><code>.duckdns.org</code></td>
+      <td>PC de pruebas<br>(<code>start-remote.bat</code>)</td>
+      <td>Para probar cambios antes de publicarlos. Se configura en
+          <code>deploy/tunnel.env</code>.</td>
+    </tr>
+  </table>
+  <div class="warn">
+    <b>Ojo con el choque de puertos.</b> Los dos nombres resuelven a la <b>misma IP pública</b>
+    —la de la oficina— y el router solo puede reenviar cada puerto a una máquina. Si el servidor
+    ya se quedó con el 80 y el 443, la PC de pruebas necesita otro puerto: se reenvía, por
+    ejemplo, el <b>8080 al 3000</b> de esa PC, y la dirección de pruebas queda
+    <code>http://planillawenlentest.duckdns.org:8080</code>.
+  </div>
+  <div class="note">
+    El entorno de pruebas queda en <b>HTTP sin certificado</b>: lo levanta Vite directamente, sin
+    nginx que termine el TLS. Para probar internamente alcanza, pero el navegador va a marcar
+    “No es seguro” y la aplicación no se puede instalar como PWA. Si hace falta probar
+    exactamente lo que van a ver los usuarios, conviene hacerlo contra el servidor de producción.
+  </div>
+
+  <h3>6.2 · Cloudflare Tunnel <span class="chip slate">requiere dominio propio</span></h3>
+  <p>
+    Es el camino más simple cuando no hay IP fija ni acceso al router: el servidor abre una
+    conexión <b>de salida</b> hacia Cloudflare y por ahí entra el tráfico. La dirección
+    —<code>https://planilla.tuempresa.com</code>— queda fija para siempre y no depende de que la
+    IP de la conexión cambie.
+  </p>
+
+  <div class="warn">
+    <b>Diferencia con el túnel de las pruebas.</b> El que se viene usando en el testing es un
+    <i>quick tunnel</i>: gratis y sin cuenta, pero genera una dirección al azar
+    (<code>algo-raro-1234.trycloudflare.com</code>) que <b>cambia cada vez que el proceso
+    arranca</b>. El túnel <i>con nombre</i> que se describe acá es el mismo programa, pero
+    registrado en una cuenta: siempre la misma URL, sobreviva lo que sobreviva.
+  </div>
+
+  <h4>Paso a paso, una sola vez</h4>
+  <div class="step">
+    <div class="n">1</div>
+    <div class="body">
+      <h4>Comprar el dominio</h4>
+      <p style="font-size:10.5px">
+        En Cloudflare Registrar o Namecheap (<code>.com</code>, ~USD 10–12 por año) o en NIC
+        Argentina (<code>.com.ar</code>). Con el dominio comprado ya se define cómo va a entrar
+        la gente: <code>planilla.tuempresa.com</code> es más corto y claro que cualquier
+        alternativa gratuita.
+      </p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="n">2</div>
+    <div class="body">
+      <h4>Agregar el dominio a Cloudflare</h4>
+      <p style="font-size:10.5px">
+        Cuenta gratuita en <code>cloudflare.com</code> → <b>Add a site</b>. Cloudflare devuelve
+        dos servidores DNS que hay que cargar en el panel del registrador donde se compró el
+        dominio. La activación tarda entre unos minutos y unas horas.
+      </p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="n">3</div>
+    <div class="body">
+      <h4>Crear el túnel y copiar el token</h4>
+      <p style="font-size:10.5px">
+        En <code>one.dash.cloudflare.com</code> → <b>Networks → Tunnels → Create a tunnel</b>,
+        tipo <b>Cloudflared</b>, con un nombre cualquiera (por ejemplo <code>planilla-wenlen</code>).
+        La pantalla siguiente muestra un comando con un <b>token</b> largo que empieza con
+        <code>eyJ...</code> — ese token es la credencial del túnel.
+      </p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="n">4</div>
+    <div class="body">
+      <h4>Definir a dónde apunta</h4>
+      <p style="font-size:10.5px">
+        En la pestaña <b>Public Hostnames</b> del túnel, <b>Add a public hostname</b>:
+      </p>
+      <table style="margin-top:2px">
+        <tr><th style="width:110px">Campo</th><th>Servidor Docker</th><th>PC de pruebas</th></tr>
+        <tr><td><b>Subdomain</b></td><td colspan="2"><code>planilla</code></td></tr>
+        <tr><td><b>Domain</b></td><td colspan="2">el dominio comprado</td></tr>
+        <tr><td><b>Type</b></td><td colspan="2"><code>HTTP</code></td></tr>
+        <tr><td><b>URL</b></td><td><code>nginx:80</code></td><td><code>localhost:3000</code></td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="step">
+    <div class="n">5</div>
+    <div class="body">
+      <h4>Conectar el token</h4>
+      <p style="font-size:10.5px"><b>En el servidor Docker</b>, en el archivo <code>.env</code>:</p>
+      <pre>CLOUDFLARE_TUNNEL_TOKEN=eyJ...
+NGINX_CONF=./nginx.http.conf   <span class="c"># el HTTPS lo pone Cloudflare</span>
+PUBLIC_URL=https://planilla.tuempresa.com</pre>
+      <pre>docker compose -f docker-compose.prod.yml --profile tunnel up -d</pre>
+      <p style="font-size:10.5px">
+        <b>En la PC de pruebas</b> (mientras el servidor definitivo no exista), copiar
+        <code>deploy\tunnel.env.example</code> a <code>deploy\tunnel.env</code> y completar las dos
+        líneas. <code>start-remote.bat</code> lo detecta solo: usa el túnel con nombre, autoriza el
+        dominio en el API y muestra la URL fija en lugar de la aleatoria. Si ese archivo no existe,
+        se comporta exactamente como antes.
+      </p>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>El mismo dominio sirve para las dos etapas.</b> Durante las pruebas apunta a la PC de
+    testing; cuando el servidor definitivo esté listo, se cambia el destino del hostname en el
+    panel de Cloudflare (de <code>localhost:3000</code> a <code>nginx:80</code>) y la gente sigue
+    entrando por el mismo link, sin enterarse de la mudanza.
+  </div>
+
+  <div class="danger">
+    <b>El token es una credencial.</b> Quien lo tenga puede publicar un túnel en nombre de ese
+    dominio. No se sube a git (<code>deploy/tunnel.env</code> está excluido) ni se comparte por
+    chat. Si se filtra, se revoca desde el panel de Cloudflare y se genera uno nuevo.
+  </div>
+
+  <h3>6.3 · Renovación de los certificados</h3>
+  <p>
+    La emisión inicial está en el capítulo 6.1 (o en el 4, paso 5): emitir en modo HTTP y recién
+    después pasar a <code>nginx.conf</code>. La <b>renovación</b> hay que dejarla programada,
+    porque los certificados de Let's Encrypt duran 90 días y esto vale igual para DuckDNS que
+    para un dominio propio:
+  </p>
+  <pre><span class="c"># Linux — agregar a la tabla de tareas: crontab -e</span>
+0 3 * * 1 cd /opt/planilla && docker compose -f docker-compose.prod.yml --profile certbot run --rm certbot renew --quiet && docker compose -f docker-compose.prod.yml restart nginx</pre>
+  <pre><span class="c"># Windows — crear la tarea programada (PowerShell como administrador)</span>
+$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-Command "cd C:\planilla; docker compose -f docker-compose.prod.yml --profile certbot run --rm certbot renew --quiet; docker compose -f docker-compose.prod.yml restart nginx"'
+$t = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 3am
+Register-ScheduledTask -TaskName "Planilla - renovar certificado" -Action $a -Trigger $t -RunLevel Highest</pre>
+  <div class="warn">
+    Si el certificado vence, <b>nginx deja de arrancar</b> y la aplicación queda inaccesible aunque
+    todo lo demás funcione. La tarea de renovación no es opcional: verificar una vez que corrió bien.
+  </div>
+
+  <h3>6.4 · Solo red interna</h3>
+  <p>
+    Con <code>NGINX_CONF=./nginx.http.conf</code> y <code>PUBLIC_URL=http://192.168.1.50</code>
+    la aplicación queda disponible en la LAN sin certificados. Conviene reservar esa IP en el
+    router (DHCP estático) para que no cambie sola y deje de funcionar el acceso.
+  </p>
+</div>
+
+<!-- ══════════════════ 7 ══════════════════ -->
+<div class="section">
+  <h2>7 · Primer ingreso</h2>
+  <p class="lead">Con el stack levantado y el seed cargado, ya se puede entrar.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Cuenta de administración</h4>
+      <table style="margin-top:2px">
+        <tr><td style="width:70px"><b>Usuario</b></td><td><code>admin@wenlen.com</code></td></tr>
+        <tr><td><b>Contraseña</b></td><td><code>Admin2026!</code></td></tr>
+      </table>
+      <p class="muted" style="font-size:9.5px;margin-top:5px">
+        Es la cuenta de sistema (rol ADMIN, sin sector). La aplicación exige cambiar la contraseña
+        en el primer ingreso.
+      </p>
+    </div>
+    <div class="card">
+      <h4>Empleados de la nómina</h4>
+      <p style="font-size:10.5px">
+        El seed carga a cada empleado con su correo corporativo y la contraseña inicial
+        <code>Wenlen2026!</code>, también con cambio obligatorio en el primer ingreso.
+      </p>
+    </div>
+  </div>
+
+  <div class="danger">
+    <b>Antes de dar la URL a la empresa:</b> cambiar la contraseña del administrador y verificar
+    que el archivo <code>.env</code> no quedó copiado en ningún lado accesible. Ese archivo
+    contiene la contraseña de la base de datos y las claves con las que se firman las sesiones:
+    quien lo tenga puede entrar como cualquier usuario.
+  </div>
+
+  <h3>7.1 · Verificación rápida</h3>
+  <table>
+    <tr><th style="width:190px">Qué probar</th><th>Resultado esperado</th></tr>
+    <tr><td>Abrir la URL pública</td><td>Aparece la pantalla de ingreso, con candado si es HTTPS</td></tr>
+    <tr><td>Entrar como administrador</td><td>Pide cambiar la contraseña y entra al panel</td></tr>
+    <tr><td><code>/api/v1/health</code> en el navegador</td><td><code>{"status":"ok", ...}</code></td></tr>
+    <tr><td>Crear una planilla y enviarla</td><td>Cambia de estado y le aparece al aprobador</td></tr>
+    <tr><td>Reiniciar el servidor</td><td>A los dos minutos la aplicación responde sola</td></tr>
+  </table>
+</div>
+
+<!-- ══════════════════ 8 ══════════════════ -->
+<div class="section pagebreak">
+  <h2>8 · Operación diaria</h2>
+  <p class="lead">
+    Todos los comandos se ejecutan parado en la carpeta del proyecto
+    (<code>/opt/planilla</code> o <code>C:\planilla</code>).
+  </p>
+
+  <table>
+    <tr><th style="width:210px">Para</th><th>Comando</th></tr>
+    <tr><td>Ver si está todo arriba</td><td><code>docker compose -f docker-compose.prod.yml ps</code></td></tr>
+    <tr><td>Ver los registros del API en vivo</td><td><code>docker compose -f docker-compose.prod.yml logs -f api</code></td></tr>
+    <tr><td>Ver los últimos 200 renglones</td><td><code>docker compose -f docker-compose.prod.yml logs --tail 200 api</code></td></tr>
+    <tr><td>Reiniciar un contenedor</td><td><code>docker compose -f docker-compose.prod.yml restart api</code></td></tr>
+    <tr><td>Apagar todo (los datos quedan)</td><td><code>docker compose -f docker-compose.prod.yml down</code></td></tr>
+    <tr><td>Volver a levantar</td><td><code>docker compose -f docker-compose.prod.yml up -d</code></td></tr>
+    <tr><td>Consumo de recursos</td><td><code>docker stats</code></td></tr>
+    <tr><td>Entrar a la base con SQL</td><td><code>docker compose -f docker-compose.prod.yml exec db psql -U planilla_user -d planilla_horas</code></td></tr>
+  </table>
+
+  <div class="note">
+    <b>Atajo:</b> en Linux, agregar <code>alias dcp='docker compose -f /opt/planilla/docker-compose.prod.yml'</code>
+    al archivo <code>~/.bashrc</code>. Después alcanza con <code>dcp ps</code>, <code>dcp logs -f api</code>.
+  </div>
+
+  <div class="danger">
+    <b>El único comando peligroso:</b> <code>docker compose down -v</code>. La <code>-v</code>
+    borra los volúmenes, es decir <b>toda la base de datos y los archivos subidos</b>, sin
+    confirmación ni papelera. Nunca usarlo en el servidor de producción.
+  </div>
+</div>
+
+<!-- ══════════════════ 9 ══════════════════ -->
+<div class="section">
+  <h2>9 · Actualizar a una versión nueva</h2>
+  <p class="lead">
+    Cuando hay cambios en el código, el procedimiento es siempre el mismo y no toca los datos.
+  </p>
+  <pre>cd /opt/planilla                     <span class="c"># o cd C:\planilla</span>
+
+<span class="c"># 1. Respaldo previo — siempre, aunque el cambio parezca chico</span>
+docker compose -f docker-compose.prod.yml exec -T db \
+  pg_dump -U planilla_user -Fc planilla_horas > respaldo-antes-de-actualizar.dump
+
+<span class="c"># 2. Traer el código nuevo</span>
+git pull
+
+<span class="c"># 3. Reconstruir y relevantar (solo se recrea lo que cambió)</span>
+docker compose -f docker-compose.prod.yml up -d --build
+
+<span class="c"># 4. Verificar</span>
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs --tail 50 api</pre>
+
+  <p style="font-size:10.5px">
+    Las <b>migraciones de base de datos</b> se aplican solas: el contenedor del API las corre al
+    arrancar, antes de aceptar pedidos. La interrupción del servicio es de menos de un minuto.
+  </p>
+
+  <div class="warn">
+    <b>Si algo sale mal:</b> volver a la versión anterior con <code>git checkout &lt;commit&gt;</code>
+    y repetir el paso 3. Si la migración ya modificó la base y hay que retroceder de verdad,
+    restaurar el respaldo del paso 1 con el procedimiento del capítulo 10.
+  </div>
+</div>
+
+<!-- ══════════════════ 10 ══════════════════ -->
+<div class="section">
+  <h2>10 · Backups y restauración</h2>
+
+  <h3>10.1 · Lo que ya hace solo</h3>
+  <p>
+    El API genera un respaldo completo de la base <b>todos los días</b> y guarda las últimas
+    <b>14 copias</b>, en dos carpetas separadas (<code>primary</code> y <code>secondary</code>)
+    dentro del volumen <code>planilla_backups</code>. Es automático, no hay que configurar nada.
+  </p>
+
+  <div class="danger">
+    <b>Eso no alcanza como respaldo real.</b> Esas copias viven en el mismo disco del mismo
+    servidor: si el disco falla o alguien borra el volumen, se pierden junto con la base.
+    Un respaldo solo cuenta cuando está <b>en otra máquina</b>.
+  </div>
+
+  <h3>10.2 · Sacar los respaldos del servidor</h3>
+  <pre><span class="c"># Copiar todos los dumps del volumen a un archivo comprimido</span>
+docker run --rm -v planilla_backups:/b -v $PWD:/out alpine \
+  tar czf /out/planilla-backups-$(date +%F).tgz /b
+
+<span class="c"># Y llevarlo a otra máquina (ejemplo con scp)</span>
+scp planilla-backups-*.tgz usuario@otra-maquina:/respaldos/</pre>
+  <p class="muted" style="font-size:9.5px">
+    En Windows, reemplazar <code>$PWD</code> por <code>${PWD}</code> y
+    <code>$(date +%F)</code> por una fecha escrita a mano.
+  </p>
+  <p style="font-size:10.5px">
+    Conviene dejarlo programado una vez por semana, con el mismo mecanismo del capítulo 6.3
+    (<code>crontab</code> en Linux, Tareas Programadas en Windows), y llevar la copia a un
+    disco externo o a la nube.
+  </p>
+
+  <h3>10.3 · Restaurar</h3>
+  <pre><span class="c"># 1. Ver qué respaldos hay disponibles</span>
+docker compose -f docker-compose.prod.yml exec api ls -lh backups/primary
+
+<span class="c"># 2. Bajar el API para que nadie escriba durante la restauración</span>
+docker compose -f docker-compose.prod.yml stop api
+
+<span class="c"># 3. Restaurar (--clean borra los objetos previos antes de recrearlos)</span>
+docker compose -f docker-compose.prod.yml exec -T db \
+  pg_restore -U planilla_user -d planilla_horas --clean --if-exists \
+  < respaldo-antes-de-actualizar.dump
+
+<span class="c"># 4. Volver a levantar</span>
+docker compose -f docker-compose.prod.yml start api</pre>
+
+  <div class="note">
+    <b>Probar la restauración antes de necesitarla.</b> Un respaldo que nunca se restauró es una
+    suposición, no un respaldo. Conviene hacer el ejercicio completo una vez, idealmente en otra
+    máquina, y anotar cuánto tardó.
+  </div>
+</div>
+
+<!-- ══════════════════ 11 ══════════════════ -->
+<div class="section pagebreak">
+  <h2>11 · Problemas frecuentes</h2>
+
+  <table>
+    <tr><th style="width:150px">Síntoma</th><th style="width:180px">Causa habitual</th><th>Qué hacer</th></tr>
+    <tr>
+      <td>La página no carga y <code>ps</code> muestra nginx en <code>Restarting</code></td>
+      <td>Falta el certificado, o el dominio del <code>nginx.conf</code> no coincide con el real</td>
+      <td>Ver <code>logs nginx</code>. Emitir el certificado (cap. 6.1) o pasar temporalmente a
+          <code>NGINX_CONF=./nginx.http.conf</code></td>
+    </tr>
+    <tr>
+      <td>El API reinicia en bucle</td>
+      <td>No puede conectarse a la base, o falta una variable en el <code>.env</code></td>
+      <td><code>logs api</code> dice cuál. Verificar que <code>db</code> esté
+          <code>healthy</code> y que el <code>.env</code> tenga los tres secretos</td>
+    </tr>
+    <tr>
+      <td>Entra pero al hacer login dice error de CORS</td>
+      <td><code>PUBLIC_URL</code> no coincide exactamente con la URL usada</td>
+      <td>Debe ser idéntica, incluyendo <code>http/https</code> y sin barra final. Corregir el
+          <code>.env</code> y <code>restart api</code></td>
+    </tr>
+    <tr>
+      <td><code>port is already allocated</code> al levantar</td>
+      <td>Otro programa ocupa el 80 o el 443 (IIS, Skype, otro nginx)</td>
+      <td>Liberarlo, o cambiar <code>HTTP_PORT</code>/<code>HTTPS_PORT</code> en el <code>.env</code></td>
+    </tr>
+    <tr>
+      <td>La construcción de la imagen falla sin red</td>
+      <td>El servidor no llega a Docker Hub o al repositorio de PostgreSQL</td>
+      <td>Verificar DNS y proxy de salida. Las imágenes se bajan una sola vez</td>
+    </tr>
+    <tr>
+      <td>Los backups automáticos no aparecen</td>
+      <td>El volumen <code>backups</code> no está montado o quedó sin permisos</td>
+      <td><code>exec api ls -l backups</code>. Deben existir <code>primary</code> y
+          <code>secondary</code> con dueño <code>node</code></td>
+    </tr>
+    <tr>
+      <td>Todo funciona pero está lento</td>
+      <td>Poca RAM: el sistema empieza a usar disco como memoria</td>
+      <td><code>docker stats</code>. Si la suma se acerca al total del servidor, sumar RAM</td>
+    </tr>
+    <tr>
+      <td>(Windows) Después de reiniciar, nada levanta</td>
+      <td>Docker Desktop no arrancó porque no hay sesión iniciada</td>
+      <td>Configurar inicio de sesión automático y el arranque de Docker Desktop (cap. 5)</td>
+    </tr>
+  </table>
+
+  <div class="note">
+    <b>Lo primero, siempre:</b> <code>docker compose -f docker-compose.prod.yml ps</code> para ver
+    quién está caído, y <code>logs --tail 100 &lt;servicio&gt;</code> para leer el error concreto.
+    El 90 % de los problemas dice exactamente qué pasa en esas dos salidas.
+  </div>
+
+  <h3>11.1 · Qué ve el empleado cuando el servidor está caído</h3>
+  <p>
+    La aplicación avisa sola. Si el servidor no responde —apagado, sin internet, corte de luz— a
+    quien la tenga abierta le aparece un cartel que <b>bloquea la pantalla</b>:
+  </p>
+  <div class="card" style="max-width:330px;margin:6px auto;text-align:center;background:#fef2f2;border-color:#fecaca">
+    <div style="font-size:13px;font-weight:700;color:#991b1b;margin-bottom:3px">Servidor inactivo</div>
+    <div style="font-size:10px;color:#7f1d1d">No se puede conectar con el sistema.<br>Comuníquese con IT.</div>
+    <div style="font-size:9.5px;color:#991b1b;border:1px solid #fecaca;border-radius:6px;padding:4px 6px;margin-top:6px">
+      No cargue datos mientras aparezca este mensaje: <b>no se van a guardar</b>.
+    </div>
+  </div>
+  <p style="font-size:10.5px">
+    Funciona <b>aunque el servidor esté completamente apagado</b>, porque quien lo muestra es la
+    propia aplicación instalada en el dispositivo del empleado. Reintenta cada 10 segundos y,
+    cuando el servidor vuelve, el cartel se cierra solo: lo que la persona tenía a medio escribir
+    sigue ahí y puede guardarlo. Nadie pierde trabajo por cargar datos a ciegas.
+  </p>
+  <div class="warn">
+    <b>Límite:</b> alcanza a quien ya entró alguna vez desde ese dispositivo. Si alguien nunca
+    abrió la aplicación y el servidor está caído, va a ver el error genérico del navegador —
+    no hay nada instalado todavía que pueda mostrarle el mensaje.
+  </div>
+
+  <h3>11.2 · Verificar si la conexión está detrás de CGNAT</h3>
+  <p>
+    Determina si se pueden abrir puertos (capítulo 6.1) o si hace falta un túnel. Son dos datos
+    que tienen que coincidir:
+  </p>
+  <ol class="tight">
+    <li>Buscar <i>"cuál es mi IP"</i> en Google desde una máquina de esa red y anotar el número.</li>
+    <li>Entrar al panel del router y buscar la <b>IP WAN</b> (o <i>IP de internet</i>).</li>
+  </ol>
+  <p style="font-size:10.5px">
+    Si <b>coinciden</b>, hay IP pública real y se pueden abrir puertos. Si la del router es
+    distinta —sobre todo si empieza con <code>100.64.</code> hasta <code>100.127.</code>— la
+    conexión está detrás de CGNAT: no hay puerto que abrir. En ese caso queda pedirle al proveedor
+    una IP pública (a veces es gratis, a veces tiene un cargo) o usar un túnel.
+  </p>
+</div>
+
+<!-- ══════════════════ ANEXO A ══════════════════ -->
+<div class="section">
+  <h2>Anexo A · Variables del archivo <code>.env</code></h2>
+  <p class="lead">
+    Vive en la raíz del proyecto, junto a <code>docker-compose.prod.yml</code>. Lo genera el
+    script de arranque a partir de <code>.env.docker.example</code>. Nunca se sube a git.
+  </p>
+
+  <table>
+    <tr><th style="width:150px">Variable</th><th style="width:60px">Obligatoria</th><th>Para qué sirve</th></tr>
+    <tr><td><code>DB_PASSWORD</code></td><td>Sí</td><td>Contraseña de PostgreSQL. La genera el script al azar.</td></tr>
+    <tr><td><code>JWT_SECRET</code></td><td>Sí</td><td>Clave con la que se firman las sesiones. Si cambia, se cierran todas las sesiones abiertas.</td></tr>
+    <tr><td><code>JWT_REFRESH_SECRET</code></td><td>Sí</td><td>Ídem para la renovación automática de sesión. Debe ser distinta de la anterior.</td></tr>
+    <tr><td><code>PUBLIC_URL</code></td><td>Sí</td><td>URL exacta con la que entran los usuarios. Define qué origen acepta el API (CORS) y los links de los correos.</td></tr>
+    <tr><td><code>NGINX_CONF</code></td><td>Sí</td><td><code>./nginx.conf</code> para HTTPS propio, <code>./nginx.http.conf</code> para HTTP puro.</td></tr>
+    <tr><td><code>HTTP_PORT</code> / <code>HTTPS_PORT</code></td><td>No</td><td>Puertos del servidor. Por omisión 80 y 443.</td></tr>
+    <tr><td><code>TZ</code></td><td>No</td><td>Zona horaria de los contenedores. Por omisión <code>America/Argentina/Buenos_Aires</code>.</td></tr>
+    <tr><td><code>DUCKDNS_SUBDOMAIN</code> / <code>DUCKDNS_TOKEN</code></td><td>No</td><td>Solo si se publica con DuckDNS (perfil <code>duckdns</code>). Mantienen la dirección apuntando a la IP actual.</td></tr>
+    <tr><td><code>CLOUDFLARE_TUNNEL_TOKEN</code></td><td>No</td><td>Solo si se publica con Cloudflare Tunnel.</td></tr>
+    <tr><td><code>SMTP_*</code></td><td>No</td><td>Servidor de correo para las notificaciones por email. Sin esto, las notificaciones se ven solo dentro de la aplicación.</td></tr>
+  </table>
+
+  <div class="warn">
+    <b>Guardar una copia del <code>.env</code> fuera del servidor</b>, en un gestor de contraseñas.
+    Si se pierde y hay que reinstalar, la base de datos existente queda inaccesible: la contraseña
+    de Postgres está solo ahí.
+  </div>
+</div>
+
+<!-- ══════════════════ ANEXO B ══════════════════ -->
+<div class="section">
+  <h2>Anexo B · Archivos de infraestructura</h2>
+  <p class="lead">Qué es cada archivo del repositorio que interviene en el despliegue.</p>
+
+  <table>
+    <tr><th style="width:200px">Archivo</th><th>Función</th></tr>
+    <tr><td><code>docker-compose.prod.yml</code></td><td>Define los cuatro contenedores de producción, los volúmenes y los perfiles opcionales (<code>certbot</code>, <code>duckdns</code>, <code>tunnel</code>).</td></tr>
+    <tr><td><code>docker-compose.yml</code></td><td>Versión de desarrollo, con recarga en caliente. No se usa en el servidor.</td></tr>
+    <tr><td><code>nginx.conf</code></td><td>Configuración del nginx de entrada en modo HTTPS.</td></tr>
+    <tr><td><code>nginx.http.conf</code></td><td>Ídem en modo HTTP puro (LAN o detrás de un túnel).</td></tr>
+    <tr><td><code>.env.docker.example</code></td><td>Plantilla de variables. Se copia a <code>.env</code> y se completa.</td></tr>
+    <tr><td><code>instalar-servidor.bat</code></td><td><b>El archivo a ejecutar en Windows.</b> Verifica requisitos, instala Docker si falta, configura la dirección, levanta todo y carga los datos iniciales. También tiene un modo que solo verifica, sin instalar nada.</td></tr>
+    <tr><td><code>deploy/bootstrap.sh</code></td><td>El equivalente para Linux.</td></tr>
+    <tr><td><code>deploy/tunnel.env.example</code></td><td>Plantilla para la URL fija con Cloudflare Named Tunnel, con el instructivo completo adentro. Se copia a <code>deploy/tunnel.env</code> (excluido de git) y lo lee <code>start-remote.bat</code>.</td></tr>
+    <tr><td><code>apps/api/Dockerfile</code></td><td>Imagen del API: compila TypeScript, genera el cliente de base de datos e incluye las herramientas de respaldo de PostgreSQL 16.</td></tr>
+    <tr><td><code>apps/api/docker-entrypoint.sh</code></td><td>Al arrancar: espera a la base, aplica las migraciones pendientes y recién ahí levanta el servicio.</td></tr>
+    <tr><td><code>apps/web/Dockerfile</code></td><td>Imagen de las pantallas: compila con Vite y las sirve como archivos estáticos.</td></tr>
+    <tr><td><code>apps/web/nginx.web.conf</code></td><td>Configuración interna de ese contenedor (rutas de la aplicación, caché de recursos).</td></tr>
+    <tr><td><code>apps/web/public/sw.js</code></td><td>Service worker: cachea la aplicación para que abra sin conexión y responde el aviso interno cuando el servidor no contesta (capítulo 11.1).</td></tr>
+    <tr><td><code>apps/web/src/components/<br>ServidorInactivo.tsx</code></td><td>El cartel bloqueante de "Servidor inactivo", con reintento automático cada 10 segundos.</td></tr>
+  </table>
+
+  <div class="note">
+    <b>Detalle a tener presente:</b> las pantallas se compilan llamando al API con
+    <b>rutas relativas</b>. Eso hace que la misma imagen sirva para cualquier dominio: si mañana
+    cambia la URL, no hay que reconstruir nada, solo actualizar <code>PUBLIC_URL</code> en el
+    <code>.env</code> y reiniciar.
+  </div>
+
+  <div class="warn">
+    <b>Estado de verificación de esta guía.</b> Los archivos de infraestructura se escribieron a
+    partir del código real del proyecto y se validaron sintácticamente (compose, scripts de Linux
+    y Windows), y las compilaciones del API y de las pantallas se ejecutaron con éxito fuera de
+    Docker. El aviso de servidor caído del capítulo 11.1 <b>sí</b> se probó de punta a punta:
+    aplicación cargada, servidor apagado de verdad, cartel apareciendo al intentar ingresar, y
+    cierre automático al volver el servicio. La construcción de las imágenes Docker, en cambio,
+    <b>no</b> pudo probarse porque el equipo donde se preparó esto no tiene Docker instalado: la
+    primera corrida real de <code>bootstrap</code> conviene hacerla con tiempo y mirando los
+    registros.
+  </div>
+</div>
+
+<div class="footer">
+  Planilla de Horas · Puesta en marcha del servidor Docker · 24 de julio de 2026
+</div>
+
+</body>
+</html>

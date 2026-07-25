@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planilla de Horas · Configuración de flujos y accesos</title>
+<style>
+  :root {
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+
+    --bg: #eef2f1;
+    --panel: #ffffff;
+    --panel-2: #f6f9f8;
+    --ink: #11201f;
+    --ink-soft: #46605d;
+    --ink-faint: #7f9794;
+    --line: #d8e2e0;
+    --line-strong: #c1d0cd;
+    --accent: #0e7c72;
+    --accent-ink: #0a5d55;
+    --accent-wash: #dcefec;
+    --allow: #0e7c72;
+    --deny-dot: #c3d2cf;
+    --warn: #b26a00;
+    --shadow: 0 1px 2px rgba(16,40,38,.05), 0 8px 26px rgba(16,40,38,.06);
+    --radius: 12px;
+
+    --r-op:  #64748b; --r-op-w:  #eef1f4;
+    --r-sup: #0d9488; --r-sup-w: #ddf3f0;
+    --r-coord:#0e7490; --r-coord-w:#dbeef3;
+    --r-cmass:#5b57d6; --r-cmass-w:#e6e5fb;
+    --r-ger: #b4780a; --r-ger-w: #f6ecd4;
+    --r-rrhh:#c02a5b; --r-rrhh-w:#f8dfe7;
+    --r-adm: #a12222; --r-adm-w: #f6ddda;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0a1413; --panel: #10201e; --panel-2: #142825;
+      --ink: #e7f1ef; --ink-soft: #a4bdb9; --ink-faint: #6f8b87;
+      --line: #223834; --line-strong: #2c463f;
+      --accent: #2fbcac; --accent-ink: #7fe6d8; --accent-wash: #12332e;
+      --allow: #2fbcac; --deny-dot: #2a413d; --warn: #e6a54a;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+      --r-op-w:#1c2a2b; --r-sup-w:#123531; --r-coord-w:#0f3038; --r-cmass-w:#211f45;
+      --r-ger-w:#33280e; --r-rrhh-w:#3a1524; --r-adm-w:#361715;
+      --r-op:#9aa7b4; --r-sup:#41d0c0; --r-coord:#3bb6d6; --r-cmass:#9691f0;
+      --r-ger:#e0a94e; --r-rrhh:#f06a92; --r-adm:#eb6a63;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg:#eef2f1; --panel:#ffffff; --panel-2:#f6f9f8; --ink:#11201f; --ink-soft:#46605d;
+    --ink-faint:#7f9794; --line:#d8e2e0; --line-strong:#c1d0cd; --accent:#0e7c72;
+    --accent-ink:#0a5d55; --accent-wash:#dcefec; --allow:#0e7c72; --deny-dot:#c3d2cf; --warn:#b26a00;
+    --shadow:0 1px 2px rgba(16,40,38,.05), 0 8px 26px rgba(16,40,38,.06);
+    --r-op:#64748b;--r-op-w:#eef1f4;--r-sup:#0d9488;--r-sup-w:#ddf3f0;--r-coord:#0e7490;--r-coord-w:#dbeef3;
+    --r-cmass:#5b57d6;--r-cmass-w:#e6e5fb;--r-ger:#b4780a;--r-ger-w:#f6ecd4;--r-rrhh:#c02a5b;--r-rrhh-w:#f8dfe7;--r-adm:#a12222;--r-adm-w:#f6ddda;
+  }
+  :root[data-theme="dark"] {
+    --bg:#0a1413; --panel:#10201e; --panel-2:#142825; --ink:#e7f1ef; --ink-soft:#a4bdb9;
+    --ink-faint:#6f8b87; --line:#223834; --line-strong:#2c463f; --accent:#2fbcac; --accent-ink:#7fe6d8;
+    --accent-wash:#12332e; --allow:#2fbcac; --deny-dot:#2a413d; --warn:#e6a54a;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    --r-op-w:#1c2a2b;--r-sup-w:#123531;--r-coord-w:#0f3038;--r-cmass-w:#211f45;--r-ger-w:#33280e;--r-rrhh-w:#3a1524;--r-adm-w:#361715;
+    --r-op:#9aa7b4;--r-sup:#41d0c0;--r-coord:#3bb6d6;--r-cmass:#9691f0;--r-ger:#e0a94e;--r-rrhh:#f06a92;--r-adm:#eb6a63;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--font-sans);
+    font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px 64px; }
+
+  /* top bar */
+  header.top {
+    position: sticky; top: 0; z-index: 40; background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: blur(10px); border-bottom: 1px solid var(--line);
+  }
+  .top-in { max-width:1120px; margin:0 auto; padding: 13px 20px; display:flex; align-items:center; gap:14px; }
+  .brand { display:flex; align-items:center; gap:11px; margin-right:auto; }
+  .brand .mark {
+    width:34px; height:34px; border-radius:9px; background:linear-gradient(145deg,var(--accent),var(--accent-ink));
+    display:grid; place-items:center; color:#fff; flex:none;
+  }
+  .brand .mark svg { width:19px; height:19px; }
+  .brand h1 { font-size:15px; margin:0; letter-spacing:-.2px; font-weight:650; }
+  .brand p { font-size:11px; margin:0; color:var(--ink-faint); }
+  .theme-btn {
+    border:1px solid var(--line-strong); background:var(--panel); color:var(--ink-soft);
+    height:34px; padding:0 12px; border-radius:9px; cursor:pointer; font-size:12px; display:flex; align-items:center; gap:7px;
+  }
+  .theme-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .theme-btn svg { width:15px; height:15px; }
+
+  /* tabs */
+  nav.tabs { display:flex; gap:4px; padding:14px 0 0; flex-wrap:wrap; }
+  .tab {
+    border:1px solid transparent; background:transparent; color:var(--ink-soft); cursor:pointer;
+    padding:9px 15px; border-radius:9px 9px 0 0; font-size:13px; font-weight:550; display:flex; align-items:center; gap:8px;
+    border-bottom:2px solid transparent;
+  }
+  .tab .n { font-family:var(--font-mono); font-size:11px; color:var(--ink-faint); }
+  .tab:hover { color:var(--ink); background:var(--panel-2); }
+  .tab.active { color:var(--accent-ink); background:var(--panel); border-color:var(--line); border-bottom-color:var(--panel); }
+  .tab.active .n { color:var(--accent); }
+  .tabline { height:1px; background:var(--line); margin-top:-1px; }
+
+  .panel { display:none; animation: fade .28s ease; }
+  .panel.active { display:block; }
+  @keyframes fade { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+  @media (prefers-reduced-motion: reduce) { .panel, .panel.active { animation:none; } }
+
+  .lead { color:var(--ink-soft); max-width:64ch; margin:22px 0 20px; }
+  .eyebrow { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); font-weight:650; }
+  h2.sec { font-size:19px; margin:6px 0 2px; letter-spacing:-.3px; text-wrap:balance; }
+
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); }
+  .pad { padding:18px; }
+
+  /* ---- Flujos builder ---- */
+  .builder { display:grid; grid-template-columns: 300px 1fr; gap:18px; align-items:start; }
+  @media (max-width: 820px){ .builder { grid-template-columns:1fr; } }
+  .doctype { display:flex; flex-direction:column; gap:8px; }
+  .dt {
+    text-align:left; border:1px solid var(--line); background:var(--panel); color:var(--ink);
+    border-radius:10px; padding:11px 13px; cursor:pointer; display:flex; align-items:center; gap:11px;
+  }
+  .dt:hover { border-color:var(--line-strong); }
+  .dt.active { border-color:var(--accent); background:var(--accent-wash); }
+  .dt .ic { width:30px; height:30px; border-radius:8px; display:grid; place-items:center; background:var(--panel-2); flex:none; color:var(--accent-ink); }
+  .dt.active .ic { background:var(--accent); color:#fff; }
+  .dt .ic svg { width:16px; height:16px; }
+  .dt b { font-size:13px; display:block; }
+  .dt span { font-size:11px; color:var(--ink-faint); }
+
+  .steps { display:flex; flex-direction:column; gap:12px; }
+  .steprow {
+    border:1px solid var(--line); border-radius:11px; padding:13px; background:var(--panel-2);
+    display:grid; grid-template-columns: 34px 1fr auto; gap:12px; align-items:center;
+  }
+  .stepno { width:34px; height:34px; border-radius:9px; background:var(--accent); color:#fff; display:grid; place-items:center; font-family:var(--font-mono); font-weight:700; font-size:14px; }
+  .field { display:flex; flex-direction:column; gap:6px; }
+  .field label { font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); font-weight:600; }
+  .rowflex { display:flex; gap:10px; flex-wrap:wrap; }
+  select, input[type=text] {
+    font-family:var(--font-sans); font-size:13px; color:var(--ink); background:var(--panel);
+    border:1px solid var(--line-strong); border-radius:8px; padding:7px 10px; min-width:150px;
+  }
+  select:focus, input:focus, button:focus-visible, .dt:focus-visible, .tab:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .chk { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--ink-soft); cursor:pointer; }
+  .iconbtn { border:1px solid var(--line-strong); background:var(--panel); color:var(--ink-faint); width:32px; height:32px; border-radius:8px; cursor:pointer; display:grid; place-items:center; }
+  .iconbtn:hover { border-color:var(--r-rrhh); color:var(--r-rrhh); }
+  .iconbtn svg { width:15px; height:15px; }
+  .addstep { border:1px dashed var(--line-strong); background:transparent; color:var(--accent-ink); border-radius:10px; padding:11px; cursor:pointer; font-size:13px; font-weight:550; display:flex; align-items:center; justify-content:center; gap:8px; }
+  .addstep:hover { border-color:var(--accent); background:var(--accent-wash); }
+  .addstep:disabled { opacity:.4; cursor:not-allowed; }
+
+  /* live diagram */
+  .diagram { margin-top:16px; padding:20px 14px; border:1px solid var(--line); border-radius:11px; background:var(--panel); overflow-x:auto; }
+  .flowline { display:flex; align-items:stretch; gap:0; min-width:min-content; }
+  .fnode { min-width:120px; border-radius:10px; padding:11px 13px; text-align:center; border:1.5px solid; flex:none; }
+  .fnode .role { font-weight:700; font-size:12.5px; }
+  .fnode .meta { font-size:10.5px; opacity:.85; margin-top:2px; }
+  .fnode .k { font-family:var(--font-mono); font-size:9.5px; letter-spacing:.05em; opacity:.75; }
+  .farrow { display:flex; align-items:center; padding:0 4px; color:var(--ink-faint); flex:none; }
+  .farrow svg { width:30px; height:14px; }
+  .fstate { background:var(--panel-2); border-color:var(--line-strong); color:var(--ink-soft); display:flex; flex-direction:column; justify-content:center; }
+
+  .export { margin-top:16px; }
+  .btn { border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:9px; padding:9px 15px; cursor:pointer; font-size:13px; font-weight:600; display:inline-flex; align-items:center; gap:8px; }
+  .btn:hover { background:var(--accent-ink); border-color:var(--accent-ink); }
+  .btn.ghost { background:transparent; color:var(--accent-ink); }
+  .btn.ghost:hover { background:var(--accent-wash); }
+  pre.json { margin:12px 0 0; background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:14px; font-family:var(--font-mono); font-size:12px; color:var(--ink); overflow-x:auto; line-height:1.55; }
+  .disclaimer { font-size:12px; color:var(--warn); display:flex; gap:8px; align-items:flex-start; margin-top:14px; }
+  .disclaimer svg { width:15px; height:15px; flex:none; margin-top:1px; }
+
+  /* ---- Access matrix ---- */
+  .legendrow { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 14px; }
+  .rolechip { display:inline-flex; align-items:center; gap:7px; font-size:11.5px; padding:4px 10px 4px 8px; border-radius:999px; border:1px solid var(--line); background:var(--panel); cursor:pointer; }
+  .rolechip .sw { width:11px; height:11px; border-radius:3px; }
+  .rolechip .lv { font-family:var(--font-mono); font-size:10.5px; color:var(--ink-faint); }
+  .rolechip.dim { opacity:.42; }
+  .tablewrap { overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
+  table.matrix { border-collapse:collapse; width:100%; min-width:760px; }
+  table.matrix th, table.matrix td { padding:0; }
+  table.matrix thead th { position:sticky; top:0; background:var(--panel); z-index:2; }
+  .colhead { padding:11px 6px 10px; text-align:center; border-bottom:2px solid var(--line-strong); border-left:1px solid var(--line); }
+  .colhead .rname { font-size:11px; font-weight:700; }
+  .colhead .rlv { font-family:var(--font-mono); font-size:10px; color:var(--ink-faint); }
+  .colhead.hi { background:var(--accent-wash); }
+  th.rowhead { text-align:left; padding:10px 14px; font-weight:550; font-size:12.5px; border-bottom:1px solid var(--line); position:sticky; left:0; background:var(--panel); z-index:1; min-width:230px; }
+  th.rowhead .rh-note { display:block; font-size:10.5px; color:var(--ink-faint); font-weight:400; margin-top:1px; }
+  .grouphead td { background:var(--panel-2); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent-ink); font-weight:700; padding:8px 14px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+  td.cell { text-align:center; border-bottom:1px solid var(--line); border-left:1px solid var(--line); height:38px; }
+  td.cell.hi { background:color-mix(in srgb, var(--accent-wash) 60%, transparent); }
+  .allow { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:6px; background:var(--allow); color:#fff; }
+  .allow svg { width:12px; height:12px; }
+  .deny { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--deny-dot); }
+
+  .summary { margin-top:14px; }
+  .summary .card { padding:15px 17px; }
+  .summary h4 { margin:0 0 4px; font-size:14px; display:flex; align-items:center; gap:9px; }
+  .summary .sw { width:13px; height:13px; border-radius:4px; }
+  .summary ul { margin:8px 0 0; padding-left:18px; columns:2; column-gap:26px; }
+  @media (max-width:640px){ .summary ul { columns:1; } }
+  .summary li { font-size:12.5px; color:var(--ink-soft); margin-bottom:3px; break-inside:avoid; }
+
+  /* ---- Sector ---- */
+  .scopepick { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  .scopetabs .card { padding:0; overflow:hidden; }
+  .scopegrid { display:grid; grid-template-columns:1.1fr 1fr; }
+  @media (max-width:760px){ .scopegrid { grid-template-columns:1fr; } }
+  .scopeleft { padding:20px; border-right:1px solid var(--line); }
+  @media (max-width:760px){ .scopeleft { border-right:none; border-bottom:1px solid var(--line); } }
+  .scopeleft h3 { margin:0 0 4px; font-size:16px; display:flex; align-items:center; gap:10px; }
+  .scopeleft .role-lv { font-family:var(--font-mono); font-size:11px; padding:2px 7px; border-radius:6px; }
+  .scopeleft p { color:var(--ink-soft); font-size:13px; margin:8px 0 0; }
+  .scoperight { padding:20px; background:var(--panel-2); }
+  .scoperight .srow { display:flex; gap:11px; padding:9px 0; border-bottom:1px dashed var(--line); font-size:13px; }
+  .scoperight .srow:last-child { border-bottom:none; }
+  .scoperight .srow .yn { width:20px; flex:none; }
+  .scoperight .yn.y { color:var(--allow); } .scoperight .yn.n { color:var(--ink-faint); }
+  .scoperight svg { width:16px; height:16px; }
+  .visual { margin-top:18px; }
+
+  /* ---- Features ---- */
+  .fgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:13px; }
+  @media (max-width:860px){ .fgrid { grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:560px){ .fgrid { grid-template-columns:1fr; } }
+  .fcard { background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:15px; box-shadow:var(--shadow); }
+  .fcard .fh { display:flex; align-items:center; gap:10px; margin-bottom:7px; }
+  .fcard .fi { width:32px; height:32px; border-radius:9px; background:var(--accent-wash); color:var(--accent-ink); display:grid; place-items:center; flex:none; }
+  .fcard .fi svg { width:17px; height:17px; }
+  .fcard h4 { margin:0; font-size:13.5px; }
+  .fcard p { margin:0; font-size:12px; color:var(--ink-soft); }
+  .fcard .tag { display:inline-block; margin-top:9px; font-size:10px; font-family:var(--font-mono); color:var(--ink-faint); border:1px solid var(--line); border-radius:6px; padding:2px 7px; }
+
+  footer { margin-top:34px; text-align:center; color:var(--ink-faint); font-size:11.5px; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+      <div>
+        <h1>Planilla de Horas</h1>
+        <p>Configuración de flujos y accesos · WENLEN</p>
+      </div>
+    </div>
+    <button class="theme-btn" id="themeBtn" aria-label="Cambiar tema">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+      <span id="themeLbl">Tema</span>
+    </button>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="flujos" role="tab"><span class="n">01</span> Flujos de aprobación</button>
+    <button class="tab" data-tab="niveles" role="tab"><span class="n">02</span> Acceso por nivel</button>
+    <button class="tab" data-tab="sectores" role="tab"><span class="n">03</span> Acceso por sector</button>
+    <button class="tab" data-tab="features" role="tab"><span class="n">04</span> Funciones</button>
+  </nav>
+  <div class="tabline"></div>
+
+  <!-- ============ FLUJOS ============ -->
+  <section class="panel active" id="p-flujos" role="tabpanel">
+    <div class="eyebrow" style="margin-top:24px">Planificador</div>
+    <h2 class="sec">Armá el flujo de cada tipo de documento</h2>
+    <p class="lead">Cada tipo de documento recorre un flujo de <b>1 a 3 pasos</b>. En cada paso definís qué rol aprueba y a quién se asigna (por sector o por un usuario específico). Diseñá el flujo acá y exportalo para cargarlo en <b>Admin → Flujos</b>.</p>
+
+    <div class="builder">
+      <div class="doctype" id="doctype"></div>
+      <div>
+        <div class="steps" id="steps"></div>
+        <button class="addstep" id="addStep" style="margin-top:12px"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> Agregar paso</button>
+
+        <div class="diagram">
+          <div class="flowline" id="flow"></div>
+        </div>
+
+        <div class="export">
+          <div style="display:flex; gap:10px; flex-wrap:wrap">
+            <button class="btn" id="exportBtn"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg> Ver / exportar JSON</button>
+            <button class="btn ghost" id="copyBtn">Copiar</button>
+          </div>
+          <pre class="json" id="jsonOut" hidden></pre>
+        </div>
+
+        <div class="disclaimer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+          <span>Es un <b>planificador</b>: diseña y exporta el flujo, no lo aplica en vivo. La carga real se hace en la app (Admin → Flujos), donde el backend valida cada paso con <span style="font-family:var(--font-mono)">isResponsibleApprover</span>.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ NIVELES ============ -->
+  <section class="panel" id="p-niveles" role="tabpanel">
+    <div class="eyebrow" style="margin-top:24px">Matriz de permisos</div>
+    <h2 class="sec">Qué puede hacer cada nivel</h2>
+    <p class="lead">Derivado de los guardas reales del backend (<span style="font-family:var(--font-mono)">requireLevel</span>). Cada acción exige un <b>nivel mínimo</b>; una celda marcada significa que ese rol y todos los superiores pueden hacerla. Tocá un rol para resaltar su columna.</p>
+    <div class="legendrow" id="legend"></div>
+    <div class="tablewrap">
+      <table class="matrix">
+        <thead><tr id="matHead"></tr></thead>
+        <tbody id="matBody"></tbody>
+      </table>
+    </div>
+    <div class="summary" id="summary"></div>
+  </section>
+
+  <!-- ============ SECTORES ============ -->
+  <section class="panel" id="p-sectores" role="tabpanel">
+    <div class="eyebrow" style="margin-top:24px">Alcance de datos</div>
+    <h2 class="sec">Qué ve cada rol según su sector</h2>
+    <p class="lead">El nivel decide <i>qué acciones</i>; el <b>sector</b> decide <i>sobre qué datos</i>. Un supervisor solo aprueba y ve lo de su sector y su gente; RRHH y ADMIN ven toda la empresa. Los flujos se asignan por sector, así que dos sectores pueden tener cadenas de aprobación distintas.</p>
+    <div class="scopepick" id="scopePick"></div>
+    <div class="scopetabs">
+      <div class="card">
+        <div class="scopegrid">
+          <div class="scopeleft">
+            <h3 id="scopeName"></h3>
+            <p id="scopeDesc"></p>
+            <div class="visual" id="scopeVisual"></div>
+          </div>
+          <div class="scoperight" id="scopeRight"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FEATURES ============ -->
+  <section class="panel" id="p-features" role="tabpanel">
+    <div class="eyebrow" style="margin-top:24px">Módulos</div>
+    <h2 class="sec">Todo lo que hace la app</h2>
+    <p class="lead">Las demás funciones, agrupadas por módulo. El código de color marca el nivel mínimo típico para gestionarlas.</p>
+    <div class="fgrid" id="fgrid"></div>
+  </section>
+
+  <footer>Panel de configuración · Planilla de Horas — WENLEN · datos de acceso extraídos del código de la aplicación</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(s, r){ return (r||document).querySelector(s); };
+  var el = function(t, c, h){ var e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e; };
+  var svgCheck = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  var svgArrow = '<svg viewBox="0 0 30 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 7h26M22 2l6 5-6 5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  /* ---------- roles ---------- */
+  var ROLES = [
+    {k:'OPERADOR', lv:10, v:'op'},
+    {k:'SUPERVISOR', lv:60, v:'sup'},
+    {k:'COORDINADOR', lv:70, v:'coord'},
+    {k:'CMASS', lv:75, v:'cmass'},
+    {k:'GERENTE', lv:80, v:'ger'},
+    {k:'RRHH', lv:90, v:'rrhh'},
+    {k:'ADMIN', lv:100, v:'adm'}
+  ];
+  var roleColor = function(v){ return getComputedStyle(document.documentElement).getPropertyValue('--r-'+v).trim(); };
+
+  /* ---------- THEME ---------- */
+  var root = document.documentElement;
+  function applyThemeLabel(){
+    var dark = root.getAttribute('data-theme')==='dark' ||
+      (!root.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+    $('#themeLbl').textContent = dark ? 'Claro' : 'Oscuro';
+    $('#themeIcon').innerHTML = dark
+      ? '<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/>'
+      : '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/>';
+    // refresh color-dependent renders
+    renderLegend(); renderMatrix(); renderFlow();
+  }
+  $('#themeBtn').addEventListener('click', function(){
+    var dark = root.getAttribute('data-theme')==='dark' ||
+      (!root.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+    root.setAttribute('data-theme', dark ? 'light' : 'dark');
+    applyThemeLabel();
+  });
+
+  /* ---------- TABS ---------- */
+  var tabs = document.querySelectorAll('.tab');
+  tabs.forEach(function(t){
+    t.addEventListener('click', function(){
+      tabs.forEach(function(x){ x.classList.remove('active'); x.setAttribute('aria-selected','false'); });
+      document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
+      t.classList.add('active'); t.setAttribute('aria-selected','true');
+      $('#p-'+t.dataset.tab).classList.add('active');
+    });
+  });
+
+  /* ================= 01 · FLUJOS ================= */
+  var APPROVER_ROLES = ['SUPERVISOR','COORDINADOR','GERENTE','RRHH'];
+  var roleVfromK = function(k){ var r=ROLES.filter(function(x){return x.k===k;})[0]; return r?r.v:'sup'; };
+  var DOCTYPES = [
+    {id:'PLANILLA', name:'Planilla de horas', desc:'Horas del período', icon:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+      def:[{role:'SUPERVISOR',asig:'sector',comment:true},{role:'COORDINADOR',asig:'sector',comment:true},{role:'RRHH',asig:'sector',comment:true}]},
+    {id:'VACACION', name:'Vacaciones', desc:'Solicitud de licencia', icon:'<path d="M3 22h18"/><path d="M20 22V10l-8-6-8 6v12"/><path d="M9 22V12h6v10"/>',
+      def:[{role:'SUPERVISOR',asig:'sector',comment:true},{role:'RRHH',asig:'sector',comment:true}]},
+    {id:'AUSENCIA', name:'Ausencia', desc:'Certificado / falta / comp.', icon:'<path d="M8 2v4M16 2v4M3 10h18"/><rect x="3" y="4" width="18" height="18" rx="2"/>',
+      def:[{role:'SUPERVISOR',asig:'sector',comment:true},{role:'RRHH',asig:'sector',comment:true}]},
+    {id:'CAMBIO_DIAGRAMA', name:'Cambio de diagrama', desc:'Rotación del empleado', icon:'<path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+      def:[{role:'COORDINADOR',asig:'sector',comment:true},{role:'RRHH',asig:'sector',comment:true}]}
+  ];
+  var flows = {}; DOCTYPES.forEach(function(d){ flows[d.id] = d.def.map(function(s){ return {role:s.role, asig:s.asig, comment:s.comment}; }); });
+  var curDoc = 'PLANILLA';
+
+  function renderDoctype(){
+    var box = $('#doctype'); box.innerHTML='';
+    DOCTYPES.forEach(function(d){
+      var b = el('button','dt'+(d.id===curDoc?' active':''));
+      b.innerHTML = '<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+d.icon+'</svg></span><span><b>'+d.name+'</b><span>'+d.desc+'</span></span>';
+      b.addEventListener('click', function(){ curDoc=d.id; renderDoctype(); renderSteps(); renderFlow(); $('#jsonOut').hidden=true; });
+      box.appendChild(b);
+    });
+  }
+  function renderSteps(){
+    var box = $('#steps'); box.innerHTML='';
+    var st = flows[curDoc];
+    st.forEach(function(s, i){
+      var row = el('div','steprow');
+      var opts = APPROVER_ROLES.map(function(r){ return '<option value="'+r+'"'+(r===s.role?' selected':'')+'>'+r+'</option>'; }).join('');
+      row.innerHTML =
+        '<div class="stepno">'+(i+1)+'</div>'+
+        '<div class="rowflex">'+
+          '<div class="field"><label>Rol aprobador</label><select data-i="'+i+'" data-f="role">'+opts+'</select></div>'+
+          '<div class="field"><label>Asignación</label><select data-i="'+i+'" data-f="asig">'+
+            '<option value="sector"'+(s.asig==='sector'?' selected':'')+'>Por sector</option>'+
+            '<option value="usuario"'+(s.asig==='usuario'?' selected':'')+'>Usuario específico</option>'+
+          '</select></div>'+
+          '<div class="field" style="justify-content:flex-end"><label>&nbsp;</label><label class="chk"><input type="checkbox" data-i="'+i+'" data-f="comment"'+(s.comment?' checked':'')+'> Comentario obligatorio al rechazar</label></div>'+
+        '</div>'+
+        '<button class="iconbtn" title="Quitar paso" data-del="'+i+'"'+(st.length===1?' disabled style="opacity:.35"':'')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>';
+      box.appendChild(row);
+    });
+    box.querySelectorAll('select,input[type=checkbox]').forEach(function(ctrl){
+      ctrl.addEventListener('change', function(){
+        var i=+ctrl.dataset.i, f=ctrl.dataset.f;
+        flows[curDoc][i][f] = (ctrl.type==='checkbox') ? ctrl.checked : ctrl.value;
+        renderFlow();
+      });
+    });
+    box.querySelectorAll('[data-del]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        if(flows[curDoc].length<=1) return;
+        flows[curDoc].splice(+btn.dataset.del,1); renderSteps(); renderFlow();
+      });
+    });
+    $('#addStep').disabled = st.length>=3;
+  }
+  function renderFlow(){
+    var box = $('#flow'); if(!box) return; box.innerHTML='';
+    var owner = el('div','fnode fstate');
+    owner.innerHTML = '<div class="role">Dueño</div><div class="meta">crea y envía</div>';
+    box.appendChild(owner);
+    flows[curDoc].forEach(function(s, i){
+      box.appendChild(arrow());
+      var v = roleVfromK(s.role), c = roleColor(v);
+      var n = el('div','fnode');
+      n.style.borderColor = c; n.style.background = 'var(--r-'+v+'-w)'; n.style.color = c;
+      n.innerHTML = '<div class="k">PASO '+(i+1)+'</div><div class="role">'+s.role+'</div><div class="meta">'+(s.asig==='sector'?'por sector':'usuario específico')+'</div>';
+      box.appendChild(n);
+    });
+    box.appendChild(arrow());
+    var done = el('div','fnode');
+    var g = roleColor('sup');
+    done.style.borderColor='var(--allow)'; done.style.color='var(--allow)'; done.style.background='var(--accent-wash)';
+    done.innerHTML='<div class="role">APROBADA</div><div class="meta">'+(curDoc==='PLANILLA'?'→ cierre RRHH':'fin del flujo')+'</div>';
+    box.appendChild(done);
+    function arrow(){ var a=el('div','farrow',svgArrow); return a; }
+  }
+  $('#addStep').addEventListener('click', function(){
+    if(flows[curDoc].length>=3) return;
+    flows[curDoc].push({role:'RRHH',asig:'sector',comment:true}); renderSteps(); renderFlow();
+  });
+  $('#exportBtn').addEventListener('click', function(){
+    var out = { tipoDocumento: curDoc, activo:true, pasos: flows[curDoc].map(function(s,i){
+      return { orden:i+1, rolAprobador:s.role, asignacion:s.asig, requiereComentarioRechazo:s.comment };
+    })};
+    var pre=$('#jsonOut'); pre.textContent = JSON.stringify(out,null,2); pre.hidden=false;
+  });
+  $('#copyBtn').addEventListener('click', function(){
+    var out = { tipoDocumento: curDoc, activo:true, pasos: flows[curDoc].map(function(s,i){
+      return { orden:i+1, rolAprobador:s.role, asignacion:s.asig, requiereComentarioRechazo:s.comment };
+    })};
+    var txt = JSON.stringify(out,null,2);
+    if(navigator.clipboard) navigator.clipboard.writeText(txt);
+    var b=$('#copyBtn'); var o=b.textContent; b.textContent='¡Copiado!'; setTimeout(function(){b.textContent=o;},1400);
+  });
+
+  /* ================= 02 · MATRIZ ================= */
+  // min = nivel mínimo real (requireLevel). Extraído de las rutas del backend.
+  var MATRIX = [
+    {g:'Planilla de horas', items:[
+      {t:'Cargar y editar mi planilla', min:10},
+      {t:'Enviar mi planilla', min:10},
+      {t:'Aprobar / rechazar (avanzar)', min:60},
+      {t:'Marcar día / validar marcas (plan B)', min:60},
+      {t:'Franco compensatorio', min:60},
+      {t:'Cerrar planilla', min:90},
+      {t:'Reabrir planilla', min:100}
+    ]},
+    {g:'Vacaciones', items:[
+      {t:'Solicitar / enviar mis vacaciones', min:10},
+      {t:'Ver mi saldo', min:10},
+      {t:'Aprobar / rechazar', min:60},
+      {t:'Ver / generar / ajustar saldos', min:90}
+    ]},
+    {g:'Ausencias', items:[
+      {t:'Solicitar mi ausencia', min:10},
+      {t:'Ver ausencias de subordinados', min:60},
+      {t:'Crear / enviar / aprobar / rechazar', min:60},
+      {t:'Editar o eliminar una ausencia', min:90}
+    ]},
+    {g:'Cambios de diagrama', items:[
+      {t:'Ver pendientes', min:60},
+      {t:'Aprobar / rechazar', min:60},
+      {t:'Crear solicitud / ver diagramas', min:70}
+    ]},
+    {g:'Capacitaciones', items:[
+      {t:'Ver tipos, registros y resumen', min:70},
+      {t:'Sesiones: crear, invitar, finalizar', min:70},
+      {t:'Crear/editar tipos y registros', min:90}
+    ]},
+    {g:'WENTOP (HSE)', items:[
+      {t:'Reportar y ver tarjetas', min:10},
+      {t:'Ver gestores', min:75},
+      {t:'Asignar / quitar gestores', min:90}
+    ]},
+    {g:'Analytics', items:[
+      {t:'Dashboard propio', min:10},
+      {t:'Sectores / sector / diagramas', min:70},
+      {t:'Dashboard de empresa (global)', min:90}
+    ]},
+    {g:'Personal (usuarios)', items:[
+      {t:'Ver lista / ficha básica', min:10, note:'con alcance por sector'},
+      {t:'Color de diagrama del equipo', min:70},
+      {t:'Ficha completa / crear / editar / reset', min:90},
+      {t:'Asignar sector / dar de baja', min:100}
+    ]},
+    {g:'Mensajería y notificaciones', items:[
+      {t:'Bandeja, leer, responder', min:10},
+      {t:'Enviar mensajes y difusiones', min:90},
+      {t:'Crear notificaciones a terceros', min:90}
+    ]},
+    {g:'Exportaciones', items:[
+      {t:'Excel de mi planilla', min:10, note:'dueño o RRHH+'},
+      {t:'Excel por sector / pendientes / cierre', min:90},
+      {t:'Historial de exportaciones', min:90}
+    ]},
+    {g:'Administración', items:[
+      {t:'Alertas', min:90},
+      {t:'Auditoría', min:90},
+      {t:'Roles (ver)', min:90},
+      {t:'Config, sectores, diagramas, flujos', min:100},
+      {t:'Roles (crear/editar), backups', min:100}
+    ]}
+  ];
+  var hiRole = null;
+
+  function renderLegend(){
+    var box=$('#legend'); if(!box) return; box.innerHTML='';
+    ROLES.forEach(function(r){
+      var chip=el('button','rolechip'+(hiRole&&hiRole!==r.v?' dim':''));
+      chip.innerHTML='<span class="sw" style="background:'+roleColor(r.v)+'"></span>'+r.k+' <span class="lv">'+r.lv+'</span>';
+      chip.addEventListener('click', function(){ hiRole = (hiRole===r.v)?null:r.v; renderLegend(); renderMatrix(); renderSummary(); });
+      box.appendChild(chip);
+    });
+  }
+  function renderMatrix(){
+    var head=$('#matHead'); if(!head) return; head.innerHTML='<th class="rowhead">Acción</th>';
+    ROLES.forEach(function(r){
+      var th=el('th','colhead'+(hiRole===r.v?' hi':''));
+      th.innerHTML='<div class="rname" style="color:'+roleColor(r.v)+'">'+r.k+'</div><div class="rlv">'+r.lv+'</div>';
+      head.appendChild(th);
+    });
+    var body=$('#matBody'); body.innerHTML='';
+    MATRIX.forEach(function(grp){
+      var gr=el('tr','grouphead'); gr.innerHTML='<td colspan="8">'+grp.g+'</td>'; body.appendChild(gr);
+      grp.items.forEach(function(it){
+        var tr=el('tr');
+        var rh=el('th','rowhead'); rh.innerHTML=it.t+(it.note?'<span class="rh-note">'+it.note+'</span>':''); tr.appendChild(rh);
+        ROLES.forEach(function(r){
+          var td=el('td','cell'+(hiRole===r.v?' hi':''));
+          if(r.lv>=it.min) td.innerHTML='<span class="allow">'+svgCheck+'</span>';
+          else td.innerHTML='<span class="deny"></span>';
+          tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+    });
+  }
+  function renderSummary(){
+    var box=$('#summary'); if(!box) return;
+    if(!hiRole){ box.innerHTML=''; return; }
+    var r=ROLES.filter(function(x){return x.v===hiRole;})[0];
+    var can=[];
+    MATRIX.forEach(function(grp){ grp.items.forEach(function(it){ if(r.lv>=it.min) can.push(it.t); }); });
+    box.innerHTML='<div class="card"><h4><span class="sw" style="background:'+roleColor(r.v)+'"></span>'+r.k+' <span style="font-family:var(--font-mono);font-size:12px;color:var(--ink-faint)">nivel '+r.lv+'</span> · puede '+can.length+' acciones</h4><ul>'+can.map(function(c){return '<li>'+c+'</li>';}).join('')+'</ul></div>';
+  }
+
+  /* ================= 03 · SECTORES ================= */
+  var SCOPES = [
+    {v:'op', k:'OPERADOR', lv:10, desc:'Ve y gestiona únicamente lo suyo. No tiene visibilidad del resto del equipo.',
+      rows:[['Sus propios documentos',1],['Compañeros de su sector',0],['Otros sectores',0],['Aprobar documentos',0],['Datos de toda la empresa',0]],
+      vis:'self'},
+    {v:'sup', k:'SUPERVISOR', lv:60, desc:'Ve a su equipo y su sector. Aprueba el paso que le toca solo para su sector o su cadena directa.',
+      rows:[['Lo suyo',1],['Su sector y subordinados',1],['Otros sectores',0],['Aprobar (su sector / cadena)',1],['Datos de toda la empresa',0]],
+      vis:'sector'},
+    {v:'coord', k:'COORDINADOR', lv:70, desc:'Como el supervisor pero un escalón más: su sector, sus subordinados directos y la cadena que coordina.',
+      rows:[['Lo suyo',1],['Su sector y su gente',1],['Otros sectores',0],['Aprobar (su sector / cadena)',1],['Datos de toda la empresa',0]],
+      vis:'sector'},
+    {v:'ger', k:'GERENTE', lv:80, desc:'Rol transversal sin sector fijo. Orientado a lectura y analítica; la aprobación depende del flujo y del alcance por sector.',
+      rows:[['Lo suyo',1],['Analítica por sector',1],['Otros sectores (lectura)',1],['Aprobar',0],['Dashboard de empresa',0]],
+      vis:'cross'},
+    {v:'rrhh', k:'RRHH / ADMIN', lv:90, desc:'Alcance total: toda la empresa, todos los sectores. RRHH cierra y gestiona; ADMIN además configura el sistema.',
+      rows:[['Lo suyo',1],['Todos los sectores',1],['Aprobar en cualquier sector',1],['Cerrar / gestionar personal',1],['Dashboard de empresa',1]],
+      vis:'all'}
+  ];
+  var curScope='sup';
+  function renderScopePick(){
+    var box=$('#scopePick'); box.innerHTML='';
+    SCOPES.forEach(function(s){
+      var b=el('button','rolechip'+(s.v===curScope?'':' dim'));
+      b.innerHTML='<span class="sw" style="background:'+roleColor(s.v==='rrhh'?'rrhh':s.v)+'"></span>'+s.k+' <span class="lv">'+s.lv+'</span>';
+      b.addEventListener('click', function(){ curScope=s.v; renderScopePick(); renderScope(); });
+      box.appendChild(b);
+    });
+  }
+  function renderScope(){
+    var s=SCOPES.filter(function(x){return x.v===curScope;})[0];
+    var col=roleColor(s.v==='rrhh'?'rrhh':s.v);
+    $('#scopeName').innerHTML=s.k+' <span class="role-lv" style="background:var(--r-'+(s.v==='rrhh'?'rrhh':s.v)+'-w);color:'+col+'">nivel '+s.lv+'</span>';
+    $('#scopeDesc').textContent=s.desc;
+    var yes='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+    var no='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+    $('#scopeRight').innerHTML = s.rows.map(function(r){
+      return '<div class="srow"><span class="yn '+(r[1]?'y':'n')+'">'+(r[1]?yes:no)+'</span><span>'+r[0]+'</span></div>';
+    }).join('');
+    $('#scopeVisual').innerHTML = scopeVisual(s.vis, col);
+  }
+  function scopeVisual(kind, col){
+    var w=320, cell=30, gap=8, cols=4, rows=3;
+    var grid='';
+    for(var r=0;r<rows;r++) for(var c=0;c<cols;c++){
+      var x=c*(cell+gap), y=r*(cell+gap);
+      var on=false, sector=(c<2); // primeras 2 columnas = "mi sector"
+      if(kind==='self') on=(r===0&&c===0);
+      else if(kind==='sector') on=sector;
+      else if(kind==='cross') on=(r===0);
+      else on=true;
+      grid+='<rect x="'+x+'" y="'+y+'" width="'+cell+'" height="'+cell+'" rx="6" fill="'+(on?col:'var(--panel-2)')+'" stroke="'+(on?col:'var(--line)')+'" opacity="'+(on?1:.9)+'"/>';
+      if(on) grid+='<circle cx="'+(x+cell/2)+'" cy="'+(y+cell/2)+'" r="3.4" fill="#fff" opacity=".92"/>';
+    }
+    var gw=cols*(cell+gap)-gap, gh=rows*(cell+gap)-gap;
+    return '<svg viewBox="0 0 '+(gw+2)+' '+(gh+20)+'" style="width:100%;max-width:'+ (gw+2) +'px"><g transform="translate(1,1)">'+grid+'</g>'+
+      '<text x="0" y="'+(gh+15)+'" font-size="10" fill="var(--ink-faint)" font-family="var(--font-mono)">■ visible para este rol · cada celda = un empleado</text></svg>';
+  }
+
+  /* ================= 04 · FEATURES ================= */
+  var FEATURES = [
+    {i:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>', t:'Planilla de horas', d:'Carga diaria de Base/Campo, cálculo automático por convenio (normales, 50%, 100%), período 21→20.', tag:'operador +'},
+    {i:'<path d="M3 22h18"/><path d="M20 22V10l-8-6-8 6v12"/>', t:'Vacaciones', d:'Solicitud con saldo por antigüedad, reserva/uso automático y vista Gantt del equipo.', tag:'operador +'},
+    {i:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/>', t:'Ausencias', d:'Certificado médico, faltas, licencias y francos compensatorios con su propio saldo.', tag:'operador +'},
+    {i:'<path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>', t:'Cambios de diagrama', d:'Solicitud y aprobación de cambios de rotación, con flujo propio y fecha efectiva.', tag:'supervisor +'},
+    {i:'<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>', t:'Capacitaciones', d:'Tipos con vencimiento, sesiones con cupo e invitaciones, registro automático de asistentes.', tag:'coordinador +'},
+    {i:'<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>', t:'WENTOP · HSE', d:'Tarjetas de observación de seguridad, ciclo abierta→cerrada, gestores y analítica.', tag:'operador +'},
+    {i:'<path d="M3 3v18h18"/><path d="M7 15l3-3 3 3 5-6"/>', t:'Analytics', d:'Tableros por empresa, sector y usuario: horas, extras y ausentismo, con alcance por rol.', tag:'coordinador +'},
+    {i:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>', t:'Mensajería', d:'Bandeja interna, envíos a personas o roles, difusiones, respuestas y adjuntos.', tag:'todos'},
+    {i:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>', t:'Notificaciones', d:'Avisos de cada acción del flujo al destinatario correcto, con contador por polling.', tag:'todos'},
+    {i:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01"/>', t:'Calendario y diagramas', d:'Calendario de equipo, diagramas rotativos o fijos y asignación por usuario.', tag:'supervisor +'},
+    {i:'<path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 13l2 2 4-4"/>', t:'Exportaciones', d:'Excel de planilla, por sector, pendientes y cierre de período, con historial.', tag:'RRHH +'},
+    {i:'<path d="M20 7h-9M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>', t:'Administración', d:'Config del convenio, roles, sectores, diagramas, flujos y alertas del sistema.', tag:'admin'},
+    {i:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>', t:'Auditoría', d:'Registro de operaciones sensibles con valor anterior y nuevo, para trazabilidad.', tag:'RRHH +'},
+    {i:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/>', t:'Personal · RRHH', d:'Alta/baja de empleados, sector y diagrama, reseteo de clave y saldos de vacaciones.', tag:'RRHH +'},
+    {i:'<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5M3 12a9 3 0 0 0 18 0"/>', t:'Backups', d:'Respaldos programados de la base con monitoreo de salud de la conexión.', tag:'admin'}
+  ];
+  function renderFeatures(){
+    var box=$('#fgrid'); box.innerHTML='';
+    FEATURES.forEach(function(f){
+      var c=el('div','fcard');
+      c.innerHTML='<div class="fh"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+f.i+'</svg></span><h4>'+f.t+'</h4></div><p>'+f.d+'</p><span class="tag">nivel: '+f.tag+'</span>';
+      box.appendChild(c);
+    });
+  }
+
+  /* ---------- init ---------- */
+  renderDoctype(); renderSteps(); renderFlow();
+  renderLegend(); renderMatrix();
+  renderScopePick(); renderScope();
+  renderFeatures();
+  applyThemeLabel();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyThemeLabel);
+})();
+</script>
+</body>
+</html>
