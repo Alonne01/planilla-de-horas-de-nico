@@ -1511,26 +1511,33 @@ function TarjetaFormModal({
   const draftOwner = user?.id ?? 'anon';
   const draftKey = isEdit ? draftKeyEdit(draftOwner, tarjeta.id) : draftKeyNew(draftOwner);
 
+  // Con qué se inicializa el formulario: si el detalle ya resolvió (lo normal
+  // al entrar por "Editar" desde TarjetaDetailModal, que puebla la misma
+  // queryKey un instante antes), usamos ESE dato en vez de la fila del
+  // listado — que puede estar desactualizada si alguien más editó la tarjeta
+  // mientras tanto. Si todavía no resolvió (o es creación), cae a `tarjeta`.
+  const inicial = detalle ?? tarjeta;
+
   // Form state
   const [fechaReporte, setFechaReporte] = useState(
-    tarjeta?.fechaReporte?.split('T')[0] ?? new Date().toISOString().split('T')[0],
+    inicial?.fechaReporte?.split('T')[0] ?? new Date().toISOString().split('T')[0],
   );
-  const [tipoTarjeta, setTipoTarjeta] = useState(tarjeta?.tipoTarjeta ?? '');
-  const [sectorObservacionId, setSectorObservacionId] = useState(tarjeta?.sectorObservacionId ?? '');
-  const [sectorTercero, setSectorTercero] = useState(tarjeta?.sectorTercero ?? false);
-  const [cliente, setCliente] = useState(tarjeta?.cliente ?? '');
-  const [lugarPozoLocacion, setLugarPozoLocacion] = useState(tarjeta?.lugarPozoLocacion ?? '');
-  const [descripcion, setDescripcion] = useState(tarjeta?.descripcion ?? '');
-  const [accionesInmediatas, setAccionesInmediatas] = useState(tarjeta?.accionesInmediatas ?? '');
-  const [recomendaciones, setRecomendaciones] = useState(tarjeta?.recomendaciones ?? '');
+  const [tipoTarjeta, setTipoTarjeta] = useState(inicial?.tipoTarjeta ?? '');
+  const [sectorObservacionId, setSectorObservacionId] = useState(inicial?.sectorObservacionId ?? '');
+  const [sectorTercero, setSectorTercero] = useState(inicial?.sectorTercero ?? false);
+  const [cliente, setCliente] = useState(inicial?.cliente ?? '');
+  const [lugarPozoLocacion, setLugarPozoLocacion] = useState(inicial?.lugarPozoLocacion ?? '');
+  const [descripcion, setDescripcion] = useState(inicial?.descripcion ?? '');
+  const [accionesInmediatas, setAccionesInmediatas] = useState(inicial?.accionesInmediatas ?? '');
+  const [recomendaciones, setRecomendaciones] = useState(inicial?.recomendaciones ?? '');
   const [justificacionAbierta, setJustificacionAbierta] = useState(
-    tarjeta?.justificacionAbierta ?? '',
+    inicial?.justificacionAbierta ?? '',
   );
 
   // Categories
-  const [calidad, setCalidad] = useState<string[]>(tarjeta?.calidad ?? []);
-  const [medioambiente, setMedioambiente] = useState<string[]>(tarjeta?.medioambiente ?? []);
-  const [seguridadSalud, setSeguridadSalud] = useState<string[]>(tarjeta?.seguridadSalud ?? []);
+  const [calidad, setCalidad] = useState<string[]>(inicial?.calidad ?? []);
+  const [medioambiente, setMedioambiente] = useState<string[]>(inicial?.medioambiente ?? []);
+  const [seguridadSalud, setSeguridadSalud] = useState<string[]>(inicial?.seguridadSalud ?? []);
 
   // Photos (new uploads)
   const [newFiles, setNewFiles] = useState<File[]>([]);
@@ -1547,7 +1554,7 @@ function TarjetaFormModal({
 
   // Campos secundarios: ocultos hasta que hagan falta
   const [showExtras, setShowExtras] = useState(
-    !!(tarjeta?.recomendaciones || tarjeta?.justificacionAbierta),
+    !!(inicial?.recomendaciones || inicial?.justificacionAbierta),
   );
 
   // Draft system
