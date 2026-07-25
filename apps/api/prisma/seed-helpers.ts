@@ -10,17 +10,21 @@
  * Devuelve `creada` para que el seed pueda informar cuántas filas creó de
  * verdad, en vez de imprimir cantidades fijas que serían mentira en una
  * segunda corrida.
+ *
+ * `where` tiene que ser un subconjunto de `data` con los mismos valores: si no,
+ * la idempotencia se rompe en silencio (crea una fila duplicada en cada
+ * corrida, sin error, e informando `creada: true` cada vez).
  */
-export interface DelegadoBuscable {
-  findFirst(args: { where: Record<string, unknown> }): Promise<any>;
-  create(args: { data: Record<string, unknown> }): Promise<any>;
-}
-
-export async function buscarOCrear(
-  delegado: DelegadoBuscable,
-  where: Record<string, unknown>,
-  data: Record<string, unknown>,
-): Promise<{ fila: any; creada: boolean }> {
+export async function buscarOCrear<
+  D extends {
+    findFirst(args: { where: any }): Promise<any>;
+    create(args: { data: any }): Promise<any>;
+  },
+>(
+  delegado: D,
+  where: Parameters<D['findFirst']>[0]['where'],
+  data: Parameters<D['create']>[0]['data'],
+): Promise<{ fila: Awaited<ReturnType<D['create']>>; creada: boolean }> {
   const existente = await delegado.findFirst({ where });
   if (existente) return { fila: existente, creada: false };
   return { fila: await delegado.create({ data }), creada: true };
