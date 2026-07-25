@@ -111,7 +111,8 @@ async function run() {
     assert.strictEqual(c[0].tiempoLimiteHoras, 48);
     assert.deepStrictEqual(c[0].notificarRoles, ['OPERADOR']);
   }
-  // 9. Rol sin nivel conocido (borrado o desactivado) vale 0: nunca se saltea
+  // 9. Rol sin nivel conocido (borrado o desactivado): no entra al filtro por
+  //    nivel, así que nunca se saltea
   {
     const conHuerfano: PasoCircuito[] = [
       { ...CADENA[0], rolAprobador: 'CAPATAZ_BORRADO' },
@@ -174,13 +175,19 @@ export interface PasoCircuito {
  * coordinador; sí un gerente y RRHH.
  *
  * Garantía: nunca devuelve cero pasos si la cadena tenía alguno. Si el nivel
- * del solicitante saltea todo (por ejemplo, RRHH en una cadena que termina en
- * RRHH), se conserva el ÚLTIMO paso de la cadena original. Así nadie se aprueba
- * a sí mismo y siempre queda una firma ajena. La guarda que impide que el
- * propio solicitante firme ese paso vive en las rutas, no acá.
+ * del solicitante saltea todo paso de nivel CONOCIDO (por ejemplo, RRHH en una
+ * cadena que termina en RRHH), se conserva el ÚLTIMO paso de la cadena
+ * original. Así nadie se aprueba a sí mismo y siempre queda una firma ajena.
+ * La guarda que impide que el propio solicitante firme ese paso vive en las
+ * rutas, no acá.
  *
- * Un rol sin entrada en `nivelPorRol` (borrado, o desactivado) vale 0, así que
- * su paso nunca se saltea: el problema queda a la vista en vez de esconderse.
+ * Un rol SIN entrada en `nivelPorRol` (borrado, o desactivado — `nivelesPorRol`
+ * solo trae roles activos) no tiene nivel con el que compararlo: no entra en
+ * el filtro por nivel y queda SIEMPRE en el circuito, sin condición. Si se le
+ * asignara un nivel arbitrario (por ejemplo 0) terminaría salteado por el
+ * mismo filtro normal en cuanto el solicitante tuviera nivel > 0, que es
+ * exactamente lo contrario de "nunca se saltea": el problema tiene que verse,
+ * no esconderse.
  *
  * Devuelve pasos RENUMERADOS desde 1: `pasoActual` del documento indexa este
  * circuito, no la cadena configurada.
@@ -193,14 +200,34 @@ export function construirCircuito(
   if (pasos.length === 0) return [];
 
   const enOrden = [...pasos].sort((a, b) => a.orden - b.orden);
-  const nivelDe = (rol: string): number => nivelPorRol[rol] ?? 0;
 
-  let sobrevivientes = enOrden.filter((p) => nivelDe(p.rolAprobador) > nivelSolicitante);
-  if (sobrevivientes.length === 0) {
-    sobrevivientes = [enOrden[enOrden.length - 1]];
+  // Distingue "el rol tiene nivel conocido" de "vale 0": son cosas distintas.
+  // Un huérfano no participa del filtro por nivel en absoluto.
+  const tieneNivelConocido = (rol: string) =>
+    Object.prototype.hasOwnProperty.call(nivelPorRol, rol);
+
+  const conocidos = enOrden.filter((p) => tieneNivelConocido(p.rolAprobador));
+  const huerfanos = enOrden.filter((p) => !tieneNivelConocido(p.rolAprobador));
+
+  const sobrevivientesConocidos = conocidos.filter(
+    (p) => nivelPorRol[p.rolAprobador] > nivelSolicitante,
+  );
+
+  // La garantía del último paso se evalúa solo contra los pasos de nivel
+  // conocido: si ninguno sobrevive, se agrega el último paso de la cadena
+  // ORIGINAL completa (aunque sea un huérfano, en cuyo caso ya está incluido
+  // más abajo y el Map de más adelante lo deduplica sin problema).
+  const garantia = sobrevivientesConocidos.length === 0 ? [enOrden[enOrden.length - 1]] : [];
+
+  // Dedupe por `orden` original y se reordena para no depender del orden de
+  // concatenación de los tres grupos.
+  const porOrdenOriginal = new Map<number, PasoCircuito>();
+  for (const p of [...sobrevivientesConocidos, ...huerfanos, ...garantia]) {
+    porOrdenOriginal.set(p.orden, p);
   }
+  const final = [...porOrdenOriginal.values()].sort((a, b) => a.orden - b.orden);
 
-  return sobrevivientes.map((p, i) => ({ ...p, orden: i + 1 }));
+  return final.map((p, i) => ({ ...p, orden: i + 1 }));
 }
 ```
 
