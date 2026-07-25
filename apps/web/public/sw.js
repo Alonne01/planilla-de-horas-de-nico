@@ -1,4 +1,4 @@
-const CACHE_NAME = 'planilla-horas-v2';
+const CACHE_NAME = 'planilla-horas-v3';
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -36,9 +36,28 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Never cache /api calls
+  // Never cache /api calls.
+  // Si el servidor no contesta (apagado, sin red, corte de luz en la oficina)
+  // respondemos un 503 propio: la app lo reconoce y muestra el cartel de
+  // "servidor inactivo" en vez de dejar que el usuario cargue datos que se
+  // van a perder. Esto funciona aunque el servidor esté completamente caído,
+  // porque este código corre en el dispositivo del usuario.
   if (url.pathname.startsWith('/api')) {
-    event.respondWith(fetch(event.request));
+    event.respondWith(
+      fetch(event.request).catch(() =>
+        new Response(
+          JSON.stringify({ error: 'SERVIDOR_INACTIVO' }),
+          {
+            status: 503,
+            statusText: 'Servidor inactivo',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Servidor-Inactivo': '1',
+            },
+          }
+        )
+      )
+    );
     return;
   }
 

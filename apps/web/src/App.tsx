@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useEffect, useState } from 'react';
-import api from '@/services/api';
+import api, { esServidorCaido } from '@/services/api';
 import '@/stores/themeStore'; // initialize theme on load
 import LoginPage from '@/pages/auth/LoginPage';
 import ChangePasswordPage from '@/pages/auth/ChangePasswordPage';
@@ -36,11 +36,18 @@ import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react
 import { toast } from '@/stores/toastStore';
 import Toaster from '@/components/ui/Toaster';
 import GlobalDialog from '@/components/ui/GlobalDialog';
+import ServidorInactivo from '@/components/ServidorInactivo';
 
 const queryClient = new QueryClient({
   mutationCache: new MutationCache({
     onError: (error: unknown) => {
-      const err = error as { response?: { data?: { error?: string }; status?: number } };
+      const err = error as {
+        code?: string;
+        response?: { data?: { error?: string }; status?: number };
+      };
+      // Con el servidor caído ya se muestra el cartel bloqueante: un toast
+      // encima sería ruido, y además diría "SERVIDOR_INACTIVO".
+      if (esServidorCaido(err)) return;
       const message = err.response?.data?.error || 'Ocurrió un error inesperado';
       toast({ title: 'Error', description: message, variant: 'destructive' });
     },
@@ -168,6 +175,7 @@ export default function App() {
       </AuthInitializer>
       <Toaster />
       <GlobalDialog />
+      <ServidorInactivo />
     </QueryClientProvider>
   );
 }

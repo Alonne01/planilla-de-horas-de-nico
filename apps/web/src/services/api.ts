@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
+import { useServerStatus } from '@/stores/serverStatusStore';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -45,10 +46,44 @@ function processQueue(error: unknown, token: string | null = null) {
   failedQueue = [];
 }
 
+/**
+ * ¿Este error significa que el servidor no está contestando?
+ *
+ * Sí en tres casos:
+ *   - No hay respuesta (ERR_NETWORK): la máquina está apagada o sin red.
+ *   - El service worker devolvió su 503 de cortesía porque el fetch no llegó.
+ *   - nginx contestó 502/503/504: está vivo pero el API que tiene detrás no.
+ *
+ * No: cualquier otro 4xx/5xx — ahí el API está vivo y respondió, aunque sea
+ * con un error. Un 500 puntual no debe bloquear la aplicación entera.
+ */
+export function esServidorCaido(error: {
+  code?: string;
+  response?: { status?: number; data?: { error?: string } };
+}): boolean {
+  const status = error.response?.status;
+  if (status !== undefined) {
+    return status === 502 || status === 503 || status === 504;
+  }
+  // Sin respuesta: solo los errores de red cuentan. Un timeout puede ser un
+  // servidor lento pero vivo, y bloquear la app por eso sería peor.
+  return error.code === 'ERR_NETWORK';
+}
+
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    useServerStatus.getState().marcarActivo();
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config;
+
+    if (esServidorCaido(error)) {
+      useServerStatus.getState().marcarInactivo();
+      return Promise.reject(error);
+    }
+    // Hubo respuesta del servidor: está vivo aunque haya devuelto un error
+    useServerStatus.getState().marcarActivo();
 
     // Don't retry auth endpoints or already-retried requests
     if (
