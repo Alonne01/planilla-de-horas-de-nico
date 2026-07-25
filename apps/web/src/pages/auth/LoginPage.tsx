@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/authStore';
 import api from '@/services/api';
 import { Loader2, LogIn, Eye, EyeOff, Bug, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { claveDebug, olvidarClaveDebug } from '@/lib/debugClave';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -14,9 +15,6 @@ const loginSchema = z.object({
 });
 
 type LoginForm = z.infer<typeof loginSchema>;
-
-/** Clave del modo debug, guardada por dispositivo. Ver el useEffect de más abajo. */
-const DEBUG_CLAVE_KEY = 'planilla-debug-clave';
 
 interface DebugUser {
   id: string;
@@ -47,23 +45,18 @@ export default function LoginPage() {
   });
 
   // El selector de usuarios de debug ya no aparece solo: hay que traer la clave
-  // compartida en la URL una vez por dispositivo (…/login?debug=LA_CLAVE) y queda
-  // guardada. Sin clave el API responde 404 y el login se ve como el normal, así
-  // que quien encuentre la URL del túnel no se lleva la nómina ni entra a cuentas.
+  // compartida en la dirección una vez por dispositivo (…/?debug=LA_CLAVE). La
+  // captura capturarClaveDebug() al arrancar la app, porque el router redirige a
+  // /login descartando el query string. Sin clave el API responde 404 y el login
+  // se ve como el normal, así que quien encuentre la URL del túnel no se lleva la
+  // nómina ni entra a las cuentas.
   useEffect(() => {
-    const enUrl = new URLSearchParams(window.location.search).get('debug');
-    if (enUrl) {
-      localStorage.setItem(DEBUG_CLAVE_KEY, enUrl);
-      // Sacar la clave de la barra de direcciones para que no quede en el historial.
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-
-    const clave = localStorage.getItem(DEBUG_CLAVE_KEY);
+    const clave = claveDebug();
     if (!clave) return;
 
     api.get('/auth/debug-users', { headers: { 'x-debug-clave': clave } })
       .then((res) => setDebugUsers(res.data))
-      .catch(() => localStorage.removeItem(DEBUG_CLAVE_KEY)); // 404 = clave vieja o modo apagado
+      .catch(() => olvidarClaveDebug()); // 404 = clave vieja o modo apagado
   }, []);
 
   const debugLogin = async (email: string) => {
@@ -72,7 +65,7 @@ export default function LoginPage() {
     try {
       const res = await api.post('/auth/login', {
         email,
-        password: localStorage.getItem(DEBUG_CLAVE_KEY) ?? '',
+        password: claveDebug() ?? '',
       });
       setAuth(res.data.user, res.data.accessToken);
       navigate(res.data.user.primerLogin ? '/cambiar-password' : '/dashboard');
