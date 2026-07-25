@@ -48,7 +48,31 @@ async function run() {
     assert.ok(!r.success);
     assert.strictEqual(r.error.flatten().fieldErrors.p?.[0], 'Mínimo 8 caracteres');
   }
-  console.log('✓ zod-es: 6/6 OK');
+  // 7. Unión sin ninguna rama que matchee (como entradaTurno1 en planillas.routes.ts:
+  // z.union([fechaFlexible, z.literal('')]) — acá replicado con string/literal)
+  {
+    const horaOpcional = z.union([z.string(), z.literal('')]);
+    const r = z.object({ entradaTurno1: horaOpcional }).safeParse({ entradaTurno1: 123 });
+    assert.ok(!r.success);
+    const msg = r.error.flatten().fieldErrors.entradaTurno1?.[0] ?? '';
+    assert.ok(!/invalid input/i.test(msg), `no debe decir "Invalid input": "${msg}"`);
+    assert.ok(msg.length > 0, 'debe haber un mensaje útil');
+  }
+  // 8. Límite exclusivo (.gt): 0 está rechazado, no puede decir "el mínimo es 0"
+  {
+    const r = z.object({ n: z.number().gt(0) }).safeParse({ n: 0 });
+    assert.ok(!r.success);
+    const msg = r.error.flatten().fieldErrors.n?.[0] ?? '';
+    assert.ok(!/mínimo es 0/i.test(msg), `no debe decir que 0 es válido cuando .gt(0) lo rechaza: "${msg}"`);
+  }
+  // 9. Nombres de tipo traducidos (no "boolean"/"string" crudos en inglés)
+  {
+    const r = z.object({ activo: z.boolean() }).safeParse({ activo: 'x' });
+    assert.ok(!r.success);
+    const msg = r.error.flatten().fieldErrors.activo?.[0] ?? '';
+    assert.ok(/booleano/i.test(msg) && /texto/i.test(msg), `debe traducir los nombres de tipo: "${msg}"`);
+  }
+  console.log('✓ zod-es: 9/9 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
