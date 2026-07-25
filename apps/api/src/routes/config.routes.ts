@@ -16,15 +16,20 @@ router.use(authMiddleware);
  * Ausencias y Vacaciones.
  */
 router.get('/periodo', async (req: AuthRequest, res: Response): Promise<void> => {
-  const config = await prisma.empresaConfig.findUnique({
-    where: { empresaId: req.user!.empresaId },
-    select: { periodoDiaInicio: true, periodoDiaFin: true },
-  });
-  if (!config) {
-    res.status(404).json({ error: 'Configuración de empresa no encontrada' });
-    return;
+  try {
+    const config = await prisma.empresaConfig.findUnique({
+      where: { empresaId: req.user!.empresaId },
+      select: { periodoDiaInicio: true, periodoDiaFin: true },
+    });
+    if (!config) {
+      res.status(404).json({ error: 'Configuración no encontrada' });
+      return;
+    }
+    res.json(config);
+  } catch (error) {
+    console.error('Error getting config:', error);
+    res.status(500).json({ error: 'Error interno' });
   }
-  res.json(config);
 });
 
 export default router;
