@@ -422,7 +422,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     // el circuito más abajo: el dueño de la solicitud es siempre quien la crea.
     const usuario = await prisma.usuario.findUnique({
       where: { id: userId },
-      select: { fechaIngreso: true, sectorId: true, rol: true },
+      select: { fechaIngreso: true, sectorId: true, rol: true, nombre: true, apellido: true },
     });
     if (!usuario) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
@@ -523,6 +523,16 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
       return vac;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    // Acá el alta ES el envío, pero nunca se avisaba al aprobador del paso 1: la
+    // solicitud solo aparecía cuando alguien miraba la bandeja. Fuera de la
+    // transacción, como en el resto del archivo: un fallo del aviso no puede
+    // revertir una solicitud ya creada.
+    const solicitanteNombre = usuario ? `${usuario.nombre} ${usuario.apellido}` : 'Un empleado';
+    await notificarAprobadoresPaso(
+      userId, req.user!.empresaId,
+      { rolAprobador: circuito[0]?.rolAprobador }, 'VACACION', solicitanteNombre,
+    );
 
     res.status(201).json({
       ...vacacion,

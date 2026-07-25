@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { getFlowVisibleUserIds } from '../utils/visibility.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
+import { pasosDe, type PasoCircuito } from '../utils/circuito.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -75,10 +76,35 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     const approverSectorId = (await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } }))?.sectorId ?? null;
 
-    // Helper: returns true if the item's current approval step matches the user AND they're the responsible approver
-    const matchesCurrentStep = (item: { flujoId?: string | null; pasoActual: number; flujo?: { pasos: { orden: number; rolAprobador: string }[] } | null; usuario: { sectorId?: string | null; supervisorId?: string | null; coordinadorId?: string | null } }) => {
-      if (!item.flujo || !item.flujoId) return false;
-      const paso = item.flujo.pasos.find(p => p.orden === item.pasoActual);
+    /**
+     * ¿Este documento le toca a quien está mirando la bandeja?
+     *
+     * Tiene que dar exactamente lo mismo que la guarda de `/avanzar` de cada
+     * ruta, o la bandeja miente en alguna de las dos direcciones: le ofrece a
+     * alguien algo que después no puede aprobar, o le esconde algo que sí.
+     *
+     * Por eso lee el circuito con `pasosDe`: el snapshot congelado renumera los
+     * pasos desde 1, así que `pasoActual` NO indexa la cadena configurada. Con
+     * un circuito acortado por nivel, buscar el paso vivo por `orden` se lo
+     * ofrecía al rol equivocado.
+     */
+    const matchesCurrentStep = (item: {
+      circuitoSnapshot?: unknown;
+      pasoActual: number;
+      flujo?: { pasos: { orden: number; rolAprobador: string }[] } | null;
+      usuario: { id?: string; sectorId?: string | null; supervisorId?: string | null; coordinadorId?: string | null };
+    }) => {
+      // Nadie aprueba lo suyo: la misma guarda que abre `/avanzar`.
+      if (item.usuario.id && item.usuario.id === userId) return false;
+
+      const pasos = pasosDe(item as { circuitoSnapshot: unknown; flujo?: { pasos: PasoCircuito[] } | null });
+
+      // Sin circuito el documento cae en la rama de escape del avance, que pide
+      // nivel RRHH o superior. Antes se devolvía `false` y quedaba invisible
+      // para todos, incluido justamente quien sí podía aprobarlo.
+      if (pasos.length === 0 || item.pasoActual > pasos.length) return userNivel >= 90;
+
+      const paso = pasos.find(p => p.orden === item.pasoActual);
       if (!paso) return false;
       return isResponsibleApprover(paso.rolAprobador, item.usuario as { supervisorId: string | null; coordinadorId: string | null; sectorId?: string | null }, userId, userRol, userNivel, approverSectorId);
     };
@@ -110,8 +136,9 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     if (DEBUG) {
       console.log(`[APROBACIONES] user=${userId.slice(-6)} rol=${userRol} sector=${approverSectorId?.slice(-6)} | planillasRaw=${planillasRaw.length} → pendientes=${planillasPendientes.length}`);
       for (const p of planillasRaw) {
-        const paso = p.flujo?.pasos.find(pp => pp.orden === p.pasoActual);
-        console.log(`  planilla=${p.id.slice(-6)} owner=${(p as any).usuario?.id?.slice(-6)} pasoActual=${p.pasoActual} rolPaso=${paso?.rolAprobador ?? 'N/A'} flujo=${p.flujoId ? 'sí' : 'no'} match=${matchesCurrentStep(p)}`);
+        const pasos = pasosDe(p);
+        const paso = pasos.find(pp => pp.orden === p.pasoActual);
+        console.log(`  planilla=${p.id.slice(-6)} owner=${(p as any).usuario?.id?.slice(-6)} pasoActual=${p.pasoActual}/${pasos.length} rolPaso=${paso?.rolAprobador ?? 'N/A'} circuito=${Array.isArray(p.circuitoSnapshot) ? 'congelado' : 'vivo'} match=${matchesCurrentStep(p)}`);
       }
     }
 
