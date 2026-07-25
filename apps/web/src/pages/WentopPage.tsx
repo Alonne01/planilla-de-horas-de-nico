@@ -9,6 +9,9 @@ import {
   Camera,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  Check,
   BarChart3,
   FileText,
   Users,
@@ -188,6 +191,18 @@ const selectClass =
 
 const DRAFT_KEY_NEW = 'wentop-draft';
 const draftKeyEdit = (id: string) => `wentop-edit-draft-${id}`;
+
+// Límites de evidencia fotográfica. El backend valida los mismos valores:
+// acá solo se adelanta el aviso para no hacer subir un archivo que va a rebotar.
+const MAX_FOTOS = 10;
+const MAX_FOTO_BYTES = 5 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 25 * 1024 * 1024;
+
+const WIZARD_STEPS = [
+  { n: 1, title: 'Qué observaste' },
+  { n: 2, title: 'Dónde y cuándo' },
+  { n: 3, title: 'Descripción y evidencia' },
+] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1465,6 +1480,20 @@ function TarjetaFormModal({
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
+  // Wizard: al editar se puede saltar libremente, porque ya está todo cargado
+  const [step, setStep] = useState(1);
+  const [maxStepVisto, setMaxStepVisto] = useState(isEdit ? WIZARD_STEPS.length : 1);
+  const [intentoAvanzar, setIntentoAvanzar] = useState(false);
+
+  // Categorías: buscador + qué familia está desplegada
+  const [categoriaQuery, setCategoriaQuery] = useState('');
+  const [familiaAbierta, setFamiliaAbierta] = useState<string | null>('Seguridad y Salud');
+
+  // Campos secundarios: ocultos hasta que hagan falta
+  const [showExtras, setShowExtras] = useState(
+    !!(tarjeta?.recomendaciones || tarjeta?.justificacionAbierta),
+  );
+
   // Draft system
   const [showDraftBanner, setShowDraftBanner] = useState(false);
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -1504,6 +1533,9 @@ function TarjetaFormModal({
     setSeguridadSalud(draft.seguridadSalud);
     setShowDraftBanner(false);
     setDraftLoaded(true);
+    // Con el borrador ya cargado no tiene sentido obligar a recorrer los pasos
+    setMaxStepVisto(WIZARD_STEPS.length);
+    if (draft.recomendaciones || draft.justificacionAbierta) setShowExtras(true);
     toast({ title: 'Borrador restaurado', variant: 'success' });
   };
 
@@ -1580,10 +1612,87 @@ function TarjetaFormModal({
     onClose();
   };
 
+  // --- Navegación del asistente -------------------------------------------
+  const totalCategorias = calidad.length + medioambiente.length + seguridadSalud.length;
+  const faltaTipo = !tipoTarjeta;
+  const faltaDescripcion = !descripcion.trim();
+
+  const irAPaso = (destino: number) => {
+    if (destino < 1 || destino > WIZARD_STEPS.length) return;
+    // Solo se puede saltar hacia adelante si el paso 1 está resuelto
+    if (destino > 1 && faltaTipo) {
+      setStep(1);
+      setIntentoAvanzar(true);
+      return;
+    }
+    setIntentoAvanzar(false);
+    setStep(destino);
+    setMaxStepVisto((prev) => Math.max(prev, destino));
+  };
+
+  const siguiente = () => {
+    if (step === 1 && faltaTipo) {
+      setIntentoAvanzar(true);
+      return;
+    }
+    irAPaso(step + 1);
+  };
+
+  // --- Evidencia fotográfica ----------------------------------------------
+  const bytesActuales = newFiles.reduce((acc, f) => acc + f.size, 0);
+  const fotosExistentes = isEdit ? tarjeta.fotos.length : 0;
+  const fotosTotales = fotosExistentes + newFiles.length;
+
+  const agregarArchivos = (seleccion: File[]) => {
+    const aceptados: File[] = [];
+    const rechazados: string[] = [];
+    let acumulado = bytesActuales;
+    let cantidad = fotosTotales;
+
+    for (const file of seleccion) {
+      if (cantidad >= MAX_FOTOS) {
+        rechazados.push(`${file.name}: se llegó al máximo de ${MAX_FOTOS} fotos`);
+        continue;
+      }
+      if (file.size > MAX_FOTO_BYTES) {
+        rechazados.push(
+          `${file.name}: pesa ${formatFileSize(file.size)} y el máximo por foto es ${formatFileSize(MAX_FOTO_BYTES)}`,
+        );
+        continue;
+      }
+      if (acumulado + file.size > MAX_TOTAL_BYTES) {
+        rechazados.push(
+          `${file.name}: supera el total permitido de ${formatFileSize(MAX_TOTAL_BYTES)} por tarjeta`,
+        );
+        continue;
+      }
+      aceptados.push(file);
+      acumulado += file.size;
+      cantidad += 1;
+    }
+
+    if (aceptados.length > 0) setNewFiles((prev) => [...prev, ...aceptados]);
+    if (rechazados.length > 0) {
+      toast({
+        title: rechazados.length === 1 ? 'No se agregó una foto' : `No se agregaron ${rechazados.length} fotos`,
+        description: rechazados.slice(0, 3).join(' · '),
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tipoTarjeta || !descripcion.trim()) {
-      toast({ title: 'Complete los campos obligatorios', variant: 'destructive' });
+    if (faltaTipo) {
+      irAPaso(1);
+      setIntentoAvanzar(true);
+      toast({ title: 'Elegí el tipo de tarjeta', variant: 'destructive' });
+      return;
+    }
+    if (faltaDescripcion) {
+      irAPaso(3);
+      setIntentoAvanzar(true);
+      toast({ title: 'La descripción es obligatoria', variant: 'destructive' });
       return;
     }
 
@@ -1614,13 +1723,29 @@ function TarjetaFormModal({
         tarjetaId = data.id;
       }
 
-      // Upload new photos
+      // Subida de fotos aparte: si falla, la tarjeta ya quedó guardada y hay
+      // que decirlo así en vez de mostrar un error genérico de creación.
       if (newFiles.length > 0) {
         const fd = new FormData();
         newFiles.forEach((f) => fd.append('fotos', f));
-        await api.post(`/wentop/${tarjetaId}/fotos`, fd, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
+        try {
+          await api.post(`/wentop/${tarjetaId}/fotos`, fd, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+        } catch (err) {
+          const motivo =
+            (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+            'No se pudieron subir las fotos';
+          clearDraft(draftKey);
+          queryClient.invalidateQueries({ queryKey: ['wentop'] });
+          toast({
+            title: isEdit ? 'Tarjeta actualizada, pero sin las fotos' : 'Tarjeta creada, pero sin las fotos',
+            description: `${motivo}. Se pueden agregar editando la tarjeta.`,
+            variant: 'destructive',
+          });
+          onClose();
+          return;
+        }
       }
 
       // Clear draft on successful submit
@@ -1676,269 +1801,389 @@ function TarjetaFormModal({
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
-          {/* Scrollable form body */}
-          <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-5">
-            {/* Datos generales */}
-            <FormSection title="Datos Generales">
-              <div className="grid gap-3 sm:grid-cols-2">
+        {/* Progreso del asistente */}
+        <WizardProgress step={step} maxStepVisto={maxStepVisto} onGoTo={irAPaso} />
+
+        {/* noValidate: la validación nativa muestra su burbuja en inglés y con
+            otro estilo. Los required quedan por accesibilidad, pero el aviso lo
+            damos nosotros, en español y junto al campo. */}
+        <form onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-3 md:p-5">
+            {/* ── Paso 1: qué observaste ── */}
+            {step === 1 && (
+              <div className="space-y-5">
                 <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">
-                    Tipo de Tarjeta <span className="text-red-400">*</span>
-                  </label>
-                  <select
-                    className={cn(selectClass, 'w-full min-h-[44px] md:min-h-0')}
-                    value={tipoTarjeta}
-                    onChange={(e) => setTipoTarjeta(e.target.value)}
-                    required
-                  >
-                    <option value="">Seleccionar…</option>
-                    {TIPO_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">Fecha de Reporte</label>
-                  <input
-                    type="date"
-                    className={cn(inputClass, 'min-h-[44px] md:min-h-0')}
-                    value={fechaReporte}
-                    onChange={(e) => setFechaReporte(e.target.value)}
-                    required
+                  <StepTitle
+                    title="¿Qué observaste?"
+                    hint="El tipo define cómo se prioriza la tarjeta"
                   />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">
-                    Sector de Observación
-                  </label>
-                  <select
-                    className={cn(selectClass, 'w-full min-h-[44px] md:min-h-0')}
-                    value={sectorObservacionId}
-                    onChange={(e) => setSectorObservacionId(e.target.value)}
-                  >
-                    <option value="">Sin sector</option>
-                    {sectores.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex items-end">
-                  <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer min-h-[44px] md:min-h-0">
-                    <input
-                      type="checkbox"
-                      checked={sectorTercero}
-                      onChange={(e) => setSectorTercero(e.target.checked)}
-                      className="h-4 w-4 rounded border-border"
-                    />
-                    Sector tercero
-                  </label>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">Cliente</label>
-                  <input
-                    className={cn(inputClass, 'min-h-[44px] md:min-h-0')}
-                    value={cliente}
-                    onChange={(e) => setCliente(e.target.value)}
-                    placeholder="Nombre del cliente"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">
-                    Lugar / Pozo / Locación
-                  </label>
-                  <input
-                    className={cn(inputClass, 'min-h-[44px] md:min-h-0')}
-                    value={lugarPozoLocacion}
-                    onChange={(e) => setLugarPozoLocacion(e.target.value)}
-                    placeholder="Ubicación"
-                  />
-                </div>
-              </div>
-            </FormSection>
-
-            {/* Categories */}
-            <FormSection title="Categorías">
-              <CheckboxGroup
-                label="Calidad"
-                options={CALIDAD_OPTIONS}
-                selected={calidad}
-                onToggle={(opt) => toggleOption(calidad, setCalidad, opt)}
-              />
-              <CheckboxGroup
-                label="Medioambiente"
-                options={MEDIOAMBIENTE_OPTIONS}
-                selected={medioambiente}
-                onToggle={(opt) => toggleOption(medioambiente, setMedioambiente, opt)}
-              />
-              <CheckboxGroup
-                label="Seguridad y Salud"
-                options={SEGURIDAD_SALUD_OPTIONS}
-                selected={seguridadSalud}
-                onToggle={(opt) => toggleOption(seguridadSalud, setSeguridadSalud, opt)}
-                twoColumnMobile
-              />
-            </FormSection>
-
-            {/* Description & Actions */}
-            <FormSection title="Descripción y Acciones">
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">
-                  Descripción <span className="text-red-400">*</span>
-                </label>
-                <textarea
-                  className={cn(inputClass, 'h-auto min-h-[100px] py-2')}
-                  value={descripcion}
-                  onChange={(e) => setDescripcion(e.target.value)}
-                  placeholder="Describa la observación…"
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">
-                  Acciones Inmediatas
-                </label>
-                <textarea
-                  className={cn(inputClass, 'h-auto min-h-[60px] py-2')}
-                  value={accionesInmediatas}
-                  onChange={(e) => setAccionesInmediatas(e.target.value)}
-                  placeholder="Acciones tomadas de forma inmediata…"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Recomendaciones</label>
-                <textarea
-                  className={cn(inputClass, 'h-auto min-h-[60px] py-2')}
-                  value={recomendaciones}
-                  onChange={(e) => setRecomendaciones(e.target.value)}
-                  placeholder="Recomendaciones…"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">
-                  Justificación (si queda abierta)
-                </label>
-                <textarea
-                  className={cn(inputClass, 'h-auto min-h-[60px] py-2')}
-                  value={justificacionAbierta}
-                  onChange={(e) => setJustificacionAbierta(e.target.value)}
-                  placeholder="Justificación…"
-                />
-              </div>
-            </FormSection>
-
-            {/* Photos */}
-            <FormSection title="Evidencia Fotográfica">
-              <div className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground hover:bg-muted/50 transition-colors min-w-[200px]">
-                    <ImageIcon className="h-4 w-4" />
-                    <span>Seleccionar fotos…</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        if (e.target.files) {
-                          setNewFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
-                        }
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
-                  {/* Mobile camera button */}
-                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-4 py-3 text-sm text-primary hover:bg-primary/10 transition-colors md:hidden">
-                    <Camera className="h-4 w-4" />
-                    <span>Tomar Foto</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      onChange={(e) => {
-                        if (e.target.files) {
-                          setNewFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
-                        }
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
-                </div>
-
-                {/* New file previews — 3 cols on mobile, 6 on sm+ */}
-                {newFiles.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-                    {newFiles.map((file, i) => (
-                      <div
-                        key={`${file.name}-${i}`}
-                        className="group relative aspect-square rounded-lg overflow-hidden border border-border bg-muted"
-                      >
-                        <img
-                          src={URL.createObjectURL(file)}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {TIPO_OPTIONS.map((o) => {
+                      const activo = tipoTarjeta === o.value;
+                      return (
                         <button
+                          key={o.value}
                           type="button"
-                          onClick={() => removeNewFile(i)}
-                          className="absolute top-1 right-1 rounded-md bg-black/60 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600/80"
+                          onClick={() => {
+                            setTipoTarjeta(o.value);
+                            setIntentoAvanzar(false);
+                          }}
+                          className={cn(
+                            'flex min-h-[68px] flex-col items-start justify-center gap-1 rounded-xl border px-3 py-2.5 text-left transition-all',
+                            activo
+                              ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
+                              : 'border-border bg-muted/30 hover:border-primary/40 hover:bg-muted/50',
+                          )}
                         >
-                          <X className="h-3 w-3 text-white" />
+                          <span
+                            className={cn(
+                              'text-sm font-medium leading-tight',
+                              activo ? 'text-primary' : 'text-foreground',
+                            )}
+                          >
+                            {o.label}
+                          </span>
+                          {activo && <CheckCircle2 className="h-4 w-4 text-primary" />}
                         </button>
-                        <span className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5 text-[10px] text-white text-center truncate">
-                          {formatFileSize(file.size)}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
-                )}
+                  {intentoAvanzar && faltaTipo && (
+                    <p className="mt-2 flex items-center gap-1.5 text-xs text-red-400">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Elegí un tipo para continuar
+                    </p>
+                  )}
+                </div>
 
-                {/* Existing photos (edit mode) */}
-                {isEdit && tarjeta.fotos.length > 0 && (
+                <CategoriaPicker
+                  query={categoriaQuery}
+                  onQueryChange={setCategoriaQuery}
+                  familiaAbierta={familiaAbierta}
+                  onToggleFamilia={(f) => setFamiliaAbierta((prev) => (prev === f ? null : f))}
+                  familias={[
+                    { nombre: 'Calidad', options: CALIDAD_OPTIONS, selected: calidad,
+                      onToggle: (o: string) => toggleOption(calidad, setCalidad, o) },
+                    { nombre: 'Medioambiente', options: MEDIOAMBIENTE_OPTIONS, selected: medioambiente,
+                      onToggle: (o: string) => toggleOption(medioambiente, setMedioambiente, o) },
+                    { nombre: 'Seguridad y Salud', options: SEGURIDAD_SALUD_OPTIONS, selected: seguridadSalud,
+                      onToggle: (o: string) => toggleOption(seguridadSalud, setSeguridadSalud, o) },
+                  ]}
+                  total={totalCategorias}
+                />
+              </div>
+            )}
+
+            {/* ── Paso 2: dónde y cuándo ── */}
+            {step === 2 && (
+              <div className="space-y-5">
+                <StepTitle
+                  title="¿Dónde y cuándo?"
+                  hint="Todo opcional, pero ayuda a ubicar la observación"
+                />
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <p className="mb-1 text-xs text-muted-foreground">Fotos existentes</p>
-                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-                      {tarjeta.fotos.map((f) => (
-                        <div
-                          key={f.id}
-                          className="relative aspect-square rounded-lg overflow-hidden border border-border bg-muted"
-                        >
-                          <img
-                            src={getUploadUrl(f.url)}
-                            alt=""
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
+                    <label className="mb-1 block text-xs text-muted-foreground">
+                      Fecha de reporte
+                    </label>
+                    <input
+                      type="date"
+                      className={cn(inputClass, 'min-h-[44px] md:min-h-0')}
+                      value={fechaReporte}
+                      onChange={(e) => setFechaReporte(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">
+                      Sector de observación
+                    </label>
+                    <select
+                      className={cn(selectClass, 'w-full min-h-[44px] md:min-h-0')}
+                      value={sectorObservacionId}
+                      onChange={(e) => setSectorObservacionId(e.target.value)}
+                    >
+                      <option value="">Sin sector</option>
+                      {sectores.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.nombre}
+                        </option>
                       ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">Cliente</label>
+                    <input
+                      className={cn(inputClass, 'min-h-[44px] md:min-h-0')}
+                      value={cliente}
+                      onChange={(e) => setCliente(e.target.value)}
+                      placeholder="Nombre del cliente"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">
+                      Lugar / Pozo / Locación
+                    </label>
+                    <input
+                      className={cn(inputClass, 'min-h-[44px] md:min-h-0')}
+                      value={lugarPozoLocacion}
+                      onChange={(e) => setLugarPozoLocacion(e.target.value)}
+                      placeholder="Ubicación"
+                    />
+                  </div>
+                </div>
+                <label className="flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-sm text-foreground hover:bg-muted/50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={sectorTercero}
+                    onChange={(e) => setSectorTercero(e.target.checked)}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  La observación es sobre un sector tercero
+                </label>
+              </div>
+            )}
+
+            {/* ── Paso 3: descripción y evidencia ── */}
+            {step === 3 && (
+              <div className="space-y-5">
+                <div>
+                  <StepTitle title="¿Qué pasó?" hint="La descripción es lo único obligatorio acá" />
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Descripción <span className="text-red-400">*</span>
+                  </label>
+                  <textarea
+                    className={cn(
+                      inputClass,
+                      'h-auto min-h-[110px] py-2',
+                      intentoAvanzar && faltaDescripcion && 'border-red-500/60 focus:ring-red-500/40',
+                    )}
+                    value={descripcion}
+                    onChange={(e) => {
+                      setDescripcion(e.target.value);
+                      if (intentoAvanzar) setIntentoAvanzar(false);
+                    }}
+                    placeholder="Describí lo que viste, con el detalle que haga falta para entenderlo sin estar ahí…"
+                    required
+                  />
+                  {intentoAvanzar && faltaDescripcion && (
+                    <p className="mt-1 flex items-center gap-1.5 text-xs text-red-400">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Sin descripción la tarjeta no sirve para actuar
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Acciones inmediatas
+                  </label>
+                  <textarea
+                    className={cn(inputClass, 'h-auto min-h-[70px] py-2')}
+                    value={accionesInmediatas}
+                    onChange={(e) => setAccionesInmediatas(e.target.value)}
+                    placeholder="¿Se hizo algo en el momento?"
+                  />
+                </div>
+
+                {!showExtras ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowExtras(true)}
+                    className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Agregar recomendaciones o justificación
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="mb-1 block text-xs text-muted-foreground">
+                        Recomendaciones
+                      </label>
+                      <textarea
+                        className={cn(inputClass, 'h-auto min-h-[60px] py-2')}
+                        value={recomendaciones}
+                        onChange={(e) => setRecomendaciones(e.target.value)}
+                        placeholder="Qué se sugiere para que no vuelva a pasar…"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs text-muted-foreground">
+                        Justificación (si queda abierta)
+                      </label>
+                      <textarea
+                        className={cn(inputClass, 'h-auto min-h-[60px] py-2')}
+                        value={justificacionAbierta}
+                        onChange={(e) => setJustificacionAbierta(e.target.value)}
+                        placeholder="Por qué no se puede cerrar todavía…"
+                      />
                     </div>
                   </div>
                 )}
+
+                {/* Evidencia fotográfica */}
+                <div>
+                  <div className="mb-2 flex items-baseline justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-foreground">Evidencia fotográfica</h3>
+                    <span
+                      className={cn(
+                        'text-xs tabular-nums',
+                        fotosTotales >= MAX_FOTOS ? 'text-amber-400' : 'text-muted-foreground',
+                      )}
+                    >
+                      {fotosTotales} de {MAX_FOTOS}
+                      {bytesActuales > 0 && ` · ${formatFileSize(bytesActuales)}`}
+                    </span>
+                  </div>
+
+                  {fotosTotales < MAX_FOTOS ? (
+                    <div className="flex flex-wrap gap-2">
+                      <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground hover:bg-muted/50 transition-colors min-w-[200px]">
+                        <ImageIcon className="h-4 w-4" />
+                        <span>Seleccionar fotos…</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files) agregarArchivos(Array.from(e.target.files));
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-4 py-3 text-sm text-primary hover:bg-primary/10 transition-colors md:hidden">
+                        <Camera className="h-4 w-4" />
+                        <span>Tomar foto</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files) agregarArchivos(Array.from(e.target.files));
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                      Llegaste al máximo de {MAX_FOTOS} fotos. Quitá alguna para agregar otra.
+                    </p>
+                  )}
+
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    Hasta {formatFileSize(MAX_FOTO_BYTES)} por foto y {formatFileSize(MAX_TOTAL_BYTES)} en total.
+                  </p>
+
+                  {newFiles.length > 0 && (
+                    <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
+                      {newFiles.map((file, i) => (
+                        <div
+                          key={`${file.name}-${i}`}
+                          className="group relative aspect-square rounded-lg overflow-hidden border border-border bg-muted"
+                        >
+                          <img
+                            src={URL.createObjectURL(file)}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeNewFile(i)}
+                            aria-label={`Quitar ${file.name}`}
+                            className="absolute top-1 right-1 rounded-md bg-black/60 p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:bg-red-600/80"
+                          >
+                            <X className="h-3 w-3 text-white" />
+                          </button>
+                          <span className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5 text-[10px] text-white text-center truncate">
+                            {formatFileSize(file.size)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {isEdit && tarjeta.fotos.length > 0 && (
+                    <div className="mt-3">
+                      <p className="mb-1 text-xs text-muted-foreground">Fotos ya cargadas</p>
+                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                        {tarjeta.fotos.map((f) => (
+                          <div
+                            key={f.id}
+                            className="relative aspect-square rounded-lg overflow-hidden border border-border bg-muted"
+                          >
+                            <img
+                              src={getUploadUrl(f.url)}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-            </FormSection>
+            )}
           </div>
 
-          {/* Sticky footer */}
-          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-card p-3 md:p-4 md:rounded-b-xl">
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="h-10 md:h-9 rounded-lg px-4 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="flex h-10 md:h-9 items-center gap-1.5 rounded-lg bg-primary px-5 md:px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-            >
-              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              {isEdit ? 'Guardar Cambios' : 'Crear Tarjeta'}
-            </button>
+          {/* Footer con navegación */}
+          <div className="sticky bottom-0 flex items-center gap-2 border-t border-border bg-card p-3 md:p-4 md:rounded-b-xl">
+            {step > 1 ? (
+              <button
+                type="button"
+                onClick={() => irAPaso(step - 1)}
+                className="flex h-10 md:h-9 items-center gap-1 rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Atrás
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="h-10 md:h-9 rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
+              >
+                Cancelar
+              </button>
+            )}
+
+            <div className="ml-auto flex items-center gap-2">
+              {/* Atajo: crear sin recorrer los pasos que faltan */}
+              {step < WIZARD_STEPS.length && !faltaTipo && !faltaDescripcion && (
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="hidden sm:flex h-10 md:h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                >
+                  {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {isEdit ? 'Guardar' : 'Crear ahora'}
+                </button>
+              )}
+
+              {step < WIZARD_STEPS.length ? (
+                <button
+                  type="button"
+                  onClick={siguiente}
+                  className="flex h-10 md:h-9 items-center gap-1 rounded-lg bg-primary px-5 md:px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+                >
+                  Siguiente
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex h-10 md:h-9 items-center gap-1.5 rounded-lg bg-primary px-5 md:px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {isEdit ? 'Guardar cambios' : 'Crear tarjeta'}
+                </button>
+              )}
+            </div>
           </div>
         </form>
       </div>
@@ -1946,53 +2191,229 @@ function TarjetaFormModal({
   );
 }
 
-function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
+function StepTitle({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-foreground border-b border-border pb-1">{title}</h3>
-      {children}
+    <div className="mb-3">
+      <h3 className="text-base font-semibold text-foreground">{title}</h3>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
 
-function CheckboxGroup({
-  label,
-  options,
-  selected,
-  onToggle,
-  twoColumnMobile,
+function WizardProgress({
+  step,
+  maxStepVisto,
+  onGoTo,
 }: {
-  label: string;
-  options: string[];
-  selected: string[];
-  onToggle: (option: string) => void;
-  twoColumnMobile?: boolean;
+  step: number;
+  maxStepVisto: number;
+  onGoTo: (n: number) => void;
 }) {
   return (
-    <div>
-      <p className="mb-2 text-xs font-medium text-muted-foreground">{label}</p>
-      <div className={cn(
-        'flex flex-wrap gap-2',
-        twoColumnMobile && 'grid grid-cols-2 md:flex md:flex-wrap',
-      )}>
-        {options.map((opt) => {
-          const active = selected.includes(opt);
-          return (
+    <div className="flex items-center gap-1 border-b border-border px-3 py-2.5 md:px-4">
+      {WIZARD_STEPS.map((s, i) => {
+        const actual = s.n === step;
+        const completado = s.n < step;
+        const alcanzable = s.n <= maxStepVisto;
+        return (
+          <div key={s.n} className="flex flex-1 items-center gap-1">
             <button
-              key={opt}
               type="button"
-              onClick={() => onToggle(opt)}
+              onClick={() => alcanzable && onGoTo(s.n)}
+              disabled={!alcanzable}
+              aria-current={actual ? 'step' : undefined}
               className={cn(
-                'rounded-lg border min-h-[40px] py-2 px-3 text-xs transition-colors text-left',
-                active
-                  ? 'border-primary bg-primary/10 text-primary font-medium'
-                  : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/50',
+                'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors',
+                alcanzable ? 'hover:bg-accent cursor-pointer' : 'cursor-default',
               )}
             >
-              {opt}
+              <span
+                className={cn(
+                  'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors',
+                  actual && 'bg-primary text-primary-foreground',
+                  completado && 'bg-primary/20 text-primary',
+                  !actual && !completado && 'bg-muted text-muted-foreground',
+                )}
+              >
+                {completado ? <CheckCircle2 className="h-3.5 w-3.5" /> : s.n}
+              </span>
+              <span
+                className={cn(
+                  'hidden truncate text-xs sm:block',
+                  actual ? 'font-medium text-foreground' : 'text-muted-foreground',
+                )}
+              >
+                {s.title}
+              </span>
             </button>
+            {i < WIZARD_STEPS.length - 1 && (
+              <span
+                className={cn(
+                  'h-px w-3 shrink-0 sm:w-4',
+                  completado ? 'bg-primary/40' : 'bg-border',
+                )}
+              />
+            )}
+          </div>
+        );
+      })}
+      <span className="ml-1 shrink-0 text-xs text-muted-foreground sm:hidden">
+        {step}/{WIZARD_STEPS.length}
+      </span>
+    </div>
+  );
+}
+
+interface FamiliaCategoria {
+  nombre: string;
+  options: readonly string[];
+  selected: string[];
+  onToggle: (option: string) => void;
+}
+
+/**
+ * Selector de categorías: 24 opciones repartidas en tres familias.
+ *
+ * Plegado por familia para que no ocupen toda la pantalla, con buscador para
+ * llegar directo cuando ya se sabe qué se busca. Las seleccionadas se muestran
+ * arriba, asi no se pierden de vista al plegar la familia.
+ */
+function CategoriaPicker({
+  familias,
+  query,
+  onQueryChange,
+  familiaAbierta,
+  onToggleFamilia,
+  total,
+}: {
+  familias: FamiliaCategoria[];
+  query: string;
+  onQueryChange: (v: string) => void;
+  familiaAbierta: string | null;
+  onToggleFamilia: (nombre: string) => void;
+  total: number;
+}) {
+  const buscando = query.trim().length > 0;
+  const normalizar = (s: string) =>
+    s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const q = normalizar(query.trim());
+
+  const seleccionadas = familias.flatMap((f) =>
+    f.selected.map((opt) => ({ opt, familia: f.nombre, onToggle: f.onToggle })),
+  );
+
+  return (
+    <div>
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold text-foreground">
+          Categorías{' '}
+          <span className="text-xs font-normal text-muted-foreground">(opcional)</span>
+        </h3>
+        {total > 0 && (
+          <span className="text-xs text-primary">{total} seleccionada{total === 1 ? '' : 's'}</span>
+        )}
+      </div>
+
+      {/* Resumen de lo elegido: sigue visible con las familias plegadas */}
+      {seleccionadas.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {seleccionadas.map(({ opt, familia, onToggle }) => (
+            <button
+              key={`${familia}-${opt}`}
+              type="button"
+              onClick={() => onToggle(opt)}
+              title={`Quitar: ${opt}`}
+              className="flex max-w-full items-center gap-1 rounded-full border border-primary/40 bg-primary/10 py-1 pl-2.5 pr-1.5 text-xs text-primary transition-colors hover:bg-primary/20"
+            >
+              <span className="truncate">{truncate(opt, 34)}</span>
+              <X className="h-3 w-3 shrink-0" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      <input
+        value={query}
+        onChange={(e) => onQueryChange(e.target.value)}
+        placeholder="Buscar categoría…"
+        className={cn(inputClass, 'mb-2 min-h-[40px]')}
+      />
+
+      <div className="space-y-1.5">
+        {familias.map((f) => {
+          const visibles = buscando
+            ? f.options.filter((o) => normalizar(o).includes(q))
+            : f.options;
+          if (buscando && visibles.length === 0) return null;
+          const abierta = buscando || familiaAbierta === f.nombre;
+
+          return (
+            <div key={f.nombre} className="overflow-hidden rounded-lg border border-border">
+              <button
+                type="button"
+                onClick={() => !buscando && onToggleFamilia(f.nombre)}
+                className="flex w-full items-center justify-between gap-2 bg-muted/30 px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
+              >
+                <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  {f.nombre}
+                  {f.selected.length > 0 && (
+                    <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary tabular-nums">
+                      {f.selected.length}
+                    </span>
+                  )}
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground tabular-nums">
+                    {visibles.length}
+                  </span>
+                  {!buscando &&
+                    (abierta ? (
+                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    ))}
+                </span>
+              </button>
+
+              {abierta && (
+                <div className="grid gap-1.5 border-t border-border p-2 sm:grid-cols-2">
+                  {visibles.map((opt) => {
+                    const activo = f.selected.includes(opt);
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => f.onToggle(opt)}
+                        aria-pressed={activo}
+                        className={cn(
+                          'flex min-h-[44px] items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs transition-colors',
+                          activo
+                            ? 'border-primary bg-primary/10 font-medium text-primary'
+                            : 'border-transparent bg-muted/20 text-muted-foreground hover:bg-muted/50',
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors',
+                            activo ? 'border-primary bg-primary' : 'border-border',
+                          )}
+                        >
+                          {activo && <Check className="h-3 w-3 text-primary-foreground" />}
+                        </span>
+                        <span className="leading-tight">{opt}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
+        {buscando && familias.every((f) => f.options.every((o) => !normalizar(o).includes(q))) && (
+          <p className="px-1 py-2 text-xs text-muted-foreground">
+            Ninguna categoría coincide con “{query}”.
+          </p>
+        )}
       </div>
     </div>
   );
