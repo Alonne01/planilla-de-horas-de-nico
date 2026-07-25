@@ -52,7 +52,23 @@ async function run() {
     assert.ok(mensaje.length > 0);
     assert.deepStrictEqual(fieldErrors, {});
   }
-  console.log('✓ errores: 7/7 OK');
+  // 8. `details` como array crudo de issues de zod (endpoint desviado del patrón
+  // `.flatten()`, como capacitaciones.routes.ts/admin.alertas.routes.ts antes del fix):
+  // no debe perderse en silencio y caer en "Datos inválidos" a secas.
+  {
+    const err = {
+      response: { data: { error: 'Datos inválidos', details: [
+        { path: ['nombre'], message: 'Mínimo 2 caracteres' },
+        { path: [], message: 'Error general del formulario' },
+      ] } },
+    };
+    const { mensaje, fieldErrors } = mensajeDeError(err);
+    assert.ok(mensaje.includes('Nombre'), `debe usar la etiqueta en castellano: "${mensaje}"`);
+    assert.ok(mensaje.includes('Mínimo 2 caracteres'), `debe incluir el detalle: "${mensaje}"`);
+    assert.ok(mensaje.includes('Error general del formulario'), `debe incluir el error sin campo: "${mensaje}"`);
+    assert.deepStrictEqual(fieldErrors.nombre, ['Mínimo 2 caracteres']);
+  }
+  console.log('✓ errores: 8/8 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

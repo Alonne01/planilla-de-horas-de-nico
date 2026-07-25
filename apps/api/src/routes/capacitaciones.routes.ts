@@ -88,7 +88,7 @@ router.post('/tipos', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Re
     res.status(201).json(tipo);
   } catch (err: any) {
     if (err.name === 'ZodError') {
-      res.status(400).json({ error: 'Datos inválidos', details: err.errors });
+      res.status(400).json({ error: 'Datos inválidos', details: err.flatten() });
       return;
     }
     console.error('Error creating tipo:', err);
@@ -242,7 +242,7 @@ router.post('/registros', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res
     res.status(201).json(registro);
   } catch (err: any) {
     if (err.name === 'ZodError') {
-      res.status(400).json({ error: 'Datos inválidos', details: err.errors });
+      res.status(400).json({ error: 'Datos inválidos', details: err.flatten() });
       return;
     }
     console.error('Error creating registro:', err);

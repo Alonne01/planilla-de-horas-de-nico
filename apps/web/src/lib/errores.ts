@@ -39,9 +39,45 @@ const ETIQUETAS: Record<string, string> = {
   codigo: 'Código',
 };
 
+/** Forma esperada de zod: `parsed.error.flatten()`. */
+interface DetallesFlatten {
+  formErrors?: string[];
+  fieldErrors?: Record<string, string[]>;
+}
+
+/** Forma cruda de zod: un array de issues (p. ej. `err.errors` o `err.issues` sin `.flatten()`). */
+interface ZodIssueCrudo {
+  path?: Array<string | number>;
+  message?: string;
+}
+
 interface CuerpoDeError {
   error?: string;
-  details?: { formErrors?: string[]; fieldErrors?: Record<string, string[]> };
+  details?: DetallesFlatten | ZodIssueCrudo[];
+}
+
+/**
+ * Si `details` es un array de issues crudos de zod (en vez del `{ formErrors,
+ * fieldErrors }` que produce `.flatten()`), lo convierte a esa forma. Algún
+ * endpoint puede desviarse del patrón del repo (ya pasó); esto evita que la
+ * información del error se pierda en silencio cuando eso ocurre.
+ */
+function normalizarDetails(details: CuerpoDeError['details']): DetallesFlatten {
+  if (!details) return {};
+  if (!Array.isArray(details)) return details;
+
+  const fieldErrors: Record<string, string[]> = {};
+  const formErrors: string[] = [];
+  for (const issue of details) {
+    const mensaje = issue?.message ?? 'Valor inválido';
+    if (issue?.path && issue.path.length > 0) {
+      const campo = String(issue.path[0]);
+      (fieldErrors[campo] ??= []).push(mensaje);
+    } else {
+      formErrors.push(mensaje);
+    }
+  }
+  return { formErrors, fieldErrors };
 }
 
 export function mensajeDeError(err: unknown): ErrorLegible {
@@ -63,8 +99,7 @@ export function mensajeDeError(err: unknown): ErrorLegible {
   const data = e.response.data;
   if (!data) return { mensaje: 'El servidor respondió sin detalle', fieldErrors: {} };
 
-  const fieldErrors = data.details?.fieldErrors ?? {};
-  const formErrors = data.details?.formErrors ?? [];
+  const { fieldErrors = {}, formErrors = [] } = normalizarDetails(data.details);
 
   const partes = [
     ...Object.entries(fieldErrors).map(([campo, msgs]) => `${ETIQUETAS[campo] ?? campo}: ${msgs.join('; ')}`),

@@ -55,7 +55,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     res.status(201).json(alerta);
   } catch (err: any) {
     if (err.name === 'ZodError') {
-      res.status(400).json({ error: 'Datos inválidos', details: err.errors });
+      res.status(400).json({ error: 'Datos inválidos', details: err.flatten() });
       return;
     }
     console.error('Error creating alerta:', err);
@@ -86,6 +86,10 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
     });
     res.json(alerta);
   } catch (err: any) {
+    if (err.name === 'ZodError') {
+      res.status(400).json({ error: 'Datos inválidos', details: err.flatten() });
+      return;
+    }
     if (err.code === 'P2025') {
       res.status(404).json({ error: 'Alerta no encontrada' });
       return;
