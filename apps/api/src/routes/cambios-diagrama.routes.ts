@@ -354,7 +354,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       await crearNotificacion({
         usuarioId: solicitud.usuarioId,
         tipo: 'CAMBIO_DIAGRAMA',
-        titulo: '🗓️ Tu diagrama fue actualizado',
+        titulo: 'Tu diagrama fue actualizado',
         cuerpo: `Se aprobó el cambio de tu diagrama${solicitud.diagramaNuevo?.nombre ? ` a "${solicitud.diagramaNuevo.nombre}"` : ''}.`,
         link: '/dashboard',
       });
@@ -362,7 +362,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         await crearNotificacion({
           usuarioId: solicitud.solicitanteId,
           tipo: 'CAMBIO_DIAGRAMA',
-          titulo: '✅ Cambio de diagrama aprobado',
+          titulo: 'Cambio de diagrama aprobado',
           cuerpo: 'La solicitud de cambio de diagrama que creaste fue aprobada.',
           link: '/cambios-diagrama',
         });
@@ -371,7 +371,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       await crearNotificacion({
         usuarioId: solicitud.solicitanteId,
         tipo: 'CAMBIO_DIAGRAMA',
-        titulo: '⏳ Cambio de diagrama avanzó de paso',
+        titulo: 'Cambio de diagrama avanzó de paso',
         cuerpo: 'La solicitud de cambio de diagrama avanzó al siguiente paso de aprobación.',
         link: '/cambios-diagrama',
       });
@@ -440,7 +440,7 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       await crearNotificacion({
         usuarioId: solicitud.solicitanteId,
         tipo: 'CAMBIO_DIAGRAMA',
-        titulo: '❌ Cambio de diagrama rechazado',
+        titulo: 'Cambio de diagrama rechazado',
         cuerpo: `La solicitud de cambio de diagrama fue rechazada. Motivo: ${motivo}`,
         link: '/cambios-diagrama',
       });

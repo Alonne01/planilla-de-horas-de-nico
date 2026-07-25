@@ -265,7 +265,7 @@ router.post('/', requireLevel(LEVEL_RRHH), upload.single('archivo'), async (req:
         crearNotificacion({
           usuarioId: uid,
           tipo: 'MENSAJE',
-          titulo: `📩 Nuevo mensaje: ${asunto}`,
+          titulo: `Nuevo mensaje: ${asunto}`,
           cuerpo: `${nombreRemitente} te envió un mensaje.`,
           link: '/mensajes',
         })
@@ -346,7 +346,7 @@ router.post('/:id/responder', upload.single('archivo'), async (req: AuthRequest,
       await crearNotificacion({
         usuarioId: mensaje.remitenteId,
         tipo: 'MENSAJE',
-        titulo: `💬 Respuesta a: ${mensaje.asunto}`,
+        titulo: `Respuesta a: ${mensaje.asunto}`,
         cuerpo: `${replier.nombre} ${replier.apellido} respondió tu mensaje.`,
         link: '/mensajes',
       });

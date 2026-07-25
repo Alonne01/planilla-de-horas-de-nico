@@ -29,9 +29,9 @@ export async function notificarPlanilla(
   planillaId?: string,
 ) {
   const titulos: Record<string, string> = {
-    APROBADA: '✅ Planilla aprobada',
-    RECHAZADA: '❌ Planilla rechazada',
-    EN_REVISION: '🔄 Planilla avanzó de paso',
+    APROBADA: 'Planilla aprobada',
+    RECHAZADA: 'Planilla rechazada',
+    EN_REVISION: 'Planilla avanzó de paso',
   };
   const cuerpos: Record<string, string> = {
     APROBADA: `Tu planilla fue aprobada por ${aprobadorNombre}.`,
@@ -55,9 +55,9 @@ export async function notificarVacacion(
   motivo?: string,
 ) {
   const titulos: Record<string, string> = {
-    APROBADA: '✅ Vacaciones aprobadas',
-    RECHAZADA: '❌ Vacaciones rechazadas',
-    EN_REVISION: '🔄 Vacaciones avanzaron de paso',
+    APROBADA: 'Vacaciones aprobadas',
+    RECHAZADA: 'Vacaciones rechazadas',
+    EN_REVISION: 'Vacaciones avanzaron de paso',
   };
   const cuerpos: Record<string, string> = {
     APROBADA: `Tu solicitud de vacaciones fue aprobada por ${aprobadorNombre}.`,
@@ -81,9 +81,9 @@ export async function notificarAusencia(
   motivo?: string,
 ) {
   const titulos: Record<string, string> = {
-    APROBADA: '✅ Ausencia aprobada',
-    RECHAZADA: '❌ Ausencia rechazada',
-    EN_REVISION: '🔄 Ausencia avanzó de paso',
+    APROBADA: 'Ausencia aprobada',
+    RECHAZADA: 'Ausencia rechazada',
+    EN_REVISION: 'Ausencia avanzó de paso',
   };
   const cuerpos: Record<string, string> = {
     APROBADA: `Tu ausencia fue aprobada por ${aprobadorNombre}.`,
@@ -113,7 +113,7 @@ export async function notificarEnvio(
   await crearNotificacion({
     usuarioId: destinatarioId,
     tipo,
-    titulo: `📨 Nueva ${labels[tipo]} para revisar`,
+    titulo: `Nueva ${labels[tipo]} para revisar`,
     cuerpo: `${solicitanteNombre} envió una ${labels[tipo]} que requiere tu aprobación.`,
     link: '/aprobaciones',
   });
@@ -177,7 +177,7 @@ export async function notificarAprobadoresPaso(
       await crearNotificacion({
         usuarioId: approverId,
         tipo,
-        titulo: `📨 Nueva ${labels[tipo]} para revisar`,
+        titulo: `Nueva ${labels[tipo]} para revisar`,
         cuerpo: `${solicitanteNombre} tiene una ${labels[tipo]} pendiente de tu aprobación.`,
         link: '/aprobaciones',
       });

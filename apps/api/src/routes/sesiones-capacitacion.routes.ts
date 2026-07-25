@@ -243,7 +243,7 @@ router.delete('/:id', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, 
       await crearNotificacion({
         usuarioId: inv.usuarioId,
         tipo: 'CAPACITACION',
-        titulo: '❌ Capacitación cancelada',
+        titulo: 'Capacitación cancelada',
         cuerpo: `La sesión "${sesion.titulo}" del ${new Date(sesion.fecha).toLocaleDateString('es-AR')} fue cancelada.`,
         link: '/capacitaciones',
       });
@@ -339,7 +339,7 @@ router.post('/:id/invitar', requireLevel(LEVEL_COORDINADOR), async (req: AuthReq
         await crearNotificacion({
           usuarioId,
           tipo: 'CAPACITACION',
-          titulo: '📚 Invitación a capacitación',
+          titulo: 'Invitación a capacitación',
           cuerpo: `${orgNombre} te invitó a "${sesion.titulo}" el ${fechaStr}. Confirmá tu asistencia.`,
           link: '/capacitaciones',
         });
@@ -500,7 +500,7 @@ router.post('/mis-invitaciones/:invId/responder', async (req: AuthRequest, res: 
     await crearNotificacion({
       usuarioId: inv.sesion.organizador.id,
       tipo: 'CAPACITACION',
-      titulo: aceptar ? '✅ Invitación aceptada' : '❌ Invitación rechazada',
+      titulo: aceptar ? 'Invitación aceptada' : 'Invitación rechazada',
       cuerpo: aceptar
         ? `${empleadoNombre} aceptó la capacitación "${inv.sesion.titulo}" del ${fechaStr}.`
         : `${empleadoNombre} rechazó la capacitación "${inv.sesion.titulo}" del ${fechaStr}.${motivoRechazo ? ` Motivo: ${motivoRechazo}` : ''}`,
@@ -606,7 +606,7 @@ router.post('/:id/finalizar', requireLevel(LEVEL_COORDINADOR), async (req: AuthR
         await crearNotificacion({
           usuarioId: inv.usuarioId,
           tipo: 'CAPACITACION',
-          titulo: '🎓 Capacitación completada',
+          titulo: 'Capacitación completada',
           cuerpo: `Se registró tu asistencia a "${sesion.titulo}". Ya se reflejó en tu planilla de horas.`,
           link: '/capacitaciones',
         });
