@@ -25,6 +25,7 @@ import auditoriaRoutes from './auditoria.routes.js';
 import cambiosDiagramaRoutes from './cambios-diagrama.routes.js';
 import misSolicitudesRoutes from './mis-solicitudes.routes.js';
 import wentopRoutes from './wentop.routes.js';
+import configRoutes from './config.routes.js';
 
 const router = Router();
 
@@ -64,6 +65,10 @@ router.use('/notificaciones', notificacionesRoutes);
 
 // Exportaciones
 router.use('/exportaciones', exportacionesRoutes);
+
+// Config (lectura para cualquier usuario autenticado; distinto de /admin/config,
+// que es ADMIN-only y expone las tarifas de viaje)
+router.use('/config', configRoutes);
 
 // Admin
 router.use('/admin/sectores', adminSectoresRoutes);
