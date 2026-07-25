@@ -99,6 +99,7 @@ if not exist "%API_DIR%\.env" (
     exit /b 1
 )
 
+
 :: ------------------------------------------------
 :: Step 1: Node.js - check / auto-install
 :: ------------------------------------------------
@@ -358,14 +359,23 @@ echo       revisa la redireccion de puertos del router.
 
 :tunnel_ready
 
-:: Copy URL to clipboard AND save to a file on the Desktop
+:: Copy URL to clipboard AND save to a file on the Desktop.
+:: Al portapapeles va el link LIMPIO: es el que se le pasa a quien va a testear.
 powershell -NoProfile -Command "Set-Clipboard -Value '!WEB_URL!'" >nul 2>&1
 > "%LINK_FILE%" (
     echo Planilla de Horas - link de testing remoto
     echo Generado: %DATE% %TIME%
     echo.
+    echo Para compartir:
     echo !WEB_URL!
 )
+
+:: Link de modo debug (entrar sin tipear contrasenas). Lo arma PowerShell y no
+:: este .bat porque la clave puede tener caracteres que el batch destruye: un
+:: '!' final se pierde con enabledelayedexpansion, y escaparlo como %%21 rompe
+:: igual porque en un .bat %%2 se lee como parametro. Acá solo se vuelca el
+:: archivo con `type`, que no expande nada.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%debug-link.ps1" -EnvFile "%API_DIR%\.env" -WebUrl "!WEB_URL!" -OutDir "%TEMP_DIR%" -LinkFile "%LINK_FILE%" >nul 2>&1
 
 :: ------------------------------------------------
 :: Show results
@@ -385,6 +395,29 @@ echo      !WEB_URL!
 echo.
 echo    (ya copiada al portapapeles y guardada en el Desktop
 echo     como planilla-link.txt)
+echo.
+echo --------------------------------------------------------
+echo.
+if exist "%TEMP_DIR%\debug-url.txt" (
+    echo    MODO DEBUG - entrar sin tipear contrasenas:
+    echo.
+    for /f "usebackq delims=" %%u in ("%TEMP_DIR%\debug-url.txt") do echo      %%u
+    echo.
+    echo    Abrilo UNA vez en cada dispositivo. Queda guardado ahi
+    echo    y el login pasa a mostrar el selector de usuarios.
+    echo    Despues podes usar el link normal de arriba.
+    echo.
+    echo    NO lo compartas: con esa clave se entra a CUALQUIER
+    echo    cuenta sin la contrasena real. Tambien quedo anotado
+    echo    en planilla-link.txt, al final.
+) else (
+    echo    MODO DEBUG APAGADO. Va a haber que tipear las
+    echo    contrasenas reales. Motivo:
+    if exist "%TEMP_DIR%\debug-motivo.txt" type "%TEMP_DIR%\debug-motivo.txt"
+    echo.
+    echo    Se configura en apps\api\.env ^(DEBUG_AUTH=true y
+    echo    DEBUG_AUTH_PASSWORD^), con NODE_ENV distinto de production.
+)
 echo.
 echo --------------------------------------------------------
 echo.
