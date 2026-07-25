@@ -1,3 +1,5 @@
+import type { PrismaClient, Prisma } from '@prisma/client';
+
 /**
  * Un paso del circuito de aprobación, ya desprendido del flujo que lo originó.
  *
@@ -76,4 +78,96 @@ export function construirCircuito(
   const final = [...porOrdenOriginal.values()].sort((a, b) => a.orden - b.orden);
 
   return final.map((p, i) => ({ ...p, orden: i + 1 }));
+}
+
+/**
+ * Los tipos de documento que pasan por un flujo. `tipoDocumento` es String en
+ * el schema, no un enum de Prisma: esta unión es la única cosa que impide
+ * escribir un tipo inexistente y que la consulta devuelva null en silencio.
+ */
+export type TipoDocumentoFlujo = 'PLANILLA' | 'VACACION' | 'AUSENCIA' | 'COMPENSATORIO' | 'CAMBIO_DIAGRAMA';
+
+/**
+ * Qué flujo le corresponde a un documento, con prioridad usuario → sector →
+ * global. Devuelve null si no hay ninguno configurado.
+ *
+ * La prioridad se resuelve con tres consultas encadenadas y no con un OR: en un
+ * OR plano el flujo global le puede ganar al asignado al usuario, que es
+ * justamente lo contrario de lo que la asignación quiere decir.
+ *
+ * El `orderBy` es obligatorio: sin él, con dos asignaciones que empatan el
+ * resultado lo decide el orden físico de Postgres y puede cambiar entre
+ * consultas. La restricción única que agrega la migración de este plan hace que
+ * el empate no ocurra, pero el orden queda igual para que el comportamiento no
+ * dependa de esa garantía.
+ */
+export async function resolverFlujo(
+  prisma: PrismaClient,
+  tipoDocumento: TipoDocumentoFlujo,
+  usuario: { userId: string; empresaId: string; sectorId: string | null },
+): Promise<{ id: string } | null> {
+  const base = { empresaId: usuario.empresaId, tipoDocumento, activo: true };
+  // El `tipoDocumento` se repite adentro de la asignación a propósito: una
+  // asignación puede apuntar a un flujo de otro tipo y no tiene que contar.
+  const buscar = (asignacion: Prisma.FlujoAsignacionWhereInput) =>
+    prisma.flujoAprobacion.findFirst({
+      where: { ...base, asignaciones: { some: { ...asignacion, activo: true, tipoDocumento } } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+
+  const porUsuario = await buscar({ usuarioId: usuario.userId });
+  if (porUsuario) return porUsuario;
+
+  if (usuario.sectorId) {
+    const porSector = await buscar({ sectorId: usuario.sectorId });
+    if (porSector) return porSector;
+  }
+
+  return buscar({ sectorId: null, usuarioId: null });
+}
+
+/**
+ * Los niveles de cada código de rol de la empresa, para `construirCircuito`.
+ *
+ * Solo roles activos: un rol desactivado no tiene nivel con el que comparar y
+ * `construirCircuito` lo trata como huérfano, que es lo que se quiere.
+ */
+export async function nivelesPorRol(
+  prisma: PrismaClient,
+  empresaId: string,
+): Promise<Record<string, number>> {
+  const roles = await prisma.rolConfig.findMany({
+    where: { empresaId, activo: true },
+    select: { codigo: true, nivel: true },
+  });
+  // La tupla va `as const` para que `fromEntries` infiera number y no any.
+  return Object.fromEntries(roles.map((r) => [r.codigo, r.nivel] as const));
+}
+
+/**
+ * Los pasos que rigen un documento.
+ *
+ * Prioriza el snapshot congelado al enviarlo. Cae a los pasos vivos del flujo
+ * solo para documentos anteriores a este cambio, que no tienen snapshot: sin
+ * ese fallback, todo lo que estuviera en curso al desplegar quedaría trabado.
+ */
+export function pasosDe(documento: {
+  circuitoSnapshot: unknown;
+  flujo?: { pasos: PasoCircuito[] } | null;
+}): PasoCircuito[] {
+  if (Array.isArray(documento.circuitoSnapshot)) {
+    return documento.circuitoSnapshot as PasoCircuito[];
+  }
+  // Los pasos vivos vienen del `include` y nadie garantiza su orden: se ordenan
+  // acá porque `pasoActual` indexa por `orden`, no por posición.
+  const vivos = documento.flujo?.pasos ?? [];
+  return [...vivos].sort((a, b) => a.orden - b.orden);
+}
+
+/** El paso vigente según `pasoActual` (1-based). `null` si está fuera de rango. */
+export function pasoActualDe(
+  documento: { circuitoSnapshot: unknown; pasoActual: number; flujo?: { pasos: PasoCircuito[] } | null },
+): PasoCircuito | null {
+  return pasosDe(documento).find((p) => p.orden === documento.pasoActual) ?? null;
 }

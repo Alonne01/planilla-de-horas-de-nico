@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { construirCircuito, type PasoCircuito } from '../src/utils/circuito.utils.js';
+import { construirCircuito, pasosDe, pasoActualDe, type PasoCircuito } from '../src/utils/circuito.utils.js';
 
 /** La cadena del spec: Supervisor → Coordinador → Gerente → RRHH. */
 const CADENA: PasoCircuito[] = [
@@ -78,7 +78,26 @@ async function run() {
     construirCircuito(CADENA, 70, NIVELES);
     assert.deepStrictEqual(CADENA, copia, 'construirCircuito no puede mutar los pasos que recibe');
   }
-  console.log('✓ circuito: 11/11 OK');
+  // 12. pasosDe prioriza el snapshot sobre el flujo vivo
+  {
+    const doc = { circuitoSnapshot: [CADENA[3]], flujo: { pasos: CADENA } };
+    assert.deepStrictEqual(roles(pasosDe(doc)), ['RRHH'], 'el snapshot manda');
+  }
+  // 13. pasosDe cae al flujo vivo si no hay snapshot (documentos viejos)
+  {
+    const doc = { circuitoSnapshot: null, flujo: { pasos: CADENA } };
+    assert.strictEqual(pasosDe(doc).length, 4);
+  }
+  // 14. pasosDe sin snapshot ni flujo devuelve vacío, no explota
+  {
+    assert.deepStrictEqual(pasosDe({ circuitoSnapshot: null, flujo: null }), []);
+  }
+  // 15. pasoActualDe devuelve null si el paso quedó fuera de rango
+  {
+    const doc = { circuitoSnapshot: [CADENA[3]], pasoActual: 3, flujo: null };
+    assert.strictEqual(pasoActualDe(doc), null);
+  }
+  console.log('✓ circuito: 15/15 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
