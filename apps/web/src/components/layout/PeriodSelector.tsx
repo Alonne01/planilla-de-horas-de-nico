@@ -1,71 +1,10 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { Calendar, ChevronDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { generateCycles, getCurrentPeriod, type Cycle } from '../../utils/periodos';
 
-const MESES_ES = [
-  'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-  'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
-];
-
-interface Cycle {
-  inicio: string;
-  fin: string;
-  label: string;
-}
-
-export function generateCycles(
-  count: number,
-  diaInicio: number = 21,
-  diaFin: number = 20,
-): Cycle[] {
-  const cycles: Cycle[] = [];
-  const now = new Date();
-  // Determine current cycle's start month
-  let startYear = now.getFullYear();
-  let startMonth = now.getMonth(); // 0-indexed
-
-  if (now.getDate() < diaInicio) {
-    // We're in the first half — cycle started previous month
-    startMonth -= 1;
-    if (startMonth < 0) {
-      startMonth = 11;
-      startYear -= 1;
-    }
-  }
-
-  for (let i = 0; i < count; i++) {
-    const inicioDate = new Date(startYear, startMonth - i, diaInicio);
-    const finDate = new Date(startYear, startMonth - i + 1, diaFin);
-
-    const iDay = inicioDate.getDate();
-    const iMes = MESES_ES[inicioDate.getMonth()];
-    const fDay = finDate.getDate();
-    const fMes = MESES_ES[finDate.getMonth()];
-    const fYear = finDate.getFullYear();
-
-    // Only show year on inicio if it differs from fin
-    const iYearStr =
-      inicioDate.getFullYear() !== fYear
-        ? ` ${inicioDate.getFullYear()}`
-        : '';
-
-    cycles.push({
-      inicio: inicioDate.toISOString(),
-      fin: finDate.toISOString(),
-      label: `${iDay} ${iMes}${iYearStr} - ${fDay} ${fMes} ${fYear}`,
-    });
-  }
-
-  return cycles;
-}
-
-export function getCurrentPeriod(
-  diaInicio: number = 21,
-  diaFin: number = 20,
-): { inicio: string; fin: string } {
-  const [current] = generateCycles(1, diaInicio, diaFin);
-  return { inicio: current.inicio, fin: current.fin };
-}
+// Re-exportadas por compatibilidad: las 5 páginas las importan desde acá.
+export { generateCycles, getCurrentPeriod };
 
 // ── Component ────────────────────────────────────────────────────
 
