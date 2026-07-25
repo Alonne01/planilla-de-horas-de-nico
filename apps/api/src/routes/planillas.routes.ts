@@ -18,6 +18,14 @@ import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, formatTipoAusencia
 import { logAuditoria } from '../lib/auditoria.js';
 import { canManageUser } from '../utils/user-scope.utils.js';
 import { contextoDelDia, esDiaFrancoSegunDiagrama, feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
+import {
+  construirCircuito,
+  nivelesPorRol,
+  pasoActualDe,
+  pasosDe,
+  resolverFlujo,
+  type PasoCircuito,
+} from '../utils/circuito.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -264,52 +272,15 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
       return;
     }
 
-    const usuario = await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } });
-
-    // Priority-based flujo lookup: user-specific → sector → company-wide default
-    let flujo = await prisma.flujoAprobacion.findFirst({
-      where: {
-        empresaId, tipoDocumento: 'PLANILLA', activo: true,
-        asignaciones: { some: { usuarioId: userId, activo: true, tipoDocumento: 'PLANILLA' } },
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true },
-    });
-
-    if (!flujo && usuario?.sectorId) {
-      flujo = await prisma.flujoAprobacion.findFirst({
-        where: {
-          empresaId, tipoDocumento: 'PLANILLA', activo: true,
-          asignaciones: { some: { sectorId: usuario.sectorId, activo: true, tipoDocumento: 'PLANILLA' } },
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
-    }
-
-    if (!flujo) {
-      flujo = await prisma.flujoAprobacion.findFirst({
-        where: {
-          empresaId, tipoDocumento: 'PLANILLA', activo: true,
-          asignaciones: { some: { sectorId: null, usuarioId: null, activo: true, tipoDocumento: 'PLANILLA' } },
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
-    }
-
-    const flujoId = flujo?.id ?? null;
-
-    if ((process.env.DEBUG_APPROVALS === '1' || process.env.DEBUG_APPROVALS === 'true')) {
-      console.log(`[CREAR PLANILLA] user=${userId.slice(-6)} sector=${usuario?.sectorId?.slice(-6) ?? 'N/A'} → flujo=${flujoId?.slice(-6) ?? 'NONE'}`);
-    }
-
+    // El borrador no ata ningún flujo: se resuelve y se congela al ENVIAR. Un
+    // borrador puede vivir semanas antes de enviarse, y resolver acá lo hacía
+    // circular por la configuración que existía cuando se creó.
     const planilla = await prisma.planilla.create({
       data: {
         usuarioId: userId,
         periodoInicio,
         periodoFin,
-        flujoId,
+        flujoId: null,
       },
       include: {
         usuario: { select: { id: true, nombre: true, apellido: true } },
@@ -399,9 +370,11 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
         prisma, req.user!.userId, req.user!.empresaId, req.user!.rol, nivel, 'PLANILLA',
       );
       if (!visibleIds.includes(planilla.usuario.id)) {
-        // Allow access if user is the responsible approver for the current step
-        const pasos = planilla.flujo?.pasos ?? [];
-        const currentStep = pasos.find(p => p.orden === planilla.pasoActual);
+        // Allow access if user is the responsible approver for the current step.
+        // El paso sale del circuito congelado: si se leyeran los pasos vivos, un
+        // cambio de configuración le abriría (o le cerraría) la planilla a alguien
+        // que no es el aprobador real de este documento.
+        const currentStep = pasoActualDe(planilla);
         const isPendingReview = planilla.estado === 'ENVIADA' || planilla.estado === 'EN_REVISION';
         const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
         if (!isPendingReview || !currentStep || !isResponsibleApprover(currentStep.rolAprobador, planilla.usuario, req.user!.userId, req.user!.rol, nivel, approverSectorId)) {
@@ -461,10 +434,13 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       select: { fecha: true, bloqueado: true, lugarTrabajo: true, horasTrabajadas: true, entradaTurno1: true },
     });
 
-    // Look up user's active diagram to determine franco days
+    // Look up user's active diagram to determine franco days.
+    // `sectorId` y `rol` salen de la misma consulta porque son los que resuelven
+    // el circuito más abajo: el dueño de la planilla es siempre quien la envía
+    // (el findFirst filtra por `usuarioId: req.user!.userId`).
     const usuario = await prisma.usuario.findUnique({
       where: { id: req.user!.userId },
-      select: { empresaId: true },
+      select: { empresaId: true, sectorId: true, rol: true },
     });
     const diagramaAsignacion = await prisma.usuarioDiagrama.findFirst({
       where: { usuarioId: req.user!.userId, activo: true },
@@ -521,13 +497,52 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
+    // El circuito se resuelve recién ahora y queda CONGELADO en la planilla: a
+    // partir de acá, tocar la configuración de flujos no altera el recorrido de
+    // lo que ya está en vuelo. Un reenvío después de un rechazo es un envío
+    // nuevo, así que vuelve a resolver y a congelar.
+    const flujo = await resolverFlujo(prisma, 'PLANILLA', {
+      userId: planilla.usuarioId,
+      empresaId: req.user!.empresaId,
+      sectorId: usuario?.sectorId ?? null,
+    });
+    const niveles = await nivelesPorRol(prisma, req.user!.empresaId);
+    const nivelSolicitante = niveles[usuario?.rol ?? ''] ?? 0;
+
+    let circuito: PasoCircuito[] = [];
+    if (flujo) {
+      const pasosDelFlujo = await prisma.flujoPaso.findMany({
+        where: { flujoId: flujo.id },
+        orderBy: { orden: 'asc' },
+      });
+      // Sin cast: `FlujoPaso` trae campos de más (id, flujoId, accion*), pero por
+      // tipado estructural encaja en `PasoCircuito` tal cual sale de Prisma.
+      circuito = construirCircuito(pasosDelFlujo, nivelSolicitante, niveles);
+    }
+
     const updated = await prisma.planilla.update({
       where: { id: planillaId },
-      data: { estado: 'ENVIADA', pasoActual: 1, enviadaAt: new Date(), obsRechazo: null },
+      data: {
+        estado: 'ENVIADA',
+        pasoActual: 1,
+        enviadaAt: new Date(),
+        obsRechazo: null,
+        flujoId: flujo?.id ?? null,
+        // `Prisma.DbNull` y no `undefined`: con `undefined` Prisma ni toca la
+        // columna, así que al reenviar una planilla rechazada cuyo sector se quedó
+        // sin flujo quedaría pegado el snapshot viejo — el circuito fantasma que
+        // este cambio viene a eliminar. El doble cast, en cambio, es una limitación
+        // de TypeScript y no un tipo dudoso: una `interface` no recibe index
+        // signature implícita y por eso no encaja en `InputJsonValue`, aunque sean
+        // objetos planos de string/number/boolean/array.
+        circuitoSnapshot: circuito.length > 0
+          ? (circuito as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
+      },
     });
 
     if ((process.env.DEBUG_APPROVALS === '1' || process.env.DEBUG_APPROVALS === 'true')) {
-      console.log(`[ENVIAR PLANILLA] planilla=${planillaId.slice(-6)} flujo=${planilla.flujoId?.slice(-6) ?? 'NONE'} user=${req.user!.userId.slice(-6)} → pasoActual=1`);
+      console.log(`[ENVIAR PLANILLA] planilla=${planillaId.slice(-6)} flujo=${flujo?.id.slice(-6) ?? 'NONE'} user=${req.user!.userId.slice(-6)} nivel=${nivelSolicitante} → pasos=${circuito.length} pasoActual=1`);
     }
 
     await prisma.planillaHistorial.create({
@@ -545,11 +560,22 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       select: { nombre: true, apellido: true },
     });
     const solicitanteNombre = solicitante ? `${solicitante.nombre} ${solicitante.apellido}` : 'Un empleado';
+    // El flujo recién resuelto, no `planilla.flujoId`: la fila que cargamos al
+    // principio del handler es la de ANTES del update y ahí el borrador no tiene
+    // flujo, así que nadie recibiría el aviso.
     await notificarAprobadoresPaso(
-      planilla.usuarioId, req.user!.empresaId, planilla.flujoId, 1, 'PLANILLA', solicitanteNombre,
+      planilla.usuarioId, req.user!.empresaId, flujo?.id ?? null, 1, 'PLANILLA', solicitanteNombre,
     );
 
-    res.json(updated);
+    res.json({
+      ...updated,
+      // Sin circuito la planilla queda en la rama de escape del avance, que exige
+      // nivel RRHH o superior: conviene que el empleado lo sepa al enviarla y no
+      // cuando nadie se la aprueba.
+      avisoSinCircuito: circuito.length === 0
+        ? 'Tu sector no tiene circuito de aprobación configurado: la planilla va a requerir una aprobación manual de RRHH o superior.'
+        : undefined,
+    });
   } catch (error) {
     console.error('Error al enviar planilla:', error);
     res.status(500).json({ error: 'Error interno' });
@@ -573,6 +599,12 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       res.status(404).json({ error: 'Planilla no encontrada' });
       return;
     }
+    // Nadie aprueba lo suyo, ni siquiera un ADMIN. Con la regla por nivel esto es
+    // crítico: un RRHH que envía conserva el paso RRHH en su circuito.
+    if (planilla.usuarioId === req.user!.userId) {
+      res.status(403).json({ error: 'No podés aprobar ni rechazar tu propia planilla' });
+      return;
+    }
     if (planilla.estado !== 'ENVIADA' && planilla.estado !== 'EN_REVISION') {
       res.status(400).json({ error: 'La planilla no está en estado de revisión' });
       return;
@@ -587,7 +619,9 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       return;
     }
 
-    const pasos = planilla.flujo?.pasos ?? [];
+    // El circuito congelado al enviar; los pasos vivos del flujo son sólo el
+    // fallback de las planillas anteriores a este cambio.
+    const pasos = pasosDe(planilla);
     const totalPasos = pasos.length;
     const pasoActual = planilla.pasoActual;
 
@@ -596,12 +630,8 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
 
     // pasoActual is 1-based (matches FlujoPaso.orden). 0 = not started, 1..N = current step.
     if (pasoActual > totalPasos || totalPasos === 0) {
-      // No flow configured: block self-approval and require RRHH+ to approve
-      // (mirror the guard already present in ausencias/vacaciones avanzar).
-      if (planilla.usuario.id === req.user!.userId) {
-        res.status(403).json({ error: 'No podés aprobar tu propia planilla' });
-        return;
-      }
+      // Sin circuito: se exige RRHH o superior. La guarda de autoaprobación que
+      // vivía acá ya la cubre la general del principio del handler.
       if ((req.user!.rolNivel ?? 0) < 90) {
         res.status(403).json({ error: 'Se requiere nivel RRHH o superior para aprobar sin flujo de aprobación' });
         return;
@@ -609,9 +639,9 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       nuevoEstado = 'APROBADA';
       nuevoPaso = pasoActual;
     } else {
-      const pasoConfig = pasos.find(p => p.orden === pasoActual);
+      const pasoConfig = pasoActualDe(planilla);
       if (!pasoConfig) {
-        res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada en el flujo` });
+        res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada en el circuito` });
         return;
       }
       const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
@@ -642,12 +672,15 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         });
         if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
 
-        // Duplicate check INSIDE transaction (after row lock acquired by UPDATE)
+        // Duplicate check INSIDE transaction (after row lock acquired by UPDATE).
+        // Se compara contra el paso que se está APROBANDO, no contra el destino:
+        // lo que hay que impedir es que la misma persona firme dos veces el mismo
+        // recorrido, y con el destino la comparación se corría un paso.
         const yaAprobo = await tx.planillaHistorial.findFirst({
           where: {
             planillaId,
             usuarioId: req.user!.userId,
-            pasoFlujo: nuevoPaso,
+            pasoFlujo: planilla.pasoActual,
             createdAt: { gt: planilla.enviadaAt ?? new Date(0) },
           },
         });
@@ -758,6 +791,12 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       return;
     }
 
+    // Nadie rechaza lo suyo: mismo criterio que en /avanzar.
+    if (planilla.usuarioId === req.user!.userId) {
+      res.status(403).json({ error: 'No podés aprobar ni rechazar tu propia planilla' });
+      return;
+    }
+
     // Explicit state guard (mirrors /avanzar): sólo se rechaza una planilla en
     // revisión. Sin esto, una planilla ya APROBADA/CERRADA caía en el chequeo de
     // aprobador y devolvía un 403 engañoso en vez de un 400 con motivo claro.
@@ -766,9 +805,9 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       return;
     }
 
-    // Verify the caller is the responsible approver for this step
-    const pasos = planilla.flujo?.pasos ?? [];
-    const currentStep = pasos.find(p => p.orden === planilla.pasoActual);
+    // Verify the caller is the responsible approver for this step (el paso sale
+    // del circuito congelado; los pasos vivos son el fallback de lo viejo)
+    const currentStep = pasoActualDe(planilla);
     const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
     if ((process.env.DEBUG_APPROVALS === '1' || process.env.DEBUG_APPROVALS === 'true')) {
       console.log(`[RECHAZAR PLANILLA] planilla=${planillaId.slice(-6)} paso=${planilla.pasoActual} rolPaso=${currentStep?.rolAprobador ?? 'N/A'} approver=${req.user!.userId.slice(-6)} rol=${req.user!.rol} sector=${approverSectorId?.slice(-6)}`);
