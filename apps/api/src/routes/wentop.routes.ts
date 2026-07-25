@@ -2,7 +2,14 @@ import { Router, Response } from 'express';
 import { PrismaClient, WentopEstado, WentopTipoTarjeta } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH, LEVEL_CMASS } from '../middleware/roles.middleware.js';
-import { upload } from '../middleware/upload.middleware.js';
+import {
+  upload,
+  uploadLimiter,
+  descartarArchivos,
+  pesoTotalDeUploads,
+  MAX_FOTOS_POR_TARJETA,
+  MAX_BYTES_POR_TARJETA,
+} from '../middleware/upload.middleware.js';
 import { unlink } from 'fs/promises';
 import path from 'path';
 
@@ -615,13 +622,16 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
 
 // ─── POST /wentop/:id/fotos ─────────────────────
 
-router.post('/:id/fotos', upload.array('fotos', 10), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/:id/fotos', uploadLimiter, upload.array('fotos', MAX_FOTOS_POR_TARJETA), async (req: AuthRequest, res: Response): Promise<void> => {
+  const files = req.files as Express.Multer.File[] | undefined;
   try {
     const tarjeta = await prisma.wentopTarjeta.findFirst({
       where: { id: req.params.id, empresaId: req.user!.empresaId },
+      include: { fotos: { select: { url: true } } },
     });
 
     if (!tarjeta) {
+      descartarArchivos(files);
       res.status(404).json({ error: 'Tarjeta no encontrada' });
       return;
     }
@@ -630,13 +640,37 @@ router.post('/:id/fotos', upload.array('fotos', 10), async (req: AuthRequest, re
     const canManage = await canManageWentop(req.user!.userId, req.user!.rol, req.user!.rolNivel, tarjeta.sectorObservacionId);
 
     if (!isCreator && !canManage) {
+      descartarArchivos(files);
       res.status(403).json({ error: 'No tiene permisos para subir fotos a esta tarjeta' });
       return;
     }
 
-    const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) {
       res.status(400).json({ error: 'No se enviaron archivos' });
+      return;
+    }
+
+    // Límites ACUMULADOS por tarjeta: el tope de multer es por request, así que
+    // sin esto se puede repetir la llamada y subir fotos sin fin.
+    const yaCargadas = tarjeta.fotos.length;
+    if (yaCargadas + files.length > MAX_FOTOS_POR_TARJETA) {
+      descartarArchivos(files);
+      const disponibles = Math.max(0, MAX_FOTOS_POR_TARJETA - yaCargadas);
+      res.status(400).json({
+        error: disponibles === 0
+          ? `La tarjeta ya tiene el máximo de ${MAX_FOTOS_POR_TARJETA} fotos`
+          : `Solo se pueden agregar ${disponibles} foto(s) más: el máximo por tarjeta es ${MAX_FOTOS_POR_TARJETA}`,
+      });
+      return;
+    }
+
+    const pesoExistente = pesoTotalDeUploads(tarjeta.fotos.map((f) => f.url));
+    const pesoNuevo = files.reduce((acc, f) => acc + f.size, 0);
+    if (pesoExistente + pesoNuevo > MAX_BYTES_POR_TARJETA) {
+      descartarArchivos(files);
+      res.status(400).json({
+        error: `Se supera el máximo de ${Math.round(MAX_BYTES_POR_TARJETA / 1024 / 1024)} MB de fotos por tarjeta`,
+      });
       return;
     }
 
@@ -654,6 +688,7 @@ router.post('/:id/fotos', upload.array('fotos', 10), async (req: AuthRequest, re
     res.status(201).json(fotos);
   } catch (error) {
     console.error('Error uploading wentop fotos:', error);
+    descartarArchivos(files);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

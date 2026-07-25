@@ -117,9 +117,16 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     res.status(status).json({ error: err.message ?? 'Solicitud inválida' });
     return;
   }
-  // Multer: campo inesperado, límite de tamaño, etc.
+  // Multer: campo inesperado, límite de tamaño, etc. Los mensajes propios de
+  // multer vienen en inglés, así que se traducen los casos que puede ver un usuario.
   if (err?.name === 'MulterError') {
-    res.status(400).json({ error: `Error de carga de archivo: ${err.message}` });
+    const mensajes: Record<string, string> = {
+      LIMIT_FILE_SIZE: 'El archivo supera el tamaño máximo permitido (5 MB)',
+      LIMIT_FILE_COUNT: 'Se enviaron demasiados archivos a la vez',
+      LIMIT_UNEXPECTED_FILE: 'Campo de archivo inesperado',
+      LIMIT_FIELD_COUNT: 'El formulario tiene demasiados campos',
+    };
+    res.status(400).json({ error: mensajes[err.code] ?? `Error de carga de archivo: ${err.message}` });
     return;
   }
   // Prisma: referencia inválida / dato fuera de rango → 400, no encontrado → 404

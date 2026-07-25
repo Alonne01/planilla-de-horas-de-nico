@@ -3,7 +3,12 @@ import { PrismaClient, Prisma, AusenciaTipo, AusenciaEstado } from '@prisma/clie
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
-import { upload } from '../middleware/upload.middleware.js';
+import {
+  upload,
+  uploadLimiter,
+  descartarArchivos,
+  borrarUploadPorUrl,
+} from '../middleware/upload.middleware.js';
 import { inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { notificarAusencia, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
@@ -997,10 +1002,11 @@ router.post('/:id/revocar', async (req: AuthRequest, res: Response): Promise<voi
 // ─── POST /ausencias/:id/archivo ─────────────────
 // Upload medical certificate (image or PDF)
 
-router.post('/:id/archivo', upload.single('archivo'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/:id/archivo', uploadLimiter, upload.single('archivo'), async (req: AuthRequest, res: Response): Promise<void> => {
+  const subido = req.file;
   try {
     const ausId = req.params.id as string;
-    if (!req.file) {
+    if (!subido) {
       res.status(400).json({ error: 'No se envió un archivo' });
       return;
     }
@@ -1010,6 +1016,7 @@ router.post('/:id/archivo', upload.single('archivo'), async (req: AuthRequest, r
       include: { usuario: { select: { empresaId: true } } },
     });
     if (!ausencia || ausencia.usuario.empresaId !== req.user!.empresaId) {
+      descartarArchivos([subido]);
       res.status(404).json({ error: 'Ausencia no encontrada' });
       return;
     }
@@ -1017,19 +1024,28 @@ router.post('/:id/archivo', upload.single('archivo'), async (req: AuthRequest, r
     const actorId = req.user!.userId;
     const actorNivel = req.user!.rolNivel ?? 0;
     if (ausencia.usuarioId !== actorId && !(await canManageUser(actorId, actorNivel, ausencia.usuarioId, req.user!.empresaId))) {
+      descartarArchivos([subido]);
       res.status(403).json({ error: 'No autorizado para modificar el archivo de esta ausencia' });
       return;
     }
 
-    const archivoUrl = `/uploads/${req.file.filename}`;
+    const anterior = ausencia.archivoUrl;
+    const archivoUrl = `/uploads/${subido.filename}`;
     const updated = await prisma.ausencia.update({
       where: { id: ausId },
       data: { archivoUrl },
     });
 
+    // Un certificado reemplaza al anterior: si no se borra, cada reemplazo deja
+    // un archivo huérfano en disco que ya nadie puede ver ni eliminar.
+    if (anterior && anterior !== archivoUrl) {
+      borrarUploadPorUrl(anterior);
+    }
+
     res.json(updated);
   } catch (error) {
     console.error('Error uploading archivo:', error);
+    descartarArchivos(subido ? [subido] : undefined);
     res.status(500).json({ error: 'Error interno' });
   }
 });
