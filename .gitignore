@@ -29,6 +29,7 @@ lerna-debug.log*
 
 # Backups (stored locally, not in git)
 **/backups/
+backup-*.sql
 
 # Uploads
 **/uploads/*.pdf
