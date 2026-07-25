@@ -111,6 +111,17 @@ function StepRow({
   const inputCls =
     'h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
+  // El select solo lista roles activos, pero el paso puede referenciar un
+  // código que ya no está entre ellos: un rol desactivado (sigue en `roles`
+  // con activo:false), uno borrado del todo (ya no está en `roles`), o —
+  // mientras la query ['roles'] todavía no resolvió — cualquier código con
+  // `roles` vacío. Sin una opción de respaldo el <select> cae en el primer
+  // <option> de la lista real y el próximo guardado persiste ese código
+  // distinto sin que el onChange llegue a dispararse.
+  const rolesActivos = roles.filter((r) => r.activo);
+  const rolActualEntreActivos = rolesActivos.some((r) => r.codigo === paso.rolAprobador);
+  const rolActualInfo = roles.find((r) => r.codigo === paso.rolAprobador);
+
   return (
     <div className="rounded-lg border border-border bg-background/50 p-3 space-y-2">
       <div className="flex items-center gap-2">
@@ -134,7 +145,12 @@ function StepRow({
           value={paso.rolAprobador}
           onChange={(e) => onChange(idx, 'rolAprobador', e.target.value)}
         >
-          {roles.filter((r) => r.activo).map((r) => (
+          {!rolActualEntreActivos && (
+            <option value={paso.rolAprobador}>
+              {(rolActualInfo?.nombre ?? ROL_LABELS[paso.rolAprobador] ?? paso.rolAprobador)} (ya no existe)
+            </option>
+          )}
+          {rolesActivos.map((r) => (
             <option key={r.codigo} value={r.codigo}>{r.nombre}</option>
           ))}
         </select>
