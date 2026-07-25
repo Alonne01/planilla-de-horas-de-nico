@@ -152,6 +152,23 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
       return;
     }
 
+    // solicitudes_cambio_diagrama.diagrama_nuevo_id is ON DELETE RESTRICT, so a hard
+    // delete would throw P2003 if any request references this diagrama as the new one.
+    // (diagrama_actual_id is ON DELETE SET NULL and does not block deletion, so it's
+    // intentionally excluded from this check.) Soft-delete instead, same as historical
+    // assignments above.
+    const solicitudesAsociadas = await prisma.solicitudCambioDiagrama.count({
+      where: { diagramaNuevoId: req.params.id },
+    });
+    if (solicitudesAsociadas > 0) {
+      await prisma.diagrama.update({
+        where: { id: req.params.id },
+        data: { activo: false },
+      });
+      res.status(200).json({ softDeleted: true, message: 'Diagrama desactivado (tiene solicitudes de cambio asociadas)' });
+      return;
+    }
+
     await prisma.diagrama.delete({ where: { id: req.params.id } });
     res.status(204).send();
   } catch (error) {
