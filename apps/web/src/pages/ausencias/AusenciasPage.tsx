@@ -12,6 +12,7 @@ import {
   AlertTriangle, Plus, Trash2, Loader2, X,
   Calendar, FileText, Send, Upload, Palmtree,
   Clock, UserCheck, RotateCcw, Filter, XCircle,
+  DollarSign, Check,
 } from 'lucide-react';
 import PeriodSelector from '@/components/layout/PeriodSelector';
 import { usePeriodoActual } from '@/hooks/usePeriodoConfig';
@@ -351,7 +352,12 @@ export default function AusenciasPage() {
                       </a>
                     )}
                     {a.descripcion && <span>{a.descripcion}</span>}
-                    {a.descuentaSueldo && <span className="text-red-400">💰 Descuenta sueldo</span>}
+                    {a.descuentaSueldo && (
+                      <span className="text-red-400 flex items-center gap-1">
+                        <DollarSign className="h-3 w-3" />
+                        Descuenta sueldo
+                      </span>
+                    )}
                   </div>
                   {a.obsRechazo && a.estado === 'RECHAZADA' && (
                     <p className="text-xs text-red-400 flex items-center gap-1 mt-1">
@@ -541,7 +547,10 @@ function AusenciaFormModal({ onClose, onSuccess }: { onClose: () => void; onSucc
               ))}
             </select>
             {tipo === 'CERTIFICADO_MEDICO' && (
-              <p className="text-xs text-emerald-400 mt-1">✓ Los certificados médicos se aprueban automáticamente</p>
+              <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1">
+                <Check className="h-3 w-3 shrink-0" />
+                Los certificados médicos se aprueban automáticamente
+              </p>
             )}
           </div>
 

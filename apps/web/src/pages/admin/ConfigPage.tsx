@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { mensajeDeError } from '@/lib/errores';
 import { toast } from '@/stores/toastStore';
-import { Settings, Save, Loader2, Clock, Calendar, MapPin, UtensilsCrossed } from 'lucide-react';
+import { Settings, Save, Loader2, Clock, Calendar, MapPin, UtensilsCrossed, Check } from 'lucide-react';
 
 interface EmpresaConfig {
   id: string;
@@ -87,8 +87,14 @@ export default function ConfigPage() {
           disabled={!hasChanges || saveMutation.isPending}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-all"
         >
-          {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          {saved ? '✓ Guardado' : 'Guardar cambios'}
+          {saveMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : saved ? (
+            <Check className="h-4 w-4" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
+          {saved ? 'Guardado' : 'Guardar cambios'}
         </button>
       </div>
 

@@ -7,6 +7,7 @@ import {
   Loader2, GraduationCap, Plus, Trash2, Pencil, X, Save,
   AlertTriangle, CheckCircle2, Clock, BookOpen,
   CalendarPlus, Users, Send, Check, XCircle, UserCheck, Search,
+  Calendar, MapPin,
 } from 'lucide-react';
 import ScopeToggle from '@/components/layout/ScopeToggle';
 import { toast } from '@/stores/toastStore';
@@ -605,18 +606,19 @@ export default function CapacitacionesPage() {
                         <p className="text-sm font-semibold">{s.titulo}</p>
                         <p className="text-xs text-muted-foreground mt-0.5">{s.tipo.nombre}</p>
                       </div>
-                      <span className={cn('px-2 py-1 rounded text-[10px] font-medium',
+                      <span className={cn('px-2 py-1 rounded text-[10px] font-medium inline-flex items-center gap-1',
                         inv.estado === 'ACEPTADA' ? 'bg-emerald-500/15 text-emerald-400' :
                         inv.estado === 'RECHAZADA' ? 'bg-red-500/15 text-red-400' :
                         'bg-blue-500/15 text-blue-400'
                       )}>
-                        {inv.estado === 'ACEPTADA' ? '✅ Aceptada' : inv.estado === 'RECHAZADA' ? '❌ Rechazada' : '⏳ Pendiente'}
+                        {inv.estado === 'ACEPTADA' ? <CheckCircle2 className="h-3 w-3" /> : inv.estado === 'RECHAZADA' ? <XCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                        {inv.estado === 'ACEPTADA' ? 'Aceptada' : inv.estado === 'RECHAZADA' ? 'Rechazada' : 'Pendiente'}
                       </span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-                      <span>📅 {new Date(s.fecha).toLocaleDateString('es-AR')}</span>
-                      {s.horaInicio && <span>🕐 {s.horaInicio}{s.horaFin ? `–${s.horaFin}` : ''}</span>}
-                      {s.lugar && <span>📍 {s.lugar}</span>}
+                      <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{new Date(s.fecha).toLocaleDateString('es-AR')}</span>
+                      {s.horaInicio && <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{s.horaInicio}{s.horaFin ? `–${s.horaFin}` : ''}</span>}
+                      {s.lugar && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{s.lugar}</span>}
                       <span>Organiza: {s.organizador.nombre} {s.organizador.apellido}</span>
                     </div>
                     {s.descripcion && <p className="text-xs text-muted-foreground">{s.descripcion}</p>}
@@ -698,7 +700,7 @@ export default function CapacitacionesPage() {
                     {(tipos ?? []).filter(t => t.activo).map(t => (
                       <option key={t.id} value={t.id}>{t.nombre}</option>
                     ))}
-                    {isRRHH && <option value="__crear_tipo__">➕ Crear nuevo tipo...</option>}
+                    {isRRHH && <option value="__crear_tipo__">Crear nuevo tipo...</option>}
                   </select>
                 </div>
                 <div>
@@ -784,18 +786,18 @@ export default function CapacitacionesPage() {
                       <span className={cn('px-2 py-1 rounded text-[10px] font-medium', est.bg, est.text)}>{est.label}</span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-                      <span>📅 {new Date(s.fecha).toLocaleDateString('es-AR')}</span>
-                      {s.horaInicio && <span>🕐 {s.horaInicio}{s.horaFin ? `–${s.horaFin}` : ''}</span>}
-                      {s.lugar && <span>📍 {s.lugar}</span>}
+                      <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{new Date(s.fecha).toLocaleDateString('es-AR')}</span>
+                      {s.horaInicio && <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{s.horaInicio}{s.horaFin ? `–${s.horaFin}` : ''}</span>}
+                      {s.lugar && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{s.lugar}</span>}
                       <span>Vacantes: {s.vacantes}</span>
                     </div>
                     {s.descripcion && <p className="text-xs text-muted-foreground">{s.descripcion}</p>}
 
                     {/* Stats */}
                     <div className="flex items-center gap-3 text-xs">
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400">✅ {s.stats.aceptadas} aceptadas</span>
-                      <span className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-400">⏳ {s.stats.pendientes} pendientes</span>
-                      <span className="px-2 py-0.5 rounded bg-red-500/15 text-red-400">❌ {s.stats.rechazadas} rechazadas</span>
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3" />{s.stats.aceptadas} aceptadas</span>
+                      <span className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 inline-flex items-center gap-1"><Clock className="h-3 w-3" />{s.stats.pendientes} pendientes</span>
+                      <span className="px-2 py-0.5 rounded bg-red-500/15 text-red-400 inline-flex items-center gap-1"><XCircle className="h-3 w-3" />{s.stats.rechazadas} rechazadas</span>
                     </div>
 
                     {/* Invitees */}

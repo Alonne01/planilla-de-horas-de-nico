@@ -134,7 +134,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl lg:text-3xl font-bold text-foreground">
-          {getGreeting()}, {user?.nombre} 👋
+          {getGreeting()}, {user?.nombre}
         </h1>
         <div className="flex items-center gap-3 mt-1 flex-wrap">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">

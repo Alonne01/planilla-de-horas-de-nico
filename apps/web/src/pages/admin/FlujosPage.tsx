@@ -6,7 +6,7 @@ import { mensajeDeError } from '@/lib/errores';
 import {
   GitBranch, Plus, Trash2, Loader2, X,
   Users, FileText, Pencil, ChevronUp, ChevronDown,
-  Link2,
+  Link2, MessageSquare, Clock,
 } from 'lucide-react';
 import { useDialogStore } from '@/stores/dialogStore';
 
@@ -183,7 +183,7 @@ function StepRow({
           Requiere comentario en rechazo
         </label>
         <label className="flex items-center gap-1.5">
-          ⏰ Límite
+          <Clock className="h-3 w-3" /> Límite
           <input
             type="number"
             min={1}
@@ -687,8 +687,18 @@ export default function FlujosPage() {
                             </span>
                           </div>
                           <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
-                            {paso.requiereComentarioRechazo && <span>📝 Requiere comentario</span>}
-                            {paso.tiempoLimiteHoras && <span>⏰ {paso.tiempoLimiteHoras}h límite</span>}
+                            {paso.requiereComentarioRechazo && (
+                              <span className="flex items-center gap-1">
+                                <MessageSquare className="h-3 w-3" />
+                                Requiere comentario
+                              </span>
+                            )}
+                            {paso.tiempoLimiteHoras && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {paso.tiempoLimiteHoras}h límite
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>

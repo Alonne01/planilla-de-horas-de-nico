@@ -75,7 +75,7 @@ export default function ForgotPasswordPage() {
               {devResetUrl && (
                 <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 text-left">
                   <p className="text-xs font-semibold text-yellow-400 mb-2">
-                    🛠️ Modo desarrollo — SMTP no configurado
+                    Modo desarrollo — SMTP no configurado
                   </p>
                   <a
                     href={devResetUrl}

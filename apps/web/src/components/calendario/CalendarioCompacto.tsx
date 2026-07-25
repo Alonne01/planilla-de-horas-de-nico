@@ -65,7 +65,14 @@ export default function CalendarioCompacto({ data, anio, isLoading, onOverlapSel
         ))}
         {activeCats.length === 0 && <span>Sin datos</span>}
         <span className="ml-2 flex items-center gap-2 text-[11px]">
-          <span>▓ aprobada</span><span>▨ en revisión</span>
+          <span className="flex items-center gap-1">
+            <span className="cal-estado relative inline-block w-3 h-3 text-muted-foreground" />
+            aprobada
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="cal-estado relative inline-block w-3 h-3 text-muted-foreground" data-estado="EN_REVISION" />
+            en revisión
+          </span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 rounded border-2 border-cal-rose" /> solape</span>
         </span>
       </div>

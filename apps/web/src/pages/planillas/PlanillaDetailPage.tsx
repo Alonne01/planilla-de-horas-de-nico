@@ -9,7 +9,7 @@ import { mensajeDeError } from '@/lib/errores';
 import {
   ArrowLeft, Send, CheckCircle2, XCircle, Loader2,
   Clock, MapPin, Car, Moon, Sun, AlertCircle, AlertTriangle, X, Download, Lock, Printer, Trash2, Copy, Eraser,
-  CalendarDays, ChevronDown, Lightbulb
+  CalendarDays, ChevronDown, Lightbulb, Check, Zap, ClipboardCopy
 } from 'lucide-react';
 import { ESTADO_STYLES, ESTADO_LABELS } from '@/constants/planillaConstants';
 import {
@@ -1289,7 +1289,10 @@ export default function PlanillaDetailPage() {
                   {/* Missing day badge */}
                   {isFaltante && (
                     <div className="absolute bottom-1.5 left-2">
-                      <span className="text-[8px] font-bold text-cal-red/90">⚠ Incompleto</span>
+                      <span className="text-[8px] font-bold text-cal-red/90 inline-flex items-center gap-0.5">
+                        <AlertTriangle className="h-3 w-3" />
+                        Incompleto
+                      </span>
                     </div>
                   )}
                 </button>
@@ -1371,11 +1374,13 @@ export default function PlanillaDetailPage() {
                     <div className="mt-2 space-y-2">
                       {registroMap[selectedDate]!.marcaManual!.estado === 'PENDIENTE' ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-cal-amber border border-cal-amber/30">
-                          ⏳ Sin validar
+                          <Clock className="h-3 w-3" />
+                          Sin validar
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-600 border border-emerald-500/30">
-                          ✓ Validado
+                          <Check className="h-3 w-3" />
+                          Validado
                         </span>
                       )}
 
@@ -1433,7 +1438,8 @@ export default function PlanillaDetailPage() {
                   )}
                   {selFeriado && (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-cal-amber border border-cal-amber/30">
-                      🗓 Feriado nacional{selFeriadoNombre ? ` · ${selFeriadoNombre}` : ''}
+                      <CalendarDays className="h-3 w-3" />
+                      Feriado nacional{selFeriadoNombre ? ` · ${selFeriadoNombre}` : ''}
                     </span>
                   )}
                 </div>
@@ -1441,13 +1447,15 @@ export default function PlanillaDetailPage() {
 
               {/* Avisos en vivo: se auto-detecta según los horarios cargados */}
               {selFranco && formHasWork && (
-                <div className="rounded-lg border border-cal-violet/30 bg-violet-500/10 px-3 py-2 text-xs text-cal-violet font-medium">
-                  ⚡ Franco trabajado — horas al 100%
+                <div className="rounded-lg border border-cal-violet/30 bg-violet-500/10 px-3 py-2 text-xs text-cal-violet font-medium flex items-center gap-1.5">
+                  <Zap className="h-3 w-3" />
+                  Franco trabajado — horas al 100%
                 </div>
               )}
               {selFeriado && formHasWork && (
-                <div className="rounded-lg border border-cal-amber/30 bg-amber-500/10 px-3 py-2 text-xs text-cal-amber font-medium">
-                  ⚡ Feriado trabajado — horas al 100%
+                <div className="rounded-lg border border-cal-amber/30 bg-amber-500/10 px-3 py-2 text-xs text-cal-amber font-medium flex items-center gap-1.5">
+                  <Zap className="h-3 w-3" />
+                  Feriado trabajado — horas al 100%
                 </div>
               )}
 
@@ -1501,7 +1509,8 @@ export default function PlanillaDetailPage() {
                     }}
                     className="w-full inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border border-cal-blue/30 text-cal-blue bg-blue-500/5 text-xs font-medium hover:bg-blue-500/10 transition-colors"
                   >
-                    📋 Copiar día anterior ({prev.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })})
+                    <ClipboardCopy className="h-3 w-3" />
+                    Copiar día anterior ({prev.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })})
                   </button>
                 );
               })()}

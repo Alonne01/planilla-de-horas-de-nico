@@ -5,7 +5,8 @@ import { cn } from '@/lib/utils';
 import { mensajeDeError } from '@/lib/errores';
 import {
   Pencil, Trash2, Search, UserPlus,
-  Loader2, X, ChevronDown, ChevronUp, KeyRound, Copy, Check
+  Loader2, X, ChevronDown, ChevronUp, KeyRound, Copy, Check,
+  RefreshCw, Calendar, AlertTriangle,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useDialogStore } from '@/stores/dialogStore';
@@ -613,10 +614,11 @@ function UserFormModal({
               const d = diagramas.find(x => x.id === diagramaId);
               if (!d) return null;
               return (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  {d.tipo === 'ROTATIVO' ? <RefreshCw className="h-3 w-3 shrink-0" /> : <Calendar className="h-3 w-3 shrink-0" />}
                   {d.tipo === 'ROTATIVO'
-                    ? `🔄 Rotativo: ${d.diasTrabajo} días trabajo → ${d.diasDescanso} días franco, ciclo continuo`
-                    : `📅 Fijo semanal — dias libres: ${[0,1,2,3,4,5,6].filter(i => !d.diasSemana.includes(i)).map(i => ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][i]).join(', ')}`
+                    ? `Rotativo: ${d.diasTrabajo} días trabajo → ${d.diasDescanso} días franco, ciclo continuo`
+                    : `Fijo semanal — dias libres: ${[0,1,2,3,4,5,6].filter(i => !d.diasSemana.includes(i)).map(i => ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][i]).join(', ')}`
                   }
                 </p>
               );
@@ -696,8 +698,9 @@ function TempPasswordModal({
             </button>
           </div>
 
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-500">
-            ⚠️ Esta contraseña solo se muestra una vez. Copiala y compartila de forma segura con el usuario.
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-500 flex items-start gap-1.5">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            Esta contraseña solo se muestra una vez. Copiala y compartila de forma segura con el usuario.
           </div>
 
           <button

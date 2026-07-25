@@ -37,16 +37,16 @@ const DIAGRAMA_BADGE: Record<string, string> = {
 };
 
 const DIAGRAMA_LABEL: Record<string, string> = {
-  AZUL: '🔵 Azul',
-  AMARILLO: '🟡 Amarillo',
-  BASE: '🏢 Base',
+  AZUL: 'Azul',
+  AMARILLO: 'Amarillo',
+  BASE: 'Base',
 };
 
 const DIAGRAMA_OPTIONS = [
   { value: '', label: 'Sin asignar' },
-  { value: 'AZUL', label: '🔵 Azul' },
-  { value: 'AMARILLO', label: '🟡 Amarillo' },
-  { value: 'BASE', label: '🏢 Base' },
+  { value: 'AZUL', label: 'Azul' },
+  { value: 'AMARILLO', label: 'Amarillo' },
+  { value: 'BASE', label: 'Base' },
 ];
 
 export default function EquipoPage() {

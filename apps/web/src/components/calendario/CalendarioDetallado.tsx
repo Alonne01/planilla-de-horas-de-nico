@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Search, Users, Loader2, Eye, EyeOff } from 'lucide-react';
+import { Search, Users, Loader2, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { esDiaFranco } from '@/utils/planillaHelpers';
 import {
@@ -317,8 +317,14 @@ export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSe
           );
         })}
         <span className="text-[11px] text-muted-foreground flex items-center gap-2 ml-1">
-          <span>▓ aprobada</span>
-          <span>▨ pend./revisión</span>
+          <span className="flex items-center gap-1">
+            <span className="cal-estado relative inline-block w-3 h-3 text-muted-foreground" />
+            aprobada
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="cal-estado relative inline-block w-3 h-3 text-muted-foreground" data-estado="EN_REVISION" />
+            pend./revisión
+          </span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 rounded border-2 border-cal-rose" /> solape</span>
         </span>
       </div>
@@ -465,7 +471,10 @@ export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSe
             </span>
           </p>
           {hover.seg.overlap && (
-            <p className="text-xs text-cal-rose mt-1">⚠ {(hover.seg.overlapPeak ?? 2) - 1} compañero(s) afuera en parte del período</p>
+            <p className="text-xs text-cal-rose mt-1 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+              {(hover.seg.overlapPeak ?? 2) - 1} compañero(s) afuera en parte del período
+            </p>
           )}
           {hover.seg.block.detalle && (
             <p className="text-xs text-muted-foreground mt-1 italic">"{hover.seg.block.detalle}"</p>
