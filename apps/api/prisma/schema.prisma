@@ -264,6 +264,9 @@ model FlujoPaso {
   flujo             FlujoAprobacion @relation(fields: [flujoId], references: [id], onDelete: Cascade)
   usuarioEspecifico Usuario?        @relation("pasos_usuario_especifico", fields: [usuarioEspecificoId], references: [id])
 
+  // Dos pasos con el mismo orden dentro de un flujo hacen que el avance del
+  // circuito dependa del orden en que la base devuelva las filas.
+  @@unique([flujoId, orden])
   @@map("flujos_pasos")
 }
 
@@ -279,6 +282,11 @@ model FlujoAsignacion {
   sector  Sector?         @relation(fields: [sectorId], references: [id])
   usuario Usuario?        @relation("flujo_asignaciones_usuario", fields: [usuarioId], references: [id])
 
+  // Un solo flujo por sector y tipo de documento. No alcanza para los casos
+  // global y por usuario, donde sectorId es NULL y Postgres no considera
+  // iguales a dos NULL: esos los cubren dos índices parciales que agrega la
+  // migración a mano (Prisma no sabe expresarlos).
+  @@unique([tipoDocumento, sectorId])
   @@map("flujos_asignaciones")
 }
 
@@ -369,6 +377,9 @@ model Planilla {
   periodoFin         DateTime       @map("periodo_fin")
   estado             PlanillaEstado @default(BORRADOR)
   pasoActual         Int            @default(0) @map("paso_actual")
+  /// Circuito congelado al enviar: el recorrido es de este documento y no
+  /// vuelve a depender de la configuración, que puede cambiar mientras circula.
+  circuitoSnapshot   Json?          @map("circuito_snapshot")
   obsRechazo         String?        @map("obs_rechazo")
   aprobadaPorId      String?        @map("aprobada_por_id")
   enviadaAt          DateTime?      @map("enviada_at")
@@ -467,6 +478,9 @@ model Vacacion {
   diasTotales   Int            @map("dias_totales")
   estado        VacacionEstado @default(BORRADOR)
   pasoActual    Int            @default(0) @map("paso_actual")
+  /// Circuito congelado al enviar: el recorrido es de este documento y no
+  /// vuelve a depender de la configuración, que puede cambiar mientras circula.
+  circuitoSnapshot Json?       @map("circuito_snapshot")
   motivo        String?
   obsRechazo    String?        @map("obs_rechazo")
   aprobadaPorId String?        @map("aprobada_por_id")
@@ -554,6 +568,9 @@ model Ausencia {
   tipo                AusenciaTipo
   estado              AusenciaEstado @default(BORRADOR)
   pasoActual          Int            @default(0) @map("paso_actual")
+  /// Circuito congelado al enviar: el recorrido es de este documento y no
+  /// vuelve a depender de la configuración, que puede cambiar mientras circula.
+  circuitoSnapshot    Json?          @map("circuito_snapshot")
   fechaInicio         DateTime       @map("fecha_inicio")
   fechaFin            DateTime       @map("fecha_fin")
   diasAusencia        Int            @map("dias_ausencia")
@@ -892,6 +909,9 @@ model SolicitudCambioDiagrama {
   flujoId           String?               @map("flujo_id")
   estado            CambioDiagramaEstado  @default(PENDIENTE)
   pasoActual        Int                   @default(1) @map("paso_actual")
+  /// Circuito congelado al enviar: el recorrido es de este documento y no
+  /// vuelve a depender de la configuración, que puede cambiar mientras circula.
+  circuitoSnapshot  Json?                 @map("circuito_snapshot")
   motivo            String?
   obsRechazo        String?               @map("obs_rechazo")
   aprobadaPorId     String?               @map("aprobada_por_id")
