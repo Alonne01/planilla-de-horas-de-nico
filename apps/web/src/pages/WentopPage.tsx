@@ -472,6 +472,7 @@ export default function WentopPage() {
           tarjeta={selectedTarjeta}
           canManage={canManageCard(selectedTarjeta)}
           isCreator={selectedTarjeta.creadorId === user?.id}
+          rolNivel={user?.rolNivel ?? 0}
           onClose={() => {
             setShowDetail(false);
             setSelectedTarjeta(null);
@@ -1144,6 +1145,7 @@ function TarjetaDetailModal({
   tarjeta: tarjetaDelListado,
   canManage,
   isCreator,
+  rolNivel,
   onClose,
   onEdit,
   onDelete,
@@ -1153,6 +1155,7 @@ function TarjetaDetailModal({
   tarjeta: WentopTarjeta;
   canManage: boolean;
   isCreator: boolean;
+  rolNivel: number;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -1178,6 +1181,12 @@ function TarjetaDetailModal({
   const tarjeta = detalle ?? tarjetaDelListado;
 
   const canDelete = isCreator && tarjeta.estado === 'ABIERTA';
+  // Espeja PATCH /:id/estado y PUT /:id (wentop.routes.ts:601-607, :527-538):
+  // el backend acepta al creador además del gestor, no solo a `canManage`.
+  const puedeGestionar = canManage || isCreator;
+  // El backend rechaza editar una tarjeta CERRADA solo si el nivel es menor a
+  // 90 (wentop.routes.ts:535), así que un admin sí puede seguir editando.
+  const puedeEditar = puedeGestionar && (tarjeta.estado !== 'CERRADA' || rolNivel >= 90);
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 md:p-4 md:overflow-y-auto">
@@ -1336,7 +1345,7 @@ function TarjetaDetailModal({
                       className="h-full w-full object-cover cursor-pointer"
                       onClick={() => setExpandedPhoto(getUploadUrl(f.url))}
                     />
-                    {canManage && (
+                    {puedeGestionar && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1391,7 +1400,7 @@ function TarjetaDetailModal({
         {/* Sticky footer actions */}
         <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card p-3 md:p-4 md:rounded-b-xl">
           <div className="flex flex-wrap gap-2">
-            {canManage && tarjeta.estado === 'ABIERTA' && (
+            {puedeGestionar && tarjeta.estado === 'ABIERTA' && (
               <button
                 onClick={() => onEstadoChange('EN_PROGRESO')}
                 className="flex h-8 items-center gap-1.5 rounded-lg bg-amber-600 px-3 text-xs font-medium text-white hover:bg-amber-500 transition-colors"
@@ -1400,7 +1409,7 @@ function TarjetaDetailModal({
                 En Progreso
               </button>
             )}
-            {canManage && (tarjeta.estado === 'ABIERTA' || tarjeta.estado === 'EN_PROGRESO') && !showCierreForm && (
+            {puedeGestionar && (tarjeta.estado === 'ABIERTA' || tarjeta.estado === 'EN_PROGRESO') && !showCierreForm && (
               <button
                 onClick={() => setShowCierreForm(true)}
                 className="flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white hover:bg-emerald-500 transition-colors"
@@ -1412,7 +1421,7 @@ function TarjetaDetailModal({
           </div>
 
           <div className="flex gap-2">
-            {canManage && (
+            {puedeEditar && (
               <button
                 onClick={onEdit}
                 className="flex h-8 items-center gap-1.5 rounded-lg bg-muted px-3 text-xs font-medium text-foreground hover:bg-accent transition-colors"
