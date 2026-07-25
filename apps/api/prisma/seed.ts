@@ -3,21 +3,14 @@ import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
-const FERIADOS_ARGENTINA_2025 = [
-  '2025-01-01', '2025-03-03', '2025-03-04', '2025-03-24',
-  '2025-04-02', '2025-04-18', '2025-05-01', '2025-05-25',
-  '2025-06-20', '2025-07-09', '2025-08-17', '2025-10-12',
-  '2025-11-20', '2025-12-08', '2025-12-25',
-];
-
-const FERIADOS_ARGENTINA_2026 = [
-  '2026-01-01', '2026-02-16', '2026-02-17', '2026-03-24',
-  '2026-04-02', '2026-04-03', '2026-05-01', '2026-05-25',
-  '2026-06-19', '2026-07-09', '2026-08-16', '2026-10-12',
-  '2026-11-20', '2026-12-08', '2026-12-25',
-];
-
-// Feriados especiales del sector petrolero
+// Feriados propios del sector petrolero: los ÚNICOS que van en la configuración de
+// la empresa. Los nacionales NO se cargan acá — los sincroniza el servidor desde
+// api.argentinadatos.com (feriados-sync.service.ts) y se guardan en la tabla
+// feriados_nacionales.
+//
+// Antes esta lista incluía los nacionales escritos a mano, y cuatro tenían la fecha
+// equivocada (Soberanía 2025 y 2026, Güemes y San Martín 2026): quedaban como
+// "feriado de la empresa" y pagaban el 100% en días comunes.
 const FERIADOS_PETROLEROS = [
   '2025-12-13', // Día del Petróleo (CCT 644/12 y 637/11)
   '2026-12-13',
@@ -27,6 +20,22 @@ const FERIADOS_PETROLEROS = [
 
 async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
+}
+
+// Contraseñas iniciales de la nómina: salen del entorno para no dejarlas escritas
+// en un archivo versionado. Se conservan los valores históricos como default para
+// no romper a quien ya viene usando el seed, pero se avisa cuando se usan.
+const DEFAULT_SEED_PASSWORD = 'Wenlen2026!';
+const DEFAULT_SEED_ADMIN_PASSWORD = 'Admin2026!';
+
+function passwordDeEntorno(variable: string, porDefecto: string): string {
+  const valor = process.env[variable]?.trim();
+  if (valor) return valor;
+  console.warn(
+    `⚠️  ${variable} no está definida: se usa la contraseña por defecto del seed, que está publicada en el repositorio. ` +
+    'Definila antes de seedear una instalación real.',
+  );
+  return porDefecto;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -640,15 +649,16 @@ async function main() {
   // ─────────────────────────────────
   // 7. CONFIG DE EMPRESA
   // ─────────────────────────────────
-  const feriados = [...FERIADOS_ARGENTINA_2025, ...FERIADOS_ARGENTINA_2026, ...FERIADOS_PETROLEROS];
-
   await prisma.empresaConfig.create({
     data: {
       empresaId: empresa.id,
-      feriadosPersonalizados: feriados,
+      feriadosPersonalizados: FERIADOS_PETROLEROS,
     },
   });
-  console.log('✅ Config de empresa creada con', feriados.length, 'feriados (incl. petroleros)');
+  console.log(
+    '✅ Config de empresa creada con', FERIADOS_PETROLEROS.length,
+    'feriados propios del CCT (los nacionales los sincroniza el servidor)',
+  );
 
   // ─────────────────────────────────
   // 8. CONFIG DE VACACIONES
@@ -670,8 +680,10 @@ async function main() {
   // ─────────────────────────────────
   // 9. USUARIOS (nómina completa)
   // ─────────────────────────────────
-  const passwordHash = await hashPassword('Wenlen2026!');
-  const adminPasswordHash = await hashPassword('Admin2026!');
+  const seedPassword = passwordDeEntorno('SEED_PASSWORD', DEFAULT_SEED_PASSWORD);
+  const seedAdminPassword = passwordDeEntorno('SEED_ADMIN_PASSWORD', DEFAULT_SEED_ADMIN_PASSWORD);
+  const passwordHash = await hashPassword(seedPassword);
+  const adminPasswordHash = await hashPassword(seedAdminPassword);
 
   // Cuenta de sistema (superusuario)
   await prisma.usuario.create({
@@ -773,7 +785,13 @@ async function main() {
   console.log('  ' + feriados.length + ' feriados configurados');
   console.log('───────────────────────────────────────────');
   console.log('Usuarios clave para login:');
-  console.log('  admin@wenlen.com             → ADMIN (sistema) — Contraseña: Admin2026!');
+  // Sólo se imprime la contraseña cuando es la del default (que ya está en el repo):
+  // si vino por entorno es un secreto real y no tiene que quedar en el log del instalador.
+  console.log(
+    `  admin@wenlen.com             → ADMIN (sistema) — Contraseña: ${
+      seedAdminPassword === DEFAULT_SEED_ADMIN_PASSWORD ? seedAdminPassword : 'la de SEED_ADMIN_PASSWORD'
+    }`,
+  );
   console.log('  ricardo.winkler@wenlen.com    → GERENTE (Gerente General)');
   console.log('  mariela.aguero@wenlen.com     → RRHH');
   console.log('  eliana.cejas@wenlen.com       → RRHH');
@@ -781,7 +799,11 @@ async function main() {
   console.log('  alicia.strillevsky@wenlen.com → RRHH');
   console.log('  carlos.diaz@wenlen.com        → GERENTE');
   console.log('  leopoldo.silveira@wenlen.com  → GERENTE');
-  console.log('  Contraseña empleados: Wenlen2026!');
+  console.log(
+    `  Contraseña empleados: ${
+      seedPassword === DEFAULT_SEED_PASSWORD ? seedPassword : 'la de SEED_PASSWORD'
+    }`,
+  );
 }
 
 main()

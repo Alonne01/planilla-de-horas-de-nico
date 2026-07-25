@@ -10,6 +10,7 @@ import ausenciasRoutes from './ausencias.routes.js';
 import analyticsRoutes from './analytics.routes.js';
 import adminConfigRoutes from './admin.config.routes.js';
 import adminRolesRoutes from './admin.roles.routes.js';
+import adminFeriadosRoutes from './admin.feriados.routes.js';
 import exportRoutes from './export.routes.js';
 import notificacionesRoutes from './notificaciones.routes.js';
 import exportacionesRoutes from './exportaciones.routes.js';
@@ -70,6 +71,7 @@ router.use('/admin/diagramas', adminDiagramasRoutes);
 router.use('/admin/flujos', adminFlujosRoutes);
 router.use('/admin/config', adminConfigRoutes);
 router.use('/admin/roles', adminRolesRoutes);
+router.use('/admin/feriados', adminFeriadosRoutes);
 router.use('/admin/alertas', adminAlertasRoutes);
 
 // Capacitaciones

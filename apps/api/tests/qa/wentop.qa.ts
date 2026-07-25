@@ -35,6 +35,8 @@ function assertStatus(actual: number, expected: number, ctx = '') { if (actual !
 async function api(method: string, path: string, opts: { token?: string; body?: unknown } = {}) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (opts.token) headers['Authorization'] = `Bearer ${opts.token}`;
+  // /auth/debug-users exige la clave del modo debug (antes era abierto).
+  headers['x-debug-clave'] = process.env.DEBUG_AUTH_PASSWORD ?? 'Test1234!';
   const res = await fetch(`${BASE}${path}`, { method, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
   const ct = res.headers.get('content-type') ?? '';
   const body = ct.includes('application/json') ? await res.json() : await res.text();

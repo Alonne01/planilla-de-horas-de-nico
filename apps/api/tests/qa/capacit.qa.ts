@@ -50,6 +50,8 @@ function flagBug(msg: string) { bugs.push(msg); log(c('MAGENTA', '🐞'), c('MAG
 async function api(method: string, path: string, opts: { token?: string; body?: unknown } = {}) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (opts.token) headers['Authorization'] = `Bearer ${opts.token}`;
+  // /auth/debug-users exige la clave del modo debug (antes era abierto).
+  headers['x-debug-clave'] = process.env.DEBUG_AUTH_PASSWORD ?? 'Test1234!';
   const res = await fetch(`${BASE}${path}`, {
     method, headers, body: opts.body ? JSON.stringify(opts.body) : undefined,
   });

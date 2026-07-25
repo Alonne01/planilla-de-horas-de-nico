@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
@@ -7,34 +7,71 @@ import {
   signAccessToken,
   signRefreshToken,
   verifyRefreshToken,
+  verifyAccessTokenForPasswordChange,
   revokeRefreshToken,
   revokeAllRefreshTokensForUser,
 } from '../utils/jwt.utils.js';
-import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
-import { sendPasswordResetEmail, isSmtpConfigured } from '../utils/email.utils.js';
+import { AuthRequest } from '../middleware/auth.middleware.js';
+import { sendPasswordResetEmail } from '../utils/email.utils.js';
 import { puedeVerCalendario } from '../utils/calendario-access.utils.js';
+import { DEBUG_AUTH, claveDebugValida } from '../utils/debug-auth.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:3000';
-const DEBUG_AUTH = process.env.DEBUG_AUTH === 'true' && process.env.NODE_ENV !== 'production';
 
 // Cookie config — sameSite: 'lax' is safe because frontend proxies API calls
 // through the same origin (Vite proxy in dev, nginx in production)
+// `secure` sale del esquema público real (PUBLIC_URL llega como FRONTEND_URL al
+// contenedor) y no de NODE_ENV: en el modo HTTP para LAN el navegador descartaba la
+// cookie marcada Secure y el refresh dejaba a todo el personal afuera cada 15 minutos.
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: (process.env.PUBLIC_URL ?? FRONTEND_URL).startsWith('https://'),
   sameSite: 'lax' as const,
   maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
   path: '/',
 };
 
+// ─── Cambio de contraseña obligatorio (primerLogin) ──
+//
+// El API no se conforma con el redirect del front: a una cuenta con primerLogin se
+// le emite un token acotado (scope 'cambio-password') que authMiddleware rechaza,
+// así que sólo sirve para las rutas de esta sección. Con DEBUG_AUTH se emite el
+// token normal: ese modo ya entra sin contraseña y es el que usa el testing remoto.
+function scopeCambioPassword(primerLogin: boolean): { scope?: 'cambio-password' } {
+  return primerLogin && !DEBUG_AUTH ? { scope: 'cambio-password' } : {};
+}
+
+/** authMiddleware que además acepta los tokens acotados: es la salida de primerLogin. */
+function authCambioPassword(req: AuthRequest, res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Token de acceso requerido' });
+    return;
+  }
+
+  try {
+    const payload = verifyAccessTokenForPasswordChange(authHeader.split(' ')[1]);
+    if (!payload.userId || !payload.empresaId || !payload.rol || typeof payload.rolNivel !== 'number') {
+      res.status(401).json({ error: 'Token inválido: claims incompletos' });
+      return;
+    }
+    req.user = payload;
+    next();
+  } catch {
+    res.status(401).json({ error: 'Token inválido o expirado' });
+  }
+}
+
 // ─── Schemas de validación ───────────────────────
 
+// Con DEBUG_AUTH la contraseña también es obligatoria: ahí va la clave de debug.
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
-  password: z.string().min(DEBUG_AUTH ? 0 : 1, 'Password requerido'),
+  password: z.string().min(1, 'Password requerido'),
 });
 
 const changePasswordSchema = z.object({
@@ -60,9 +97,13 @@ const resetPasswordSchema = z.object({
 });
 
 // ─── GET /auth/debug-users (dev only) ────────────
+//
+// Devuelve la nómina completa sin autenticar, así que exige la clave de debug en
+// el header: sin eso, cualquiera que abriera la URL del túnel se llevaba la lista
+// de emails y roles de toda la empresa.
 
-router.get('/debug-users', async (_req: Request, res: Response): Promise<void> => {
-  if (!DEBUG_AUTH) {
+router.get('/debug-users', async (req: Request, res: Response): Promise<void> => {
+  if (!claveDebugValida(req.headers['x-debug-clave'])) {
     res.status(404).json({ error: 'Not found' });
     return;
   }
@@ -113,8 +154,10 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Skip password check in debug mode
-    if (!DEBUG_AUTH) {
+    // La clave de debug entra sin la contraseña real; cualquier otro valor se
+    // verifica normalmente, así que las contraseñas de verdad siguen funcionando
+    // y quien no tenga la clave no pasa ni con DEBUG_AUTH prendido.
+    if (!claveDebugValida(password)) {
       const passwordValid = await bcrypt.compare(password, usuario.passwordHash);
       if (!passwordValid) {
         res.status(401).json({ error: 'Credenciales inválidas' });
@@ -135,6 +178,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       rol: usuario.rol,
       rolNivel,
       email: usuario.email,
+      ...scopeCambioPassword(usuario.primerLogin),
     };
 
     const accessToken = signAccessToken(tokenPayload);
@@ -218,6 +262,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
       rol: usuario.rol,
       rolNivel,
       email: usuario.email,
+      ...scopeCambioPassword(usuario.primerLogin),
     };
 
     const accessToken = signAccessToken(tokenPayload);
@@ -271,7 +316,7 @@ router.post('/logout', async (req: Request, res: Response): Promise<void> => {
 
 // ─── GET /auth/me ────────────────────────────────
 
-router.get('/me', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/me', authCambioPassword, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const usuario = await prisma.usuario.findUnique({
       where: { id: req.user!.userId },
@@ -318,7 +363,7 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res: Response): Promi
 
 // ─── POST /auth/change-password ──────────────────
 
-router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/change-password', authCambioPassword, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const parsed = changePasswordSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -337,16 +382,28 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
       return;
     }
 
-    // Salvo en el cambio forzado de primer-login, exigir y verificar la contraseña
-    // actual (evita que una sesión secuestrada cambie la clave sin conocerla).
-    if (!usuario.primerLogin) {
+    // Exigir y verificar la contraseña actual siempre, también en el cambio forzado
+    // del primer login: si no, una sesión secuestrada en esa ventana fija la clave
+    // nueva sin haber conocido nunca la temporal que generó el admin.
+    // Quien entró con la clave de debug no conoce la temporal: se le acepta esa
+    // misma clave acá para que el testing remoto no quede trabado en la pantalla.
+    if (!claveDebugValida(currentPassword)) {
       if (!currentPassword) {
-        res.status(400).json({ error: 'Debés ingresar tu contraseña actual' });
+        res.status(400).json({
+          error: usuario.primerLogin
+            ? 'Debés ingresar la contraseña temporal que te dieron'
+            : 'Debés ingresar tu contraseña actual',
+        });
         return;
       }
       const valida = await bcrypt.compare(currentPassword, usuario.passwordHash);
       if (!valida) {
         res.status(401).json({ error: 'La contraseña actual es incorrecta' });
+        return;
+      }
+      // Cambiar la clave por la misma no es un cambio: dejaría la temporal viva.
+      if (currentPassword === newPassword) {
+        res.status(400).json({ error: 'La nueva contraseña debe ser distinta de la actual' });
         return;
       }
     }
@@ -361,8 +418,12 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
       },
     });
 
-    // Revocar todos los refresh tokens tras el cambio (igual que reset-password).
+    // Revocar todos los refresh tokens tras el cambio (igual que reset-password) y
+    // renovar la cookie de quien lo hizo: si venía de primerLogin su access token quedó
+    // acotado, y este refresh nuevo es el que le devuelve la sesión completa sin pasar
+    // otra vez por el login.
     await revokeAllRefreshTokensForUser(usuario.id);
+    res.cookie('refreshToken', await signRefreshToken(usuario.id), COOKIE_OPTIONS);
 
     res.json({ message: 'Contraseña actualizada correctamente' });
   } catch (error) {
@@ -383,18 +444,19 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
 
     const { email } = parsed.data;
 
+    // Misma respuesta exista o no la cuenta: distinguir por status convertía esta ruta
+    // pública en un oráculo para reconstruir la nómina y ver quién está dado de baja.
+    const respuestaGenerica = {
+      message: 'Si el email está registrado, te enviamos un link para restablecer tu contraseña. Revisá tu bandeja de entrada y spam.',
+    };
+
     const usuario = await prisma.usuario.findUnique({
       where: { email },
       select: { id: true, activo: true },
     });
 
-    if (!usuario) {
-      res.status(404).json({ error: 'No existe una cuenta con ese email' });
-      return;
-    }
-
-    if (!usuario.activo) {
-      res.status(403).json({ error: 'La cuenta asociada a ese email está inactiva' });
+    if (!usuario || !usuario.activo) {
+      res.json(respuestaGenerica);
       return;
     }
 
@@ -420,16 +482,9 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
     const resetUrl = `${FRONTEND_URL}/reset-password?token=${token}`;
     await sendPasswordResetEmail(email, resetUrl);
 
-    const response: Record<string, string> = {
-      message: 'Te enviamos un link para restablecer tu contraseña. Revisá tu bandeja de entrada y spam.',
-    };
-
-    // In dev mode (SMTP not configured), include the reset link so devs can test the flow
-    if (!isSmtpConfigured && process.env.NODE_ENV !== 'production') {
-      response.resetUrl = resetUrl;
-    }
-
-    res.json(response);
+    // El link nunca vuelve en el body: sin SMTP configurado queda escrito en la consola
+    // del servidor (sendPasswordResetEmail), que lo ve el que corre el proceso y nadie más.
+    res.json(respuestaGenerica);
   } catch (error) {
     console.error('Error en forgot-password:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -485,7 +540,9 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
     await prisma.$transaction([
       prisma.usuario.update({
         where: { id: resetToken.usuario.id },
-        data: { passwordHash: newHash },
+        // Este flujo prueba posesión del email y fija una clave que sólo conoce el
+        // usuario, así que cierra el primerLogin (si no, la cuenta quedaba trabada en él).
+        data: { passwordHash: newHash, primerLogin: false },
       }),
       prisma.passwordResetToken.update({
         where: { id: resetToken.id },

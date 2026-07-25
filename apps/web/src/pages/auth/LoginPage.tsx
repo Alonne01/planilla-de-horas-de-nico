@@ -10,10 +10,13 @@ import { cn } from '@/lib/utils';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
-  password: z.string(),
+  password: z.string().min(1, 'Ingresá tu contraseña'),
 });
 
 type LoginForm = z.infer<typeof loginSchema>;
+
+/** Clave del modo debug, guardada por dispositivo. Ver el useEffect de más abajo. */
+const DEBUG_CLAVE_KEY = 'planilla-debug-clave';
 
 interface DebugUser {
   id: string;
@@ -43,18 +46,34 @@ export default function LoginPage() {
     resolver: zodResolver(loginSchema),
   });
 
-  // Fetch debug users if debug mode is active
+  // El selector de usuarios de debug ya no aparece solo: hay que traer la clave
+  // compartida en la URL una vez por dispositivo (…/login?debug=LA_CLAVE) y queda
+  // guardada. Sin clave el API responde 404 y el login se ve como el normal, así
+  // que quien encuentre la URL del túnel no se lleva la nómina ni entra a cuentas.
   useEffect(() => {
-    api.get('/auth/debug-users')
+    const enUrl = new URLSearchParams(window.location.search).get('debug');
+    if (enUrl) {
+      localStorage.setItem(DEBUG_CLAVE_KEY, enUrl);
+      // Sacar la clave de la barra de direcciones para que no quede en el historial.
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    const clave = localStorage.getItem(DEBUG_CLAVE_KEY);
+    if (!clave) return;
+
+    api.get('/auth/debug-users', { headers: { 'x-debug-clave': clave } })
       .then((res) => setDebugUsers(res.data))
-      .catch(() => {}); // 404 = debug mode not active
+      .catch(() => localStorage.removeItem(DEBUG_CLAVE_KEY)); // 404 = clave vieja o modo apagado
   }, []);
 
   const debugLogin = async (email: string) => {
     setError('');
     setDebugLoggingIn(email);
     try {
-      const res = await api.post('/auth/login', { email, password: '' });
+      const res = await api.post('/auth/login', {
+        email,
+        password: localStorage.getItem(DEBUG_CLAVE_KEY) ?? '',
+      });
       setAuth(res.data.user, res.data.accessToken);
       navigate(res.data.user.primerLogin ? '/cambiar-password' : '/dashboard');
     } catch {

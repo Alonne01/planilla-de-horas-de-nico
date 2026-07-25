@@ -1026,3 +1026,30 @@ model WentopGestor {
   @@unique([usuarioId, sectorId])
   @@map("wentop_gestores")
 }
+
+// ═══════════════════════════════════════════════════════
+// FERIADOS NACIONALES (sincronizados desde internet)
+// ═══════════════════════════════════════════════════════
+
+// Feriados del calendario argentino, traídos de api.argentinadatos.com. No van por
+// empresa porque son los mismos para todas: lo propio de cada una (Día del
+// Petróleo del CCT, por ejemplo) vive en EmpresaConfig.feriadosPersonalizados.
+//
+// Se guardan en la base y no en memoria para que el cálculo del recargo del 100%
+// siga funcionando con el servidor sin internet o con la API caída, y para que un
+// traslado por decreto quede registrado con su fecha de actualización.
+//
+// La clave es la fecha como texto 'YYYY-MM-DD': es la que usa claveFecha() y no
+// se corre de día al cambiar la zona horaria del contenedor.
+model FeriadoNacional {
+  fecha        String   @id
+  anio         Int
+  nombre       String
+  tipo         String // inamovible | trasladable — los "puente" y "no laborables" no se guardan
+  origen       String   @default("API") // API | MANUAL
+  actualizadoAt DateTime @updatedAt @map("actualizado_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([anio])
+  @@map("feriados_nacionales")
+}

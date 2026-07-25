@@ -6,12 +6,16 @@ export function dateKey(d: Date): string {
 }
 
 /**
- * Feriados nacionales — SOLO inamovibles y trasladables (se pagan al 100% si se
- * trabajan). Los dias "puente" y "no laborables" NO cuentan: valen como dia comun.
+ * Feriados — SOLO inamovibles y trasladables (se pagan al 100% si se trabajan).
+ * Los dias "puente" y "no laborables" NO cuentan: valen como dia comun.
  *
- * Seed offline 2025-2026 (con traslados oficiales) + actualizacion opcional desde
- * https://api.argentinadatos.com/v1/feriados/{year} filtrando tipo inamovible/trasladable.
- * El cache persiste en localStorage; el seed garantiza funcionamiento offline.
+ * La lista que MANDA es la del servidor (GET /planillas/feriados: nacionales mas
+ * los de la empresa, incluidos los del CCT petrolero). El front solo la pinta:
+ * el flag esFeriado del registro lo deriva el backend al guardar, asi que una
+ * lista propia aca solo lograria mostrar un feriado que la liquidacion no paga.
+ *
+ * Este seed queda como respaldo para el primer render y para modo offline, hasta
+ * que responda cargarFeriados().
  */
 const FERIADOS_SEED: Record<string, string> = {
   // 2025
@@ -50,33 +54,21 @@ const FERIADOS_SEED: Record<string, string> = {
   '2026-12-25': 'Navidad',
 };
 
-const FERIADOS_CACHE_KEY = 'feriados-api-cache-v2';
+const FERIADOS_CACHE_KEY = 'feriados-servidor-cache-v1';
 
-type FeriadosCache = Record<string, Record<string, string>>; // { [year]: { 'YYYY-MM-DD': nombre } }
-
-function loadFeriadosCache(): FeriadosCache {
+/** Último mapa traído del servidor, para que el primer render offline no quede vacío. */
+function cacheGuardado(): Record<string, string> | null {
   try {
-    return JSON.parse(localStorage.getItem(FERIADOS_CACHE_KEY) || '{}');
+    const crudo = localStorage.getItem(FERIADOS_CACHE_KEY);
+    return crudo ? JSON.parse(crudo) : null;
   } catch {
-    return {};
+    return null;
   }
 }
 
-function buildFeriadosMap(cache: FeriadosCache): Record<string, string> {
-  // El cache de la API reemplaza COMPLETO cada año que cubre (por si un feriado
-  // trasladable cambió de fecha respecto del seed)
-  const map: Record<string, string> = {};
-  const cachedYears = new Set(Object.keys(cache));
-  for (const [key, nombre] of Object.entries(FERIADOS_SEED)) {
-    if (!cachedYears.has(key.slice(0, 4))) map[key] = nombre;
-  }
-  for (const yearMap of Object.values(cache)) Object.assign(map, yearMap);
-  return map;
-}
+let feriadosMap: Record<string, string> = cacheGuardado() ?? { ...FERIADOS_SEED };
 
-let feriadosMap: Record<string, string> = buildFeriadosMap(loadFeriadosCache());
-
-/** True si la fecha (clave YYYY-MM-DD) es feriado nacional inamovible/trasladable */
+/** True si la fecha (clave YYYY-MM-DD) es feriado a los efectos del recargo. */
 export function esFeriadoNacional(key: string): boolean {
   return key in feriadosMap;
 }
@@ -86,36 +78,28 @@ export function nombreFeriado(key: string): string | null {
 }
 
 /**
- * Actualiza los feriados de los años dados desde api.argentinadatos.com
- * (solo inamovibles/trasladables). Devuelve true si hubo cambios.
- * Falla silenciosamente (el seed offline sigue vigente).
+ * Trae del servidor los feriados con los que se va a liquidar. Devuelve true si
+ * cambió algo respecto de lo que ya se estaba mostrando (para forzar un repintado).
+ * Si falla, se sigue usando lo último conocido: no hay razón para dejar el
+ * calendario sin marcas por una petición caída.
  */
-export async function refreshFeriados(years: number[]): Promise<boolean> {
-  let changed = false;
-  const cache = loadFeriadosCache();
-  for (const year of years) {
-    try {
-      const res = await fetch(`https://api.argentinadatos.com/v1/feriados/${year}`);
-      if (!res.ok) continue;
-      const data: { fecha: string; tipo: string; nombre: string }[] = await res.json();
-      const yearMap: Record<string, string> = {};
-      for (const f of data) {
-        const tipo = (f.tipo || '').toLowerCase();
-        if (tipo !== 'inamovible' && tipo !== 'trasladable') continue;
-        yearMap[f.fecha] = f.nombre;
-      }
-      if (Object.keys(yearMap).length === 0) continue; // respuesta vacía: no pisar el seed
-      cache[String(year)] = yearMap;
-      changed = true;
-    } catch {
-      // offline / API caída: se mantiene el seed
-    }
+export async function cargarFeriados(
+  traer: (url: string) => Promise<Record<string, string>>,
+): Promise<boolean> {
+  try {
+    const delServidor = await traer('/planillas/feriados');
+    if (!delServidor || typeof delServidor !== 'object') return false;
+
+    const antes = JSON.stringify(feriadosMap);
+    const ahora = JSON.stringify(delServidor);
+    if (antes === ahora) return false;
+
+    feriadosMap = delServidor;
+    try { localStorage.setItem(FERIADOS_CACHE_KEY, ahora); } catch { /* cuota llena */ }
+    return true;
+  } catch {
+    return false; // sin conexión o 5xx: queda el último mapa conocido
   }
-  if (changed) {
-    try { localStorage.setItem(FERIADOS_CACHE_KEY, JSON.stringify(cache)); } catch { /* ignore */ }
-    feriadosMap = buildFeriadosMap(cache);
-  }
-  return changed;
 }
 
 export interface DiagramaInfo {

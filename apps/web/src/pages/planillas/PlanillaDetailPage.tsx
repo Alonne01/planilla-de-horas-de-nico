@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { ESTADO_STYLES, ESTADO_LABELS } from '@/constants/planillaConstants';
 import {
-  dateKey, esFeriadoNacional, nombreFeriado, refreshFeriados,
+  dateKey, esFeriadoNacional, nombreFeriado, cargarFeriados,
   esDiaFranco, buildCalendarDays, buildWeeks, cellStyle,
   type DiagramaInfo,
 } from '@/utils/planillaHelpers';
@@ -199,14 +199,11 @@ export default function PlanillaDetailPage() {
     ? new Date(usuarioDetalle.diagramaFechaInicio)
     : null;
 
-  // Actualizar feriados de los años del período desde la API (cache persistente)
+  // Traer del servidor los feriados con los que se liquida (nacionales + los de la
+  // empresa). El calendario los pinta; el flag del registro lo decide el backend.
   useEffect(() => {
     if (!planilla) return;
-    const years = [...new Set([
-      new Date(planilla.periodoInicio).getFullYear(),
-      new Date(planilla.periodoFin).getFullYear(),
-    ])];
-    refreshFeriados(years).then((changed) => {
+    cargarFeriados((url) => api.get(url).then((r) => r.data)).then((changed) => {
       if (changed) setFeriadosVersion((v) => v + 1);
     });
   }, [planilla?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -550,7 +547,6 @@ export default function PlanillaDetailPage() {
       if (paintMode === 'copy' && copySource) {
         const src = registroMap[copySource];
         if (!src) return;
-        const srcHasWork = !!(src.entradaTurno1 && src.salidaTurno1) && !src.esFrancoCompensatorio;
         const promises = [...painted].map((key) => {
           const [y, m, d] = key.split('-').map(Number);
           const sameClock = (iso: string | null) => {
@@ -569,8 +565,8 @@ export default function PlanillaDetailPage() {
             maneja: src.maneja,
             horasViajeInput: Number(src.horasViajeInput) || 0,
             distanciaViaje: src.distanciaViaje ?? null,
-            esFeriado: esFeriadoNacional(key),
-            esFrancoTrabajado: srcHasWork && isFranco(new Date(y, m - 1, d, 12, 0, 0)),
+            // El recargo lo resuelve el servidor por cada día destino: al pintar sobre
+            // un feriado o un franco vale el del día pintado, no el del día origen.
             esFrancoCompensatorio: src.esFrancoCompensatorio,
             observaciones: src.observaciones ?? null,
           };
@@ -825,8 +821,9 @@ export default function PlanillaDetailPage() {
       maneja: formData.maneja,
       horasViajeInput: formData.esFrancoCompensatorio || !formData.viaje ? 0 : (parseFloat(formData.horasViajeInput) || 0),
       distanciaViaje: formData.viaje ? formData.distanciaViaje : null,
-      esFeriado: selFeriado,
-      esFrancoTrabajado: selFranco && formHasWork,
+      // esFeriado y esFrancoTrabajado NO se mandan: los deriva el servidor de la
+      // configuración de la empresa y del diagrama del usuario. Son los que
+      // disparan el recargo al 100%, y el navegador no puede ser la autoridad.
       esFrancoCompensatorio: formData.esFrancoCompensatorio,
       observaciones: formData.observaciones || null,
     });
@@ -1066,11 +1063,18 @@ export default function PlanillaDetailPage() {
               const isLocked = reg?.bloqueado === true;
               const isFaltante = diasFaltantes.includes(key);
               const isFeriado = esFeriadoNacional(key);
+              // Franco trabajado para la vista: se deriva del diagrama y de las horas cargadas,
+              // no del flag guardado (que hasta el fix del backend puede venir manipulado).
+              const francoTrabajado = francoDay && !!reg && !reg.bloqueado && !reg.esFrancoCompensatorio
+                && !!reg.entradaTurno1 && !!reg.salidaTurno1;
+              // El registro guardado dice "feriado" pero el calendario no: el aprobador tiene que verlo,
+              // porque ese flag es el que manda todas las horas del día a extra 100%.
+              const feriadoDiscrepante = !!reg?.esFeriado && !isFeriado;
               const isPainted = painted.has(key);
               const isCopySource = copySource === key;
               const dimmedByPaint = paintMode === 'delete' && (!hasData || isLocked);
               // Estilo "pintado" (relleno semántico full-cell) — port de la PWA, vía tokens.
-              const vis = cellStyle(reg, { isFranco: francoDay, isFeriado });
+              const vis = cellStyle(reg ? { ...reg, esFrancoTrabajado: francoTrabajado } : reg, { isFranco: francoDay, isFeriado });
               const francoTexture = !hasData && (francoDay || isWeekend);
               const isHighlighted = isPainted || isCopySource; // estados de pintado pisan el relleno
               const cellIdx = wi * 7 + di;
@@ -1169,9 +1173,9 @@ export default function PlanillaDetailPage() {
                     <span className={cn(
                       'text-[13px] font-semibold w-7 h-7 flex items-center justify-center rounded-full transition-colors',
                       isToday && 'bg-primary text-primary-foreground shadow-sm',
-                      !isToday && reg?.esFeriado && 'text-cal-red',
-                      !isToday && reg?.esFrancoTrabajado && 'text-cal-amber',
-                      !isToday && !reg?.esFeriado && !reg?.esFrancoTrabajado && 'text-foreground/80',
+                      !isToday && isFeriado && 'text-cal-red',
+                      !isToday && francoTrabajado && 'text-cal-amber',
+                      !isToday && !isFeriado && !francoTrabajado && 'text-foreground/80',
                     )}>
                       {day.getDate()}
                     </span>
@@ -1179,11 +1183,11 @@ export default function PlanillaDetailPage() {
                       {francoDay && (
                         <span className={cn(
                           'text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full',
-                          reg?.esFrancoTrabajado
+                          francoTrabajado
                             ? 'bg-amber-500/20 text-cal-amber'
                             : 'bg-orange-500/15 text-cal-orange',
                         )}>
-                          {reg?.esFrancoTrabajado ? 'FT' : 'F'}
+                          {francoTrabajado ? 'FT' : 'F'}
                         </span>
                       )}
                       {reg?.lugarTrabajo && !reg?.esFrancoCompensatorio && (
@@ -1202,6 +1206,14 @@ export default function PlanillaDetailPage() {
                       {isFeriado && (
                         <span className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-amber-500/20 text-cal-amber" title={nombreFeriado(key) ?? 'Feriado'}>
                           FER
+                        </span>
+                      )}
+                      {feriadoDiscrepante && (
+                        <span
+                          className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-rose-500/20 text-cal-rose"
+                          title="Este día está guardado como feriado pero no figura en el calendario: las horas se liquidan al 100%. Revisar antes de aprobar."
+                        >
+                          FER?
                         </span>
                       )}
                     </div>

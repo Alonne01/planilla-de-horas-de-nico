@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient, PlanillaEstado, LugarTrabajo, PernocteEnum, Prisma, AusenciaTipo } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { z } from 'zod';
-import { fechaFlexible } from '../utils/zod.utils.js';
+import { fechaFlexible, spanDiasCalendario } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH, LEVEL_ADMIN } from '../middleware/roles.middleware.js';
 import { notificarPlanilla, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
@@ -17,11 +17,67 @@ import {
 import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { logAuditoria } from '../lib/auditoria.js';
 import { canManageUser } from '../utils/user-scope.utils.js';
+import { contextoDelDia, esDiaFrancoSegunDiagrama, feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
 
 router.use(authMiddleware);
+
+/** Campos horarios que comparten el POST y el PUT de un registro. */
+type DatosRegistro = {
+  entradaTurno1?: string | null;
+  salidaTurno1?: string | null;
+  entradaTurno2?: string | null;
+  salidaTurno2?: string | null;
+  lugarTrabajo?: LugarTrabajo | null;
+  esFrancoCompensatorio?: boolean;
+  horasViajeInput?: number;
+  maneja?: boolean;
+};
+
+/**
+ * Calcula las horas de un día derivando el contexto en el servidor.
+ *
+ * `esFeriado` y `esFrancoTrabajado` deciden si la jornada entera se paga al 100%,
+ * y antes los mandaba el navegador desde un calendario en localStorage. Ahora
+ * salen de la configuración de la empresa y del diagrama del usuario: lo que
+ * llegue en el body se ignora.
+ *
+ * Se calcula dos veces porque `hayTrabajo` depende de las horas y los flags no
+ * afectan el total, sólo cómo se reparte entre normales y al 100%.
+ */
+async function calcularConContexto(
+  datos: DatosRegistro,
+  fecha: Date,
+  usuarioId: string,
+  empresaId: string,
+  config: Awaited<ReturnType<typeof getEmpresaConfig>>,
+) {
+  const horarios = {
+    entradaTurno1: datos.entradaTurno1 ? new Date(datos.entradaTurno1) : null,
+    salidaTurno1: datos.salidaTurno1 ? new Date(datos.salidaTurno1) : null,
+    entradaTurno2: datos.entradaTurno2 ? new Date(datos.entradaTurno2) : null,
+    salidaTurno2: datos.salidaTurno2 ? new Date(datos.salidaTurno2) : null,
+    lugarTrabajo: datos.lugarTrabajo ?? null,
+    horasViajeInput: datos.horasViajeInput ?? 2,
+    maneja: datos.maneja ?? false,
+  };
+
+  const sinRecargo = calcularHorasRegistro(
+    { ...horarios, esFeriado: false, esFrancoTrabajado: false },
+    config,
+  );
+  // Un compensatorio no es jornada trabajada: no convierte el franco en trabajado.
+  const hayTrabajo = sinRecargo.horasTrabajadas > 0 && !datos.esFrancoCompensatorio;
+
+  const { esFeriado, esFrancoTrabajado } = await contextoDelDia(
+    usuarioId, empresaId, fecha, hayTrabajo,
+  );
+
+  const calculo = calcularHorasRegistro({ ...horarios, esFeriado, esFrancoTrabajado }, config);
+  return { calculo, esFeriado, esFrancoTrabajado };
+}
 
 /** Check if the current user can access a planilla (by fetching the planilla's owner info) */
 async function assertPlanillaAccess(req: AuthRequest, planillaId: string): Promise<boolean> {
@@ -42,10 +98,19 @@ async function assertPlanillaAccess(req: AuthRequest, planillaId: string): Promi
 
 // ─── Schemas ─────────────────────────────────────
 
+// Una planilla cubre un ciclo mensual. El techo es generoso a propósito (períodos
+// partidos, ciclos reconfigurados), pero acota el bucle día-por-día de /:id/enviar:
+// sin él, un período de años bloquea el event loop del proceso entero.
+const MAX_DIAS_PERIODO = 366;
+
 const createPlanillaSchema = z.object({
   periodoInicio: fechaFlexible.optional(),
   periodoFin: fechaFlexible.optional(),
-});
+}).refine(
+  (d) => !d.periodoInicio || !d.periodoFin
+    || spanDiasCalendario(d.periodoInicio, d.periodoFin) <= MAX_DIAS_PERIODO,
+  { message: `El período no puede superar los ${MAX_DIAS_PERIODO} días`, path: ['periodoFin'] },
+);
 
 // Turno horario: fecha/hora válida, o cadena vacía / null / ausente
 const horaOpcional = z.union([fechaFlexible, z.literal('')]).nullable().optional();
@@ -60,10 +125,12 @@ const createRegistroSchema = z.object({
   pernocte: z.nativeEnum(PernocteEnum).optional(),
   maneja: z.boolean().optional(),
   horasViajeInput: z.number().min(0).max(24).optional(),
+  // esFeriado y esFrancoTrabajado se siguen aceptando para no romper a una PWA
+  // vieja que quedó en cache, pero se IGNORAN: los deriva calcularConContexto().
   esFeriado: z.boolean().optional(),
   esFrancoCompensatorio: z.boolean().optional(),
   esFrancoTrabajado: z.boolean().optional(),
-  distanciaViaje: z.string().nullable().optional(),
+  distanciaViaje: z.string().max(50).nullable().optional(),
   observaciones: z.string().max(500).nullable().optional(),
   proyectoId: z.string().uuid().nullable().optional(),
 });
@@ -267,6 +334,23 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
   }
 });
 
+// ─── GET /planillas/feriados ─────────────────────
+//
+// Los feriados que el servidor va a usar para el recargo del 100%. El calendario
+// del front los pinta desde acá: si el front tuviera su propia lista, mostraría
+// un feriado que la liquidación no paga (o al revés).
+// Va ANTES de /:id, si no Express lo toma como un id de planilla.
+
+router.get('/feriados', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const mapa = await feriadosDeEmpresa(req.user!.empresaId);
+    res.json(Object.fromEntries(mapa));
+  } catch (error) {
+    console.error('Error listing feriados:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ─── GET /planillas/:id ──────────────────────────
 
 router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
@@ -358,6 +442,19 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
+    // Cota dura antes del recorrido día-por-día: cubre las planillas creadas antes
+    // de que el schema validara la amplitud del período.
+    const diasPeriodo = spanDiasCalendario(
+      planilla.periodoInicio.toISOString(),
+      planilla.periodoFin.toISOString(),
+    );
+    if (diasPeriodo > MAX_DIAS_PERIODO) {
+      res.status(400).json({
+        error: `El período de la planilla es inválido (${diasPeriodo} días, máximo ${MAX_DIAS_PERIODO})`,
+      });
+      return;
+    }
+
     // Validate completeness: days must have a registro UNLESS they are franco (rest) days or feriados
     const registros = await prisma.registroHoras.findMany({
       where: { planillaId },
@@ -375,61 +472,39 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       orderBy: { fechaInicio: 'desc' },
     });
 
-    // Load feriados from empresa config
-    let feriadosDates: Set<string> = new Set();
-    if (usuario) {
-      const config = await prisma.empresaConfig.findFirst({
-        where: { empresaId: usuario.empresaId },
-        select: { feriadosPersonalizados: true },
-      });
-      if (config?.feriadosPersonalizados) {
-        const feriados = config.feriadosPersonalizados as unknown as string[];
-        if (Array.isArray(feriados)) {
-          feriadosDates = new Set(feriados.map(f => typeof f === 'string' ? f.split('T')[0] : ''));
-        }
-      }
-    }
+    // Feriados vigentes: los mismos que usa el cálculo del recargo (nacionales ∪
+    // los de la empresa), para que la planilla no exija cargar un día que el
+    // cálculo trata como feriado.
+    const feriadosDates = usuario
+      ? new Set((await feriadosDeEmpresa(usuario.empresaId)).keys())
+      : new Set<string>();
 
-    // Helper: check if a date is a franco (rest) day per the diagram
+    // Franco por diagrama: misma función que deriva esFrancoTrabajado al guardar.
     function esDiaFranco(fecha: Date): boolean {
       if (!diagramaAsignacion) return false;
-      const diag = diagramaAsignacion.diagrama;
-      if (diag.tipo === 'ROTATIVO') {
-        const ciclo = (diag.diasTrabajo ?? 0) + (diag.diasDescanso ?? 0);
-        if (ciclo === 0) return false;
-        const msPerDay = 86400000;
-        const startMs = Date.UTC(
-          diagramaAsignacion.fechaInicio.getFullYear(),
-          diagramaAsignacion.fechaInicio.getMonth(),
-          diagramaAsignacion.fechaInicio.getDate(),
-        );
-        const fechaMs = Date.UTC(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
-        const diffDias = Math.round((fechaMs - startMs) / msPerDay);
-        const pos = ((diffDias % ciclo) + ciclo) % ciclo;
-        return pos >= (diag.diasTrabajo ?? 0);
-      }
-      if (diag.tipo === 'FIJO_SEMANA') {
-        return !diag.diasSemana.includes(fecha.getDay());
-      }
-      return false;
+      return esDiaFrancoSegunDiagrama(fecha, diagramaAsignacion.diagrama, diagramaAsignacion.fechaInicio);
     }
 
     const inicio = new Date(planilla.periodoInicio);
     const fin = new Date(planilla.periodoFin);
     const diasFaltantes: string[] = [];
 
+    // Índice por fecha: evita recorrer todos los registros en cada día del período
+    const registrosPorFecha = new Map<string, (typeof registros)[number]>();
+    for (const r of registros) {
+      const rDate = new Date(r.fecha).toISOString().split('T')[0] as string;
+      if (!registrosPorFecha.has(rDate)) registrosPorFecha.set(rDate, r);
+    }
+
     for (let d = new Date(inicio); d <= fin; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = d.toISOString().split('T')[0] as string;
 
       // Skip franco (rest) days — no registro needed
       if (esDiaFranco(d)) continue;
       // Skip feriados — no registro needed
       if (feriadosDates.has(dateStr)) continue;
 
-      const reg = registros.find(r => {
-        const rDate = new Date(r.fecha).toISOString().split('T')[0];
-        return rDate === dateStr;
-      });
+      const reg = registrosPorFecha.get(dateStr);
 
       if (!reg) {
         diasFaltantes.push(dateStr);
@@ -899,22 +974,14 @@ router.post('/:id/registros', async (req: AuthRequest, res: Response): Promise<v
     }
 
     const config = await getEmpresaConfig(planilla.usuario.empresaId);
-    const calculo = calcularHorasRegistro(
-      {
-        entradaTurno1: parsed.data.entradaTurno1 ? new Date(parsed.data.entradaTurno1) : null,
-        salidaTurno1: parsed.data.salidaTurno1 ? new Date(parsed.data.salidaTurno1) : null,
-        entradaTurno2: parsed.data.entradaTurno2 ? new Date(parsed.data.entradaTurno2) : null,
-        salidaTurno2: parsed.data.salidaTurno2 ? new Date(parsed.data.salidaTurno2) : null,
-        lugarTrabajo: parsed.data.lugarTrabajo ?? null,
-        esFeriado: parsed.data.esFeriado ?? false,
-        esFrancoTrabajado: parsed.data.esFrancoTrabajado ?? false,
-        horasViajeInput: parsed.data.horasViajeInput ?? 2,
-        maneja: parsed.data.maneja ?? false,
-      },
-      config
-    );
-
     const fecha = new Date(parsed.data.fecha);
+    const { calculo, esFeriado, esFrancoTrabajado } = await calcularConContexto(
+      parsed.data,
+      fecha,
+      req.user!.userId,
+      planilla.usuario.empresaId,
+      config,
+    );
 
     const registro = await prisma.registroHoras.create({
       data: {
@@ -929,9 +996,9 @@ router.post('/:id/registros', async (req: AuthRequest, res: Response): Promise<v
         maneja: parsed.data.maneja ?? false,
         horasViajeInput: new Decimal((parsed.data.horasViajeInput ?? 2).toString()),
         distanciaViaje: parsed.data.distanciaViaje ?? null,
-        esFeriado: parsed.data.esFeriado ?? false,
+        esFeriado,
         esFrancoCompensatorio: parsed.data.esFrancoCompensatorio ?? false,
-        esFrancoTrabajado: parsed.data.esFrancoTrabajado ?? false,
+        esFrancoTrabajado,
         horasTrabajadas: new Decimal(calculo.horasTrabajadas.toString()),
         horasNormales: new Decimal(calculo.horasNormales.toString()),
         horasExtra50: new Decimal(calculo.horasExtra50.toString()),
@@ -997,25 +1064,19 @@ router.put('/:id/registros/:rid', async (req: AuthRequest, res: Response): Promi
     }
 
     const config = await getEmpresaConfig(planilla.usuario.empresaId);
-    const calculo = calcularHorasRegistro(
-      {
-        entradaTurno1: parsed.data.entradaTurno1 ? new Date(parsed.data.entradaTurno1) : null,
-        salidaTurno1: parsed.data.salidaTurno1 ? new Date(parsed.data.salidaTurno1) : null,
-        entradaTurno2: parsed.data.entradaTurno2 ? new Date(parsed.data.entradaTurno2) : null,
-        salidaTurno2: parsed.data.salidaTurno2 ? new Date(parsed.data.salidaTurno2) : null,
-        lugarTrabajo: parsed.data.lugarTrabajo ?? null,
-        esFeriado: parsed.data.esFeriado ?? false,
-        esFrancoTrabajado: parsed.data.esFrancoTrabajado ?? false,
-        horasViajeInput: parsed.data.horasViajeInput ?? 2,
-        maneja: parsed.data.maneja ?? false,
-      },
-      config
+    const fecha = parsed.data.fecha ? new Date(parsed.data.fecha) : existingReg.fecha;
+    const { calculo, esFeriado, esFrancoTrabajado } = await calcularConContexto(
+      parsed.data,
+      fecha,
+      req.user!.userId,
+      planilla.usuario.empresaId,
+      config,
     );
 
     const registro = await prisma.registroHoras.update({
       where: { id: rid, planillaId },
       data: {
-        fecha: parsed.data.fecha ? new Date(parsed.data.fecha) : existingReg.fecha,
+        fecha,
         entradaTurno1: parsed.data.entradaTurno1 ? new Date(parsed.data.entradaTurno1) : null,
         salidaTurno1: parsed.data.salidaTurno1 ? new Date(parsed.data.salidaTurno1) : null,
         entradaTurno2: parsed.data.entradaTurno2 ? new Date(parsed.data.entradaTurno2) : null,
@@ -1025,9 +1086,9 @@ router.put('/:id/registros/:rid', async (req: AuthRequest, res: Response): Promi
         maneja: parsed.data.maneja ?? false,
         horasViajeInput: new Decimal((parsed.data.horasViajeInput ?? 2).toString()),
         distanciaViaje: parsed.data.distanciaViaje ?? null,
-        esFeriado: parsed.data.esFeriado ?? false,
+        esFeriado,
         esFrancoCompensatorio: parsed.data.esFrancoCompensatorio ?? false,
-        esFrancoTrabajado: parsed.data.esFrancoTrabajado ?? false,
+        esFrancoTrabajado,
         horasTrabajadas: new Decimal(calculo.horasTrabajadas.toString()),
         horasNormales: new Decimal(calculo.horasNormales.toString()),
         horasExtra50: new Decimal(calculo.horasExtra50.toString()),

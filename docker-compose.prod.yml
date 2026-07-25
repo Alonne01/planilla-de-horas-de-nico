@@ -43,6 +43,20 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?falta JWT_REFRESH_SECRET en .env}
       NODE_ENV: production
       PORT: 4000
+      # Saltos de proxy en los que confiar para leer la IP real del cliente. Con
+      # nginx solo es 1; con --profile tunnel son 2 (cloudflared → nginx → api).
+      # De más, cualquiera falsifica su IP y evade los límites por IP; de menos,
+      # todos comparten el cupo y un usuario deja afuera al resto.
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      # Se usa para decidir si la cookie de sesión va con el flag Secure.
+      PUBLIC_URL: ${PUBLIC_URL}
+      # Opcional: emails separados por coma que pueden usar backup/restore. El backup
+      # abarca los datos de TODAS las empresas, así que ser ADMIN de una no alcanza.
+      # Vacío = cualquier ADMIN puede, que es el comportamiento histórico.
+      BACKUP_OPERADORES: ${BACKUP_OPERADORES:-}
+      # Feriados nacionales: se bajan de internet al arrancar y cada 24 h. En false
+      # queda la lista de respaldo del código, que sólo cubre 2025-2026 y envejece.
+      FERIADOS_SYNC: ${FERIADOS_SYNC:-true}
       FRONTEND_URL: ${PUBLIC_URL:?falta PUBLIC_URL en .env}
       CORS_ORIGINS: ${PUBLIC_URL}
       TZ: ${TZ:-America/Argentina/Buenos_Aires}
@@ -55,6 +69,16 @@ services:
     volumes:
       - uploads:/app/uploads
       - backups:/app/backups
+      # Segunda copia del dump (backup.service.ts la escribe en backups/secondary).
+      # Va a un volumen propio para que no se pierda junto con el primario, pero
+      # mientras las dos copias vivan en el mismo disco no protegen de lo que
+      # motiva un backup: apuntar BACKUP_SECONDARY_DIR en el .env a otro disco o
+      # a un recurso de red montado en el host (ej: /mnt/nas/planilla-backups).
+      # Si es un bind mount, crear la carpeta antes y darle dueño 1000:1000, que
+      # es el usuario `node` con el que corre el API.
+      # El dump va sin cifrar: copiarlo a un pendrive equivale a llevarse la base
+      # entera (DNI, teléfonos, certificados médicos) sin pasar por la aplicación.
+      - ${BACKUP_SECONDARY_DIR:-backups-secundario}:/app/backups/secondary
     depends_on:
       db:
         condition: service_healthy
@@ -125,4 +149,5 @@ volumes:
   pgdata:
   uploads:
   backups:
+  backups-secundario:
   certbot-www:

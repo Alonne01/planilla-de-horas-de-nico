@@ -64,6 +64,8 @@ async function api(
 ): Promise<{ status: number; body: unknown }> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (opts.token) headers['Authorization'] = `Bearer ${opts.token}`;
+  // /auth/debug-users exige la clave del modo debug (antes era abierto).
+  headers['x-debug-clave'] = process.env.DEBUG_AUTH_PASSWORD ?? 'Test1234!';
 
   const res = await fetch(`${BASE}${path}`, {
     method,
