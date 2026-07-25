@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
+import { cn } from '@/lib/utils';
 import { mensajeDeError } from '@/lib/errores';
 import { Shield, Plus, Pencil, Trash2, X, Loader2 } from 'lucide-react';
 import { useDialogStore } from '@/stores/dialogStore';
@@ -116,6 +117,112 @@ export default function RolesPage() {
   );
 }
 
+const ESCALONES = [
+  {
+    min: 0, max: 59, titulo: '0-59 · Solo lo propio',
+    items: [
+      'Sus propias planillas, ausencias y vacaciones',
+      'Sus mensajes y capacitaciones',
+      'Crear tarjetas WENTOP propias',
+      'La bandeja de Aprobaciones le aparece vacía',
+    ],
+  },
+  {
+    min: 60, max: 69, titulo: '60-69 · Supervisión (como SUPERVISOR)',
+    items: [
+      'Aprobar y rechazar planillas, ausencias, vacaciones y cambios de diagrama',
+      'Cargar ausencias en nombre de otro',
+      'Marcar compensatorios y validar marcas manuales',
+      'Ver analytics de su sector',
+      'Alcance: sus subordinados directos',
+    ],
+  },
+  {
+    min: 70, max: 74, titulo: '70-74 · Coordinación (como COORDINADOR)',
+    items: [
+      'Todo lo anterior, con alcance a TODO su sector y no solo a sus directos',
+      'Analytics por sector y gestión de diagramas',
+      'Capacitaciones y sesiones',
+      'Gestionar las tarjetas WENTOP de su sector',
+    ],
+  },
+  {
+    min: 75, max: 79, titulo: '75-79 · Sin permisos adicionales',
+    items: [
+      'A nivel numérico no agrega nada sobre 70-74',
+      'El poder de CMASS viene de su código de rol, no de este nivel',
+    ],
+  },
+  {
+    min: 80, max: 89, titulo: '80-89 · Gerencia (como GERENTE)',
+    items: [
+      'A nivel numérico es idéntico a 70-74',
+      'GERENTE se distingue por su CÓDIGO en los pasos de flujo y en las notificaciones, no por el número',
+    ],
+  },
+  {
+    min: 90, max: 99, titulo: '90-99 · Recursos Humanos (como RRHH)',
+    items: [
+      'Ve y gestiona a TODA la empresa',
+      'Alta, baja y modificación de usuarios; resetear contraseñas',
+      'Cerrar planillas; exportaciones y liquidación',
+      'Saldos de vacaciones, auditoría, alertas y feriados',
+      'Mensajes masivos y Calendario de Equipo siempre',
+      'Puede avanzar pasos aunque el sector no tenga flujo configurado',
+    ],
+  },
+  {
+    min: 100, max: 100, titulo: '100 · Administrador (no asignable acá)',
+    items: [
+      'Sectores, Diagramas, Flujos, Roles y Configuración',
+      'Backups, reabrir planillas, borrar usuarios y cambiar de sector',
+      'Este formulario admite hasta 99: el nivel 100 no se puede asignar',
+    ],
+  },
+];
+
+function NivelHelp({ nivel }: { nivel: number }) {
+  return (
+    <details className="mt-3 rounded-lg border border-border bg-background/50">
+      <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground">
+        ¿Qué habilita cada nivel?
+      </summary>
+      <div className="px-3 pb-3 space-y-2">
+        {ESCALONES.map((e) => {
+          const activo = nivel >= e.min && nivel <= e.max;
+          return (
+            <div
+              key={e.titulo}
+              className={cn(
+                'rounded-md border p-2 text-xs',
+                activo ? 'border-primary bg-primary/10' : 'border-transparent opacity-60',
+                e.min === 100 && 'opacity-40',
+              )}
+            >
+              <p className="font-medium text-foreground">{e.titulo}</p>
+              <ul className="mt-1 list-disc pl-4 text-muted-foreground">
+                {e.items.map((i) => <li key={i}>{i}</li>)}
+              </ul>
+            </div>
+          );
+        })}
+
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+          <p className="font-medium text-foreground">El nivel no alcanza para todo</p>
+          <ul className="mt-1 list-disc pl-4 text-muted-foreground">
+            <li>
+              <strong>Aprobar depende del código del rol</strong>, no del nivel: el rol tiene que
+              figurar como aprobador en algún paso de un flujo (Administración &gt; Flujos).
+            </li>
+            <li>Ver todas las tarjetas WENTOP es exclusivo del código CMASS o de nivel 90 o más.</li>
+            <li>El nivel se lee al iniciar sesión: si lo cambiás, el usuario tiene que volver a entrar.</li>
+          </ul>
+        </div>
+      </div>
+    </details>
+  );
+}
+
 function RolFormModal({ rol, onClose, onSuccess }: { rol: RolConfig | null; onClose: () => void; onSuccess: () => void }) {
   const isEdit = !!rol;
   const [loading, setLoading] = useState(false);
@@ -197,11 +304,18 @@ function RolFormModal({ rol, onClose, onSuccess }: { rol: RolConfig | null; onCl
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">Nivel (0-99)</label>
-              <input type="number" min="0" max="99" className={inputClass}
+              <input type="number" min="0" max="99" className={cn(inputClass, rol?.esSistema && 'opacity-50 cursor-not-allowed')}
+                disabled={!!rol?.esSistema}
                 value={form.nivel} onChange={(e) => setForm({ ...form, nivel: parseInt(e.target.value) || 0 })} />
-              <p className="text-[10px] text-muted-foreground mt-1">Mayor = más permisos</p>
+              {rol?.esSistema ? (
+                <p className="text-[10px] text-muted-foreground mt-1">Los roles del sistema no permiten cambiar el nivel.</p>
+              ) : (
+                <p className="text-[10px] text-muted-foreground mt-1">Mayor = más permisos</p>
+              )}
             </div>
           </div>
+
+          <NivelHelp nivel={form.nivel} />
 
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose}
