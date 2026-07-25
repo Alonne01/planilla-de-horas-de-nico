@@ -267,7 +267,7 @@ if exist "%ENV_FILE%" (
         pause
         exit /b 1
     )
-    goto levantar
+    goto reusar_env
 )
 
 echo    Direccion publica con la que va a entrar la gente.
@@ -301,8 +301,9 @@ if "!MODO!"=="1" (
     set "PERFILES=--profile duckdns"
     echo.
     echo    La direccion va a ser: !PUBLIC_URL!
-    echo    Arranca en HTTP y despues se emite el certificado ^(el instalador
-    echo    te muestra el comando al final^).
+    echo    Arranca en HTTP y, antes de terminar, el instalador emite el
+    echo    certificado y deja el servidor en HTTPS. Para eso hacen falta
+    echo    los puertos 80 y 443 reenviados en el router.
 ) else (
     for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1).IPv4Address.IPAddress"`) do set "IPLOCAL=%%i"
     echo    IP local detectada: !IPLOCAL!
@@ -331,6 +332,12 @@ if not exist "%ENV_FILE%" (
     exit /b 1
 )
 echo    Archivo .env creado. GUARDA UNA COPIA: contiene las claves.
+
+:: Los perfiles de compose no se guardan en el .env: se deducen de lo que quedo
+:: configurado, para que una reinstalacion no deje DuckDNS sin actualizar la IP.
+:reusar_env
+findstr /R /C:"^DUCKDNS_SUBDOMAIN=." "%ENV_FILE%" >nul 2>&1
+if !ERRORLEVEL! equ 0 set "PERFILES=--profile duckdns"
 
 :: ============================================================
 ::  LEVANTAR EL STACK
@@ -408,48 +415,180 @@ powershell -NoProfile -Command "$p='HKCU:\Software\Microsoft\Windows\CurrentVers
 echo    Listo (los contenedores ya arrancan solos con Docker).
 
 :: ============================================================
-::  RESUMEN
+::  HTTPS (solo modo DuckDNS)
+::
+::  El certificado se emite aca, dentro de la instalacion: publicar
+::  a internet en HTTP puro deja las contrasenas y los tokens de
+::  sesion viajando en claro para cualquiera en el camino de red.
 :: ============================================================
-cls
-color 0A
-echo.
-echo  ============================================================
-echo.
-echo    INSTALACION COMPLETADA
-echo.
-echo  ============================================================
-echo.
 for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
     if /I "%%a"=="PUBLIC_URL" set "URL_FINAL=%%b"
     if /I "%%a"=="DUCKDNS_SUBDOMAIN" set "SUB_FINAL=%%b"
     if /I "%%a"=="NGINX_CONF" set "CONF_FINAL=%%b"
 )
+
+set "HTTPS_OK="
+set "SIN_HTTPS="
+set "PUBLICACION_DETENIDA="
+if "!SUB_FINAL!"=="" goto resumen
+if not "!CONF_FINAL!"=="./nginx.http.conf" goto resumen
+
+set "DOMINIO=!SUB_FINAL!.duckdns.org"
+echo.
+echo  ============================================================
+echo    ACTIVANDO EL HTTPS - !DOMINIO!
+echo  ============================================================
+echo.
+echo    Falta el certificado. Para emitirlo, Let's Encrypt tiene que
+echo    poder llegar a esta maquina desde internet por el puerto 80.
+echo.
+echo    En el router: reenviar los puertos 80 y 443 a esta maquina.
+echo.
+set "PUERTOS_OK="
+set /p "PUERTOS_OK=   Ya estan reenviados los puertos 80 y 443? [S/N]: "
+if /I not "!PUERTOS_OK!"=="S" goto sin_https
+
+set "CERT_EMAIL="
+set /p "CERT_EMAIL=   Email para los avisos de vencimiento del certificado: "
+set "CERT_MAIL=--register-unsafely-without-email"
+if not "!CERT_EMAIL!"=="" set "CERT_MAIL=-m !CERT_EMAIL!"
+
+echo.
+echo    Emitiendo el certificado...
+docker compose -f "%COMPOSE_FILE%" --profile certbot run --rm certbot certonly --webroot -w /var/www/certbot -d !DOMINIO! --agree-tos --no-eff-email -n !CERT_MAIL!
+if !ERRORLEVEL! neq 0 (
+    echo.
+    echo    [ERROR] No se pudo emitir el certificado.
+    echo    Causa habitual: los puertos 80 y 443 todavia no llegan hasta aca.
+    goto sin_https
+)
+
+:: nginx.conf trae el dominio como marcador, igual que deploy/bootstrap.sh.
+:: Se escribe UTF-8 sin BOM a proposito: nginx toma el BOM como una directiva
+:: desconocida y no arranca.
+powershell -NoProfile -Command "$p='%ROOT%nginx.conf'; $c=Get-Content -Raw -Encoding UTF8 $p; if ($c -match 'PLANILLA_DOMINIO') { [IO.File]::WriteAllText($p, ($c -replace 'PLANILLA_DOMINIO','!DOMINIO!'), (New-Object Text.UTF8Encoding $false)) }"
+powershell -NoProfile -Command "$p='%ENV_FILE%'; $l=(Get-Content $p -Encoding UTF8) -replace '^NGINX_CONF=.*','NGINX_CONF=./nginx.conf' -replace '^PUBLIC_URL=.*','PUBLIC_URL=https://!DOMINIO!'; [IO.File]::WriteAllLines($p, [string[]]$l, (New-Object Text.UTF8Encoding $false))"
+
+echo    Pasando nginx a HTTPS...
+docker compose -f "%COMPOSE_FILE%" up -d nginx api
+if !ERRORLEVEL! neq 0 goto https_revertir
+docker compose -f "%COMPOSE_FILE%" exec -T nginx nginx -t >nul 2>&1
+if !ERRORLEVEL! neq 0 goto https_revertir
+
+set "HTTPS_OK=si"
+set "CONF_FINAL=./nginx.conf"
+set "URL_FINAL=https://!DOMINIO!"
+echo    HTTPS activo.
+goto resumen
+
+:https_revertir
+echo.
+echo    [ERROR] nginx no arranco con la configuracion HTTPS. Se vuelve atras.
+powershell -NoProfile -Command "$p='%ENV_FILE%'; $l=(Get-Content $p -Encoding UTF8) -replace '^NGINX_CONF=.*','NGINX_CONF=./nginx.http.conf'; [IO.File]::WriteAllLines($p, [string[]]$l, (New-Object Text.UTF8Encoding $false))"
+docker compose -f "%COMPOSE_FILE%" up -d nginx >nul 2>&1
+
+:sin_https
+set "SIN_HTTPS=si"
+echo.
+echo  ------------------------------------------------------------
+echo    EL SERVIDOR NO QUEDO CON HTTPS
+echo.
+echo    Publicado asi a internet, cualquiera en el camino de red
+echo    ^(wifi de la oficina, proveedor, nodos intermedios^) ve las
+echo    contrasenas y los tokens de sesion en claro.
+echo  ------------------------------------------------------------
+echo.
+set "IGUAL="
+set /p "IGUAL=   Dejarlo publicado igual, sin cifrar? [S/N]: "
+if /I "!IGUAL!"=="S" goto sin_https_seguir
+
+:: rm -sf y no stop: nginx y duckdns tienen restart:always, asi que un `stop` los
+:: revive en el proximo arranque de Docker y la app volveria a quedar publicada
+:: sin cifrar sin que nadie lo pida.
+docker compose -f "%COMPOSE_FILE%" --profile duckdns rm -sf nginx duckdns >nul 2>&1
+set "PUBLICACION_DETENIDA=si"
+echo.
+echo    Publicacion detenida. La base y el API quedan intactos:
+echo    no se pierde nada de lo que se instalo.
+goto resumen
+
+:sin_https_seguir
+:: PUBLIC_URL quedaria en https:// mientras se entra por http://: con esa mezcla
+:: el navegador descarta la cookie de sesion y CORS rechaza el origen real.
+powershell -NoProfile -Command "$p='%ENV_FILE%'; $l=(Get-Content $p -Encoding UTF8) -replace '^PUBLIC_URL=https://','PUBLIC_URL=http://'; [IO.File]::WriteAllLines($p, [string[]]$l, (New-Object Text.UTF8Encoding $false))"
+docker compose -f "%COMPOSE_FILE%" up -d api >nul 2>&1
+set "URL_FINAL=http://!DOMINIO!"
+goto resumen
+
+:: ============================================================
+::  RESUMEN
+:: ============================================================
+:resumen
+:: Solo se limpia la pantalla si no hay nada que leer mas arriba
+:: (por ejemplo el detalle de por que fallo el certificado).
+if not "!SIN_HTTPS!"=="si" cls
+color 0A
+echo.
+echo  ============================================================
+echo.
+if "!PUBLICACION_DETENIDA!"=="si" goto resumen_detenido
+echo    INSTALACION COMPLETADA
+goto resumen_datos
+:resumen_detenido
+echo    INSTALADO - PERO TODAVIA SIN PUBLICAR
+:resumen_datos
+echo.
+echo  ============================================================
+echo.
 echo    Direccion:  !URL_FINAL!
 echo.
 echo    Primer ingreso:
 echo      Usuario:     admin@wenlen.com
-echo      Contrasena:  Admin2026!
+:: El signo final va como ^^!: con delayed expansion un ! suelto no se imprime
+echo      Contrasena:  Admin2026^^!
 echo      ^(la aplicacion pide cambiarla al entrar^)
 echo.
 echo  ------------------------------------------------------------
 
-if not "!SUB_FINAL!"=="" (
-    if "!CONF_FINAL!"=="./nginx.http.conf" (
-        echo.
-        echo    FALTA UN PASO: activar el HTTPS
-        echo.
-        echo    1^) En el router, reenviar los puertos 80 y 443 a esta maquina
-        echo    2^) Emitir el certificado:
-        echo.
-        echo       docker compose -f docker-compose.prod.yml --profile certbot run --rm certbot certonly --webroot -w /var/www/certbot -d !SUB_FINAL!.duckdns.org --agree-tos -m TU_EMAIL
-        echo.
-        echo    3^) Cambiar en el archivo .env:  NGINX_CONF=./nginx.conf
-        echo    4^) docker compose -f docker-compose.prod.yml up -d nginx
-        echo.
-        echo  ------------------------------------------------------------
-    )
-)
+if "!PUBLICACION_DETENIDA!"=="si" goto aviso_detenido
+if "!HTTPS_OK!"=="si" goto aviso_https_ok
+if "!SIN_HTTPS!"=="si" goto aviso_sin_https
+goto comandos
 
+:aviso_detenido
+echo.
+echo    nginx y duckdns quedaron detenidos: la aplicacion no esta
+echo    publicada. Se hizo asi para no exponer las contrasenas en
+echo    claro a internet.
+echo.
+echo    Cuando los puertos 80 y 443 esten reenviados en el router,
+echo    volve a ejecutar este instalador: conserva el .env, emite el
+echo    certificado y publica con HTTPS.
+echo.
+echo  ------------------------------------------------------------
+goto comandos
+
+:aviso_https_ok
+echo.
+echo    HTTPS activo con certificado de Let's Encrypt.
+echo    Vence a los 90 dias; renovarlo cada 60 con:
+echo.
+echo       docker compose -f docker-compose.prod.yml --profile certbot run --rm certbot renew
+echo       docker compose -f docker-compose.prod.yml restart nginx
+echo.
+echo  ------------------------------------------------------------
+goto comandos
+
+:aviso_sin_https
+echo.
+echo    ATENCION: la aplicacion quedo publicada SIN CIFRAR ^(http://^).
+echo    Las contrasenas viajan en claro. Para pasar a HTTPS: reenviar
+echo    los puertos 80 y 443 en el router y volver a ejecutar este
+echo    instalador.
+echo.
+echo  ------------------------------------------------------------
+
+:comandos
 echo.
 echo    Comandos utiles:
 echo      Estado:    docker compose -f docker-compose.prod.yml ps

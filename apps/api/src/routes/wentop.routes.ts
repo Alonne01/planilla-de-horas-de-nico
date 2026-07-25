@@ -1,5 +1,7 @@
 import { Router, Response } from 'express';
 import { PrismaClient, WentopEstado, WentopTipoTarjeta } from '@prisma/client';
+import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH, LEVEL_CMASS } from '../middleware/roles.middleware.js';
 import {
@@ -10,6 +12,7 @@ import {
   MAX_FOTOS_POR_TARJETA,
   MAX_BYTES_POR_TARJETA,
 } from '../middleware/upload.middleware.js';
+import { fechaFlexible } from '../utils/zod.utils.js';
 import { unlink } from 'fs/promises';
 import path from 'path';
 
@@ -21,6 +24,63 @@ router.use(authMiddleware);
 // ─── Constants ───────────────────────────────────
 
 const VALID_TIPOS = ['DETENCION_TAREAS', 'CONDICION_INSEGURA', 'ACTO_INSEGURO', 'CASI_ACCIDENTE', 'OBSERVACION_POSITIVA'] as const;
+
+// Tope del listado: sin cota, una tarjeta con textos enormes multiplicada por
+// muchas filas hace que el findMany + serialización se coma la memoria del proceso.
+const MAX_TARJETAS_LISTADO = 500;
+
+// Textos de la tarjeta: los campos son text/jsonb sin cota en el schema, así que
+// el único límite real sería el body de 10 MB de express. Se acotan acá.
+const MAX_TEXTO_LARGO = 2000;
+const MAX_TEXTO_CORTO = 200;
+const MAX_CATEGORIAS = 50;
+
+/**
+ * Tope de escrituras de tarjetas por usuario. Va por usuario y no por IP por el
+ * mismo motivo que uploadLimiter: detrás de nginx la IP es la del proxy.
+ */
+const escrituraLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req as AuthRequest).user?.userId ?? 'anonimo',
+  handler: (_req, res) => {
+    res.status(429).json({
+      error: 'Demasiadas tarjetas en poco tiempo. Esperá un rato antes de seguir cargando.',
+    });
+  },
+});
+
+// ─── Schemas ─────────────────────────────────────
+
+const textoLargoOpcional = z.string().max(MAX_TEXTO_LARGO).nullable().optional();
+const textoCortoOpcional = z.string().max(MAX_TEXTO_CORTO).nullable().optional();
+const categorias = z.array(z.string().max(MAX_TEXTO_CORTO)).max(MAX_CATEGORIAS).optional();
+
+const tarjetaSchema = z.object({
+  fechaReporte: fechaFlexible,
+  sectorObservacionId: z.string().uuid().nullable().optional(),
+  sectorTercero: z.boolean().optional(),
+  cliente: textoCortoOpcional,
+  lugarPozoLocacion: textoCortoOpcional,
+  tipoTarjeta: z.enum(VALID_TIPOS),
+  calidad: categorias,
+  medioambiente: categorias,
+  seguridadSalud: categorias,
+  descripcion: z.string().min(1).max(MAX_TEXTO_LARGO),
+  accionesInmediatas: textoLargoOpcional,
+  recomendaciones: textoLargoOpcional,
+  justificacionAbierta: textoLargoOpcional,
+});
+
+const updateTarjetaSchema = tarjetaSchema.partial();
+
+const estadoSchema = z.object({
+  estado: z.enum(['ABIERTA', 'EN_PROGRESO', 'CERRADA']),
+  accionCierre: z.string().max(MAX_TEXTO_LARGO).nullable().optional(),
+  fechaCierre: fechaFlexible.nullable().optional(),
+});
 
 // ─── Helper ──────────────────────────────────────
 
@@ -48,6 +108,17 @@ async function canManageWentop(
   }
 
   return false;
+}
+
+// El sector de observación define quién gestiona la tarjeta (canManageWentop /
+// buildVisibilityWhere), así que uno de otra empresa la deja fuera del alcance de
+// los gestores del propio tenant.
+async function sectorEsDeLaEmpresa(sectorId: string, empresaId: string): Promise<boolean> {
+  const sector = await prisma.sector.findFirst({
+    where: { id: sectorId, empresaId },
+    select: { id: true },
+  });
+  return sector !== null;
 }
 
 // Build visibility filter for tarjetas — based on observation sector
@@ -340,6 +411,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       where,
       include: tarjetaInclude,
       orderBy: { fechaReporte: 'desc' },
+      take: MAX_TARJETAS_LISTADO,
     });
 
     res.json(tarjetas);
@@ -375,8 +447,14 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
 
 // ─── POST /wentop ────────────────────────────────
 
-router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', escrituraLimiter, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const parsed = tarjetaSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+
     const {
       fechaReporte,
       sectorObservacionId,
@@ -391,20 +469,10 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
       accionesInmediatas,
       recomendaciones,
       justificacionAbierta,
-    } = req.body;
+    } = parsed.data;
 
-    if (!fechaReporte || !tipoTarjeta || !descripcion) {
-      res.status(400).json({ error: 'fechaReporte, tipoTarjeta y descripcion son requeridos' });
-      return;
-    }
-
-    if (!VALID_TIPOS.includes(tipoTarjeta)) {
-      res.status(400).json({ error: `tipoTarjeta inválido. Valores válidos: ${VALID_TIPOS.join(', ')}` });
-      return;
-    }
-
-    if (isNaN(new Date(fechaReporte).getTime())) {
-      res.status(400).json({ error: 'fechaReporte inválida' });
+    if (sectorObservacionId && !(await sectorEsDeLaEmpresa(sectorObservacionId, req.user!.empresaId))) {
+      res.status(400).json({ error: 'Sector de observación no encontrado en esta empresa' });
       return;
     }
 
@@ -439,8 +507,14 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
 // ─── PUT /wentop/:id ─────────────────────────────
 
-router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', escrituraLimiter, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const parsed = updateTarjetaSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+
     const tarjeta = await prisma.wentopTarjeta.findFirst({
       where: { id: req.params.id, empresaId: req.user!.empresaId },
     });
@@ -477,15 +551,10 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       accionesInmediatas,
       recomendaciones,
       justificacionAbierta,
-    } = req.body;
+    } = parsed.data;
 
-    // Validate inputs that would otherwise reach Prisma and 500
-    if (tipoTarjeta !== undefined && !VALID_TIPOS.includes(tipoTarjeta)) {
-      res.status(400).json({ error: `tipoTarjeta inválido. Valores válidos: ${VALID_TIPOS.join(', ')}` });
-      return;
-    }
-    if (fechaReporte !== undefined && isNaN(new Date(fechaReporte).getTime())) {
-      res.status(400).json({ error: 'fechaReporte inválida' });
+    if (sectorObservacionId && !(await sectorEsDeLaEmpresa(sectorObservacionId, req.user!.empresaId))) {
+      res.status(400).json({ error: 'Sector de observación no encontrado en esta empresa' });
       return;
     }
 
@@ -537,12 +606,13 @@ router.patch('/:id/estado', async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
-    const { estado, accionCierre, fechaCierre } = req.body;
-
-    if (!estado || !['ABIERTA', 'EN_PROGRESO', 'CERRADA'].includes(estado)) {
-      res.status(400).json({ error: 'Estado inválido' });
+    const parsed = estadoSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
       return;
     }
+
+    const { estado, accionCierre, fechaCierre } = parsed.data;
 
     const data: any = { estado };
 

@@ -246,7 +246,18 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
     let nuevoEstado: CambioDiagramaEstado;
     let nuevoPaso: number;
 
+    // pasoActual is 1-based (matches FlujoPaso.orden)
     if (pasoActual > totalPasos || totalPasos === 0) {
+      // No flow configured: block self-approval and require RRHH+ to approve
+      // (mirror the guard already present in planillas/ausencias/vacaciones avanzar).
+      if (solicitud.usuario.id === req.user!.userId) {
+        res.status(403).json({ error: 'No podés aprobar tu propio cambio de diagrama' });
+        return;
+      }
+      if ((req.user!.rolNivel ?? 0) < 90) {
+        res.status(403).json({ error: 'Se requiere nivel RRHH o superior para aprobar sin flujo de aprobación' });
+        return;
+      }
       nuevoEstado = 'APROBADA';
       nuevoPaso = pasoActual;
     } else {
@@ -450,9 +461,11 @@ router.delete('/:id', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, 
     const solId = req.params.id as string;
     const solicitud = await prisma.solicitudCambioDiagrama.findUnique({
       where: { id: solId },
+      include: { usuario: { select: { empresaId: true } } },
     });
 
-    if (!solicitud) {
+    // El borrado es físico: sin el filtro por empresa un RRHH podría cancelar solicitudes de otro tenant
+    if (!solicitud || solicitud.usuario.empresaId !== req.user!.empresaId) {
       res.status(404).json({ error: 'Solicitud no encontrada' });
       return;
     }

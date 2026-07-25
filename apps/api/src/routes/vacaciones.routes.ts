@@ -699,7 +699,9 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
     let nuevoPaso: number;
 
     // pasoActual is 1-based (matches FlujoPaso.orden)
-    if (totalPasos === 0) {
+    // Sin flujo, o con un pasoActual que quedó fuera del flujo (p. ej. si se acortó
+    // mientras la solicitud estaba en curso): mismo criterio que planillas/ausencias.
+    if (pasoActual > totalPasos || totalPasos === 0) {
       // No approval flow configured: block self-approval and require RRHH+
       if (vacacion.usuario.id === req.user!.userId) {
         res.status(403).json({ error: 'No podés aprobar tu propia solicitud de vacaciones' });
@@ -709,9 +711,6 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         res.status(403).json({ error: 'Se requiere nivel RRHH o superior para aprobar una vacación sin flujo definido' });
         return;
       }
-      nuevoEstado = 'APROBADA';
-      nuevoPaso = pasoActual;
-    } else if (pasoActual > totalPasos) {
       nuevoEstado = 'APROBADA';
       nuevoPaso = pasoActual;
     } else {

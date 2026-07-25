@@ -5,6 +5,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_COORDINADOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { crearNotificacion } from '../utils/notificacion.utils.js';
 import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
+import { fechaFlexible } from '../utils/zod.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -17,7 +18,7 @@ const createSesionSchema = z.object({
   tipoId: z.string().uuid(),
   titulo: z.string().min(1).max(200),
   descripcion: z.string().max(1000).nullable().optional(),
-  fecha: z.string(),
+  fecha: fechaFlexible,
   horaInicio: z.string().max(5).nullable().optional(),
   horaFin: z.string().max(5).nullable().optional(),
   lugar: z.string().max(200).nullable().optional(),
@@ -90,9 +91,10 @@ router.get('/', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: R
       }
     }
 
+    // Los filtros llegan crudos del query string: si no son string, Prisma revienta con 500
     const { estado, tipoId } = req.query;
-    if (estado) where.estado = estado;
-    if (tipoId) where.tipoId = tipoId;
+    if (typeof estado === 'string') where.estado = estado;
+    if (typeof tipoId === 'string') where.tipoId = tipoId;
 
     const sesiones = await prisma.sesionCapacitacion.findMany({
       where,
@@ -131,6 +133,16 @@ router.post('/', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: 
       return;
     }
 
+    // El tipo tiene que ser del catálogo de la propia empresa
+    const tipo = await prisma.tipoCapacitacion.findFirst({
+      where: { id: parsed.data.tipoId, empresaId: req.user!.empresaId },
+      select: { id: true },
+    });
+    if (!tipo) {
+      res.status(400).json({ error: 'Tipo de capacitación no encontrado' });
+      return;
+    }
+
     const sesion = await prisma.sesionCapacitacion.create({
       data: {
         empresaId: req.user!.empresaId,
@@ -161,7 +173,12 @@ router.post('/', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: 
 
 router.put('/:id', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const data = createSesionSchema.partial().parse(req.body);
+    const parsed = createSesionSchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+    const data = parsed.data;
 
     // Ownership/tenant guard: only the organizer (or RRHH+) of a session in the
     // caller's company may edit it.
@@ -176,6 +193,18 @@ router.put('/:id', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res
     if (existing.organizadorId !== req.user!.userId && (req.user!.rolNivel ?? 0) < LEVEL_RRHH) {
       res.status(403).json({ error: 'Solo el organizador o RRHH pueden modificar esta sesión' });
       return;
+    }
+
+    // El tipo nuevo también tiene que ser del catálogo de la propia empresa
+    if (data.tipoId !== undefined) {
+      const tipo = await prisma.tipoCapacitacion.findFirst({
+        where: { id: data.tipoId, empresaId: req.user!.empresaId },
+        select: { id: true },
+      });
+      if (!tipo) {
+        res.status(400).json({ error: 'Tipo de capacitación no encontrado' });
+        return;
+      }
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -238,7 +267,7 @@ router.get('/subordinados', requireLevel(LEVEL_COORDINADOR), async (req: AuthReq
   try {
     const ids = await getSubordinateIds(req.user!.userId, req.user!.empresaId, req.user!.rolNivel ?? 0);
     const subordinados = await prisma.usuario.findMany({
-      where: { id: { in: ids }, activo: true },
+      where: { id: { in: ids }, empresaId: req.user!.empresaId, activo: true },
       select: { id: true, nombre: true, apellido: true, legajo: true, sector: { select: { nombre: true } } },
       orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
     });
@@ -517,14 +546,24 @@ router.post('/:id/finalizar', requireLevel(LEVEL_COORDINADOR), async (req: AuthR
       res.status(404).json({ error: 'Sesión no encontrada' });
       return;
     }
+    // Mismo guard que PUT y DELETE: finalizar bloquea el día y pone en cero las horas
+    // de los asistentes, así que no puede hacerlo un coordinador ajeno a la sesión.
+    if (sesion.organizadorId !== req.user!.userId && (req.user!.rolNivel ?? 0) < LEVEL_RRHH) {
+      res.status(403).json({ error: 'Solo el organizador o RRHH pueden finalizar esta sesión' });
+      return;
+    }
     if (sesion.estado === 'FINALIZADA') {
       res.status(400).json({ error: 'La sesión ya fue finalizada' });
       return;
     }
 
     // Mark attendance from body { asistieron: [userId1, userId2, ...] }
-    const { asistieron } = req.body as { asistieron?: string[] };
-    const asistieronIds = asistieron ?? sesion.invitaciones.map(i => i.usuarioId);
+    const { asistieron } = req.body as { asistieron?: unknown };
+    if (asistieron !== undefined && (!Array.isArray(asistieron) || asistieron.some(id => typeof id !== 'string'))) {
+      res.status(400).json({ error: 'El campo "asistieron" debe ser un array de ids' });
+      return;
+    }
+    const asistieronIds: string[] = (asistieron as string[] | undefined) ?? sesion.invitaciones.map(i => i.usuarioId);
 
     for (const inv of sesion.invitaciones) {
       const didAttend = asistieronIds.includes(inv.usuarioId);

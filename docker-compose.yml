@@ -6,6 +6,17 @@
 #
 # Para producción usar docker-compose.prod.yml.
 # Sin Redis: el código no lo usa.
+#
+# Antes del primer `up` hace falta un .env en esta carpeta con estas tres
+# variables (una por línea, valores distintos y al azar):
+#   DB_PASSWORD=...
+#   JWT_SECRET=...
+#   JWT_REFRESH_SECRET=...
+# No hay valores por defecto a propósito: los que había estaban publicados en el
+# repositorio, y con el secreto de JWT en la mano cualquiera se firma un token de
+# ADMIN contra el stack que los use, sin pasar por el login.
+# Si el volumen pgdata ya existía, DB_PASSWORD tiene que ser la misma clave con
+# la que se creó (si no, borrarlo: docker volume rm planilla-dev_pgdata).
 
 name: planilla-dev
 
@@ -16,12 +27,14 @@ services:
     environment:
       POSTGRES_DB: planilla_horas
       POSTGRES_USER: planilla_user
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-planilla_dev}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en el .env}
       TZ: ${TZ:-America/Argentina/Buenos_Aires}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - '5432:5432'
+      # Solo loopback: publicarlo en 0.0.0.0 dejaba la base (nómina, hashes,
+      # certificados) alcanzable desde toda la red local sin pasar por la API.
+      - '127.0.0.1:5432:5432'
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U planilla_user -d planilla_horas']
       interval: 10s
@@ -34,9 +47,9 @@ services:
       dockerfile: Dockerfile.dev
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://planilla_user:${DB_PASSWORD:-planilla_dev}@db:5432/planilla_horas
-      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_no_usar_en_produccion}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_refresh_secret_no_usar_en_produccion}
+      DATABASE_URL: postgresql://planilla_user:${DB_PASSWORD:?falta DB_PASSWORD en el .env}@db:5432/planilla_horas
+      JWT_SECRET: ${JWT_SECRET:?falta JWT_SECRET en el .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?falta JWT_REFRESH_SECRET en el .env}
       NODE_ENV: development
       PORT: 4000
       FRONTEND_URL: http://localhost:3000
@@ -50,7 +63,10 @@ services:
       db:
         condition: service_healthy
     ports:
-      - '4000:4000'
+      # Solo loopback: el front habla con el API por la red interna de Docker
+      # (VITE_PROXY_TARGET), este puerto es únicamente para probar a mano desde
+      # la máquina de desarrollo.
+      - '127.0.0.1:4000:4000'
 
   web:
     build:

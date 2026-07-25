@@ -22,6 +22,10 @@ router.use(authMiddleware);
 
 // ─── Schemas ─────────────────────────────────────
 
+// Tope de amplitud del rango: una ausencia aprobada se materializa día por día en la
+// planilla (inyectarDiasBloqueados), así que un rango de siglos congela el proceso.
+const MAX_SPAN_DIAS = 366;
+
 const createAusenciaSchema = z.object({
   usuarioId: z.string().uuid(),
   tipo: z.nativeEnum(AusenciaTipo),
@@ -38,12 +42,15 @@ const createAusenciaSchema = z.object({
 ).refine(
   (d) => d.diasAusencia <= spanDiasCalendario(d.fechaInicio, d.fechaFin),
   { message: 'diasAusencia no puede exceder los días del rango de fechas', path: ['diasAusencia'] },
+).refine(
+  (d) => spanDiasCalendario(d.fechaInicio, d.fechaFin) <= MAX_SPAN_DIAS,
+  { message: `El rango no puede superar ${MAX_SPAN_DIAS} días de calendario`, path: ['fechaFin'] },
 );
 
 const updateAusenciaSchema = z.object({
   tipo: z.nativeEnum(AusenciaTipo).optional(),
-  fechaInicio: z.string().optional(),
-  fechaFin: z.string().optional(),
+  fechaInicio: fechaFlexible.optional(),
+  fechaFin: fechaFlexible.optional(),
   diasAusencia: z.number().int().min(1).max(366).optional(),
   descripcion: z.string().max(500).optional(),
   numeroCertificado: z.string().max(50).optional(),
@@ -71,7 +78,10 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       // RRHH/ADMIN: all company
       where.usuario = { empresaId };
     } else if (userNivel >= 60) {
-      // SUPERVISOR/COORDINADOR/GERENTE: own + subordinates + sector
+      // SUPERVISOR: propio + subordinados directos. COORDINADOR+: además todo su sector.
+      // El alcance replica canManageUser (el guard de GET /:id): si no, el listado
+      // entregaba en bloque los certificados médicos del sector que el detalle niega
+      // uno por uno.
       const subordinados = await prisma.usuario.findMany({
         where: {
           empresaId, activo: true,
@@ -81,13 +91,15 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       });
       const subIds = subordinados.map(u => u.id);
 
-      const me = await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } });
-      if (me?.sectorId) {
-        const sectorUsers = await prisma.usuario.findMany({
-          where: { sectorId: me.sectorId, empresaId, activo: true },
-          select: { id: true },
-        });
-        sectorUsers.forEach(u => { if (!subIds.includes(u.id)) subIds.push(u.id); });
+      if (userNivel >= 70) {
+        const me = await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } });
+        if (me?.sectorId) {
+          const sectorUsers = await prisma.usuario.findMany({
+            where: { sectorId: me.sectorId, empresaId, activo: true },
+            select: { id: true },
+          });
+          sectorUsers.forEach(u => { if (!subIds.includes(u.id)) subIds.push(u.id); });
+        }
       }
       if (!subIds.includes(userId)) subIds.push(userId);
       where.usuarioId = { in: subIds };
@@ -97,10 +109,26 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     }
 
     const tipo = req.query.tipo as string | undefined;
-    if (tipo) where.tipo = tipo;
+    if (tipo) {
+      // Un tipo que no existe en el enum hace explotar a Prisma con un 500 genérico
+      if (!Object.values(AusenciaTipo).includes(tipo as AusenciaTipo)) {
+        res.status(400).json({ error: 'tipo inválido' });
+        return;
+      }
+      where.tipo = tipo;
+    }
 
     const periodoInicio = req.query.periodoInicio as string | undefined;
     const periodoFin = req.query.periodoFin as string | undefined;
+    // Una fecha no parseable llega como Invalid Date y Prisma responde 500 al serializarla
+    if (periodoInicio && isNaN(new Date(periodoInicio).getTime())) {
+      res.status(400).json({ error: 'periodoInicio inválido' });
+      return;
+    }
+    if (periodoFin && isNaN(new Date(periodoFin).getTime())) {
+      res.status(400).json({ error: 'periodoFin inválido' });
+      return;
+    }
     if (periodoInicio && periodoFin) {
       const fin = new Date(periodoFin); fin.setHours(23, 59, 59, 999);
       where.fechaInicio = {
@@ -183,6 +211,9 @@ router.post('/solicitar', async (req: AuthRequest, res: Response): Promise<void>
     ).refine(
       (d) => d.diasAusencia <= spanDiasCalendario(d.fechaInicio, d.fechaFin),
       { message: 'diasAusencia no puede exceder los días del rango de fechas', path: ['diasAusencia'] },
+    ).refine(
+      (d) => spanDiasCalendario(d.fechaInicio, d.fechaFin) <= MAX_SPAN_DIAS,
+      { message: `El rango no puede superar ${MAX_SPAN_DIAS} días de calendario`, path: ['fechaFin'] },
     );
 
     const parsed = schema.safeParse(req.body);
@@ -298,6 +329,9 @@ router.post('/compensatorio', async (req: AuthRequest, res: Response): Promise<v
     ).refine(
       (d) => d.diasAusencia <= spanDiasCalendario(d.fechaInicio, d.fechaFin),
       { message: 'diasAusencia no puede exceder los días del rango de fechas', path: ['diasAusencia'] },
+    ).refine(
+      (d) => spanDiasCalendario(d.fechaInicio, d.fechaFin) <= MAX_SPAN_DIAS,
+      { message: `El rango no puede superar ${MAX_SPAN_DIAS} días de calendario`, path: ['fechaFin'] },
     );
 
     const parsed = schema.safeParse(req.body);
@@ -532,6 +566,29 @@ router.post('/:id/enviar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReque
     }
     if (ausencia.estado !== 'BORRADOR' && ausencia.estado !== 'RECHAZADA') {
       res.status(400).json({ error: 'Solo se puede enviar en estado BORRADOR o RECHAZADA' });
+      return;
+    }
+
+    // Mismo alcance que POST / (crear): reenviar al flujo vuelve a reservar el saldo
+    // de compensatorios del dueño, así que no puede hacerlo un superior de otro sector.
+    const isOwner = ausencia.usuarioId === req.user!.userId;
+    const actorNivel = req.user!.rolNivel ?? 0;
+    let puedeEnviar =
+      isOwner || (await canManageUser(req.user!.userId, actorNivel, ausencia.usuarioId, req.user!.empresaId));
+
+    // canManageUser solo mira el sector desde nivel 70, y un SUPERVISOR (60) del mismo
+    // sector sí tiene que poder reenviar: es el criterio que ya usa isResponsibleApprover
+    // para aprobar, y en la práctica muchos empleados no tienen supervisorId cargado.
+    if (!puedeEnviar && actorNivel >= 60 && ausencia.usuario.sectorId) {
+      const actor = await prisma.usuario.findUnique({
+        where: { id: req.user!.userId },
+        select: { sectorId: true },
+      });
+      puedeEnviar = !!actor?.sectorId && actor.sectorId === ausencia.usuario.sectorId;
+    }
+
+    if (!puedeEnviar) {
+      res.status(403).json({ error: 'No tiene permisos para enviar ausencias de este empleado' });
       return;
     }
 
@@ -1073,6 +1130,33 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
     if (existing.estado === 'APROBADA') {
       res.status(400).json({ error: 'No se puede editar una ausencia aprobada' });
       return;
+    }
+
+    // El schema valida cada fecha por separado; el rango efectivo mezcla lo enviado
+    // con lo que ya estaba guardado, así que se controla acá (orden, amplitud y
+    // consistencia con diasAusencia, que es lo que alimenta el descuento de sueldo).
+    // Sólo se valida si la edición toca el rango o los días: una edición de otros
+    // campos no debe quedar bloqueada por datos viejos fuera de rango.
+    const tocaRango = parsed.data.fechaInicio !== undefined
+      || parsed.data.fechaFin !== undefined
+      || parsed.data.diasAusencia !== undefined;
+    if (tocaRango) {
+      const nuevoInicio = parsed.data.fechaInicio ? new Date(parsed.data.fechaInicio) : existing.fechaInicio;
+      const nuevoFin = parsed.data.fechaFin ? new Date(parsed.data.fechaFin) : existing.fechaFin;
+      if (nuevoFin < nuevoInicio) {
+        res.status(400).json({ error: 'fechaFin debe ser mayor o igual a fechaInicio' });
+        return;
+      }
+      const span = Math.floor((nuevoFin.getTime() - nuevoInicio.getTime()) / 86_400_000) + 1;
+      if (span > MAX_SPAN_DIAS) {
+        res.status(400).json({ error: `El rango no puede superar ${MAX_SPAN_DIAS} días de calendario` });
+        return;
+      }
+      const nuevosDias = parsed.data.diasAusencia ?? existing.diasAusencia;
+      if (nuevosDias > span) {
+        res.status(400).json({ error: 'diasAusencia no puede exceder los días del rango de fechas' });
+        return;
+      }
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

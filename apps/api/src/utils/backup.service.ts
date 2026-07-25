@@ -56,6 +56,24 @@ interface BackupInfo {
   createdAt: Date;
 }
 
+interface RestoreResult {
+  ok: boolean;
+  backup?: string;
+  /** Dump tomado justo antes del --clean, para poder volver atrás */
+  dumpPrevio?: string;
+  advertencias?: string;
+  error?: string;
+}
+
+/** Estado del monitor de salud de la base (solo observación, ver healthCheckDatabase) */
+interface EstadoSaludDb {
+  ok: boolean;
+  ultimoChequeo: Date | null;
+  fallosConsecutivos: number;
+  ultimoError: string | null;
+  ultimoFalloAt: Date | null;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────
 
 function parseDatabaseUrl(url: string) {
@@ -98,14 +116,17 @@ async function pruneBackups(dir: string) {
 
 // ─── Public API ──────────────────────────────────────────────
 
-/** Run pg_dump → save to primary + copy to secondary (double redundancy) */
-export async function runBackup(): Promise<BackupResult> {
+/**
+ * Run pg_dump → save to primary + copy to secondary (double redundancy).
+ * `sufijo` marca dumps fuera del ciclo normal (p. ej. el previo a una restauración).
+ */
+export async function runBackup(sufijo?: string): Promise<BackupResult> {
   const start = Date.now();
   try {
     const db = parseDatabaseUrl(DB_URL);
     await ensureDirs();
 
-    const fileName = `backup_${timestamp()}.dump`;
+    const fileName = `backup_${timestamp()}${sufijo ? `_${sufijo}` : ''}.dump`;
     const primaryPath = path.join(PRIMARY_DIR, fileName);
     const secondaryPath = path.join(SECONDARY_DIR, fileName);
 
@@ -133,8 +154,12 @@ export async function runBackup(): Promise<BackupResult> {
       await fs.copyFile(primaryPath, secondaryPath);
     }
 
-    await pruneBackups(PRIMARY_DIR);
-    await pruneBackups(SECONDARY_DIR);
+    // Los dumps con sufijo no rotan: el prune podría borrar justo el archivo que el
+    // admin eligió restaurar si ya hay MAX_BACKUPS acumulados.
+    if (!sufijo) {
+      await pruneBackups(PRIMARY_DIR);
+      await pruneBackups(SECONDARY_DIR);
+    }
 
     const durationMs = Date.now() - start;
     console.log(`✅ Backup completado: ${fileName} (${(stat.size / 1024 / 1024).toFixed(2)} MB) en ${durationMs}ms`);
@@ -193,18 +218,38 @@ export async function listBackups(): Promise<BackupInfo[]> {
 }
 
 /** Restore from the latest valid backup */
-export async function restoreFromLatest(): Promise<{ ok: boolean; backup?: string; error?: string }> {
+export async function restoreFromLatest(): Promise<RestoreResult> {
   const backup = await findLatestBackup();
   if (!backup) return { ok: false, error: 'No hay backups disponibles' };
   return restoreFromFile(backup.path);
 }
 
-/** Restore from a specific backup file */
-export async function restoreFromFile(filePath: string): Promise<{ ok: boolean; backup?: string; error?: string }> {
+/**
+ * pg_restore sale con código != 0 aunque el único problema sean los DROP de objetos
+ * que todavía no existen (--clean --if-exists sobre una base vacía). Solo esas líneas
+ * cuentan como benignas: si aparece cualquier otra, la restauración quedó a medias y
+ * no puede informarse como exitosa.
+ */
+function soloAdvertencias(stderr: string): boolean {
+  const lineas = stderr.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lineas.length === 0) return false;
+  return lineas.every((l) => /warning:/i.test(l) || /does not exist, skipping/i.test(l));
+}
+
+/** Restore from a specific backup file — acción destructiva, siempre explícita */
+export async function restoreFromFile(filePath: string): Promise<RestoreResult> {
   try {
     const db = parseDatabaseUrl(DB_URL);
     const fileName = path.basename(filePath);
     console.log(`🔄 Restaurando base de datos desde: ${fileName}...`);
+
+    // Dump de emergencia antes del --clean: si el backup elegido resulta viejo o
+    // incompleto, el estado previo sigue siendo recuperable. Si falla (base caída,
+    // disco lleno) se continúa igual, porque la restauración se pidió a propósito.
+    const previo = await runBackup('pre-restore');
+    if (!previo.ok) {
+      console.warn('⚠️  No se pudo tomar el dump previo a la restauración:', previo.error);
+    }
 
     await execFileAsync(PG_RESTORE, [
       '-h', db.host,
@@ -222,39 +267,66 @@ export async function restoreFromFile(filePath: string): Promise<{ ok: boolean; 
     });
 
     console.log(`✅ Base de datos restaurada desde: ${fileName}`);
-    return { ok: true, backup: fileName };
+    return { ok: true, backup: fileName, dumpPrevio: previo.file };
   } catch (err: any) {
-    // pg_restore exits non-zero even on harmless warnings
-    if (err.stderr && !err.stderr.includes('FATAL') && !err.stderr.includes('could not connect')) {
-      console.warn('⚠️  pg_restore completó con advertencias:', err.stderr.slice(0, 500));
-      return { ok: true, backup: path.basename(filePath) };
+    const stderr: string = err.stderr ?? '';
+    if (soloAdvertencias(stderr)) {
+      console.warn('⚠️  pg_restore completó con advertencias:', stderr.slice(0, 500));
+      return { ok: true, backup: path.basename(filePath), advertencias: stderr.slice(0, 500) };
     }
-    console.error('❌ Restore falló:', err.message);
+    console.error('❌ Restore falló:', err.message, stderr.slice(0, 1000));
     return { ok: false, error: err.message };
   }
 }
 
-/** Health check — if DB is unreachable, auto-restore from latest backup */
-export async function healthCheckWithAutoRestore(prisma: any): Promise<boolean> {
+// ─── Monitor de salud ────────────────────────────────────────
+
+const estadoSalud: EstadoSaludDb = {
+  ok: true,
+  ultimoChequeo: null,
+  fallosConsecutivos: 0,
+  ultimoError: null,
+  ultimoFalloAt: null,
+};
+
+/** Umbral de chequeos fallidos seguidos (~15 min) a partir del cual se grita en el log */
+const FALLOS_PARA_ALERTA = 3;
+
+/** Estado del último chequeo de salud, para exponerlo en GET /backup/status */
+export function getEstadoSaludDb(): EstadoSaludDb {
+  return { ...estadoSalud };
+}
+
+/**
+ * Chequeo de salud de la base: observa y avisa, nunca restaura.
+ * Restaurar es DROP + recreación de todos los objetos con el dump del día anterior,
+ * así que dispararlo ante cualquier error de "SELECT 1" (reinicio del contenedor db,
+ * pool agotado, timeout de red) borraría todo lo cargado desde el último backup.
+ * La restauración es una acción explícita del administrador: POST /backup/restore.
+ */
+export async function healthCheckDatabase(prisma: any): Promise<boolean> {
   try {
     await prisma.$queryRaw`SELECT 1`;
+    if (estadoSalud.fallosConsecutivos > 0) {
+      console.log(`✅ Base de datos respondiendo de nuevo tras ${estadoSalud.fallosConsecutivos} chequeo(s) fallido(s)`);
+    }
+    estadoSalud.ok = true;
+    estadoSalud.fallosConsecutivos = 0;
+    estadoSalud.ultimoChequeo = new Date();
     return true;
   } catch (err: any) {
-    console.error('🚨 Base de datos no responde:', err.message);
-    console.log('🔄 Intentando restaurar desde el último backup...');
+    estadoSalud.ok = false;
+    estadoSalud.fallosConsecutivos += 1;
+    estadoSalud.ultimoChequeo = new Date();
+    estadoSalud.ultimoFalloAt = estadoSalud.ultimoChequeo;
+    estadoSalud.ultimoError = err?.message ?? String(err);
 
-    const result = await restoreFromLatest();
-    if (result.ok) {
-      try {
-        await prisma.$disconnect();
-        await prisma.$connect();
-        await prisma.$queryRaw`SELECT 1`;
-        console.log('✅ Base de datos restaurada y reconectada exitosamente');
-        return true;
-      } catch (reconnectErr: any) {
-        console.error('❌ No se pudo reconectar después del restore:', reconnectErr.message);
-        return false;
-      }
+    console.error(`🚨 Base de datos no responde (fallo consecutivo #${estadoSalud.fallosConsecutivos}):`, estadoSalud.ultimoError);
+    if (estadoSalud.fallosConsecutivos >= FALLOS_PARA_ALERTA) {
+      console.error(
+        `🚨 ALERTA: la base lleva ${estadoSalud.fallosConsecutivos} chequeos fallidos seguidos. ` +
+        'Revisar el servicio de PostgreSQL. Si la base quedó corrupta, restaurar A MANO con POST /api/v1/backup/restore.',
+      );
     }
     return false;
   }
@@ -270,24 +342,30 @@ const FIVE_MINUTES = 5 * 60 * 1000;
 
 /** Start automatic backup (every 24h) + health monitor (every 5min) */
 export function startBackupScheduler(prisma?: any) {
+  // Los callbacks de los timers no tienen a quién propagar un rechazo: sin este catch,
+  // un fallo del volumen de backups tumba el proceso entero por unhandledRejection.
+  const seguro = (fn: () => Promise<unknown>) => () => {
+    fn().catch((err) => console.error('Error en el scheduler de backups:', err));
+  };
+
   // First backup 10 seconds after startup
-  setTimeout(async () => {
+  setTimeout(seguro(async () => {
     console.log('📦 Ejecutando backup inicial...');
     await runBackup();
-  }, 10_000);
+  }), 10_000);
 
-  backupTimer = setInterval(async () => {
+  backupTimer = setInterval(seguro(async () => {
     console.log('⏰ Backup automático programado...');
     await runBackup();
-  }, TWENTY_FOUR_HOURS);
+  }), TWENTY_FOUR_HOURS);
 
   console.log('🕐 Backup automático: cada 24 horas');
 
   if (prisma) {
-    healthTimer = setInterval(async () => {
-      await healthCheckWithAutoRestore(prisma);
-    }, FIVE_MINUTES);
-    console.log('🏥 Health check con auto-restore: cada 5 minutos');
+    healthTimer = setInterval(seguro(async () => {
+      await healthCheckDatabase(prisma);
+    }), FIVE_MINUTES);
+    console.log('🏥 Monitor de salud de la base: cada 5 minutos (solo alerta, no restaura)');
   }
 }
 

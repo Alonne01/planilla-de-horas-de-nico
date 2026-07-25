@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
+import { fechaFlexible } from '../utils/zod.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -22,8 +23,8 @@ const tipoCapSchema = z.object({
 const empleadoCapSchema = z.object({
   usuarioId: z.string().uuid(),
   tipoId: z.string().uuid(),
-  fechaRealizacion: z.string(),
-  fechaVencimiento: z.string().nullable().optional(),
+  fechaRealizacion: fechaFlexible,
+  fechaVencimiento: fechaFlexible.nullable().optional(),
   institucion: z.string().max(200).nullable().optional(),
   archivoUrl: z.string().max(500).nullable().optional(),
   observaciones: z.string().max(500).nullable().optional(),
@@ -99,14 +100,23 @@ router.post('/tipos', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Re
 
 router.put('/tipos/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const data = tipoCapSchema.partial().parse(req.body);
-    const tipo = await prisma.tipoCapacitacion.update({
-      where: { id: req.params.id },
-      data,
+    const parsed = tipoCapSchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+    // El tenant va dentro del WHERE: sin TOCTOU y sin poder tocar el catálogo de otra empresa
+    const result = await prisma.tipoCapacitacion.updateMany({
+      where: { id: req.params.id, empresaId: req.user!.empresaId },
+      data: parsed.data,
     });
+    if (result.count === 0) {
+      res.status(404).json({ error: 'Tipo no encontrado' });
+      return;
+    }
+    const tipo = await prisma.tipoCapacitacion.findUnique({ where: { id: req.params.id } });
     res.json(tipo);
   } catch (err: any) {
-    if (err.code === 'P2025') { res.status(404).json({ error: 'Tipo no encontrado' }); return; }
     console.error('Error updating tipo:', err);
     res.status(500).json({ error: 'Error interno' });
   }
@@ -116,13 +126,16 @@ router.put('/tipos/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res:
 
 router.delete('/tipos/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    await prisma.tipoCapacitacion.update({
-      where: { id: req.params.id },
+    const result = await prisma.tipoCapacitacion.updateMany({
+      where: { id: req.params.id, empresaId: req.user!.empresaId },
       data: { activo: false },
     });
+    if (result.count === 0) {
+      res.status(404).json({ error: 'No encontrado' });
+      return;
+    }
     res.json({ ok: true });
   } catch (err: any) {
-    if (err.code === 'P2025') { res.status(404).json({ error: 'No encontrado' }); return; }
     console.error('Error deleting tipo:', err);
     res.status(500).json({ error: 'Error interno' });
   }
@@ -135,11 +148,13 @@ router.get('/registros', requireLevel(LEVEL_COORDINADOR), async (req: AuthReques
     const { tipoId, usuarioId, estado } = req.query;
     const userNivel = req.user!.rolNivel ?? 0;
     const userId = req.user!.userId;
+    // EmpleadoCapacitacion no tiene empresaId propio: el tenant se acota por la relación usuario
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: any = {};
+    const where: any = { usuario: { empresaId: req.user!.empresaId } };
 
-    if (tipoId) where.tipoId = tipoId;
-    if (usuarioId) where.usuarioId = usuarioId;
+    // Los filtros llegan crudos del query string: si no son string, Prisma revienta con 500
+    if (typeof tipoId === 'string') where.tipoId = tipoId;
+    if (typeof usuarioId === 'string') where.usuarioId = usuarioId;
 
     // Sector filtering for non-RRHH
     if (userNivel < 90) {
@@ -194,15 +209,22 @@ router.get('/registros', requireLevel(LEVEL_COORDINADOR), async (req: AuthReques
 router.post('/registros', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const data = empleadoCapSchema.parse(req.body);
+    const empresaId = req.user!.empresaId;
+
+    // Empleado y tipo tienen que ser de la empresa del emisor: si no, se cargan
+    // capacitaciones a personas de otro tenant o con el catálogo ajeno
+    const [empleado, tipo] = await Promise.all([
+      prisma.usuario.findFirst({ where: { id: data.usuarioId, empresaId }, select: { id: true } }),
+      prisma.tipoCapacitacion.findFirst({ where: { id: data.tipoId, empresaId }, select: { id: true, vigenciaDias: true } }),
+    ]);
+    if (!empleado) { res.status(400).json({ error: 'Empleado no encontrado' }); return; }
+    if (!tipo) { res.status(400).json({ error: 'Tipo de capacitación no encontrado' }); return; }
 
     // Auto-calculate fechaVencimiento if tipo has vigenciaDias
     let fechaVencimiento = data.fechaVencimiento ? new Date(data.fechaVencimiento) : null;
-    if (!fechaVencimiento) {
-      const tipo = await prisma.tipoCapacitacion.findUnique({ where: { id: data.tipoId } });
-      if (tipo?.vigenciaDias) {
-        fechaVencimiento = new Date(data.fechaRealizacion);
-        fechaVencimiento.setDate(fechaVencimiento.getDate() + tipo.vigenciaDias);
-      }
+    if (!fechaVencimiento && tipo.vigenciaDias) {
+      fechaVencimiento = new Date(data.fechaRealizacion);
+      fechaVencimiento.setDate(fechaVencimiento.getDate() + tipo.vigenciaDias);
     }
 
     const registro = await prisma.empleadoCapacitacion.create({
@@ -232,7 +254,15 @@ router.post('/registros', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res
 
 router.put('/registros/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const data = empleadoCapSchema.partial().parse(req.body);
+    const parsed = empleadoCapSchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+    const data = parsed.data;
+    const empresaId = req.user!.empresaId;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: any = {};
     if (data.tipoId !== undefined) updateData.tipoId = data.tipoId;
     if (data.fechaRealizacion) updateData.fechaRealizacion = new Date(data.fechaRealizacion);
@@ -241,14 +271,27 @@ router.put('/registros/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, 
     if (data.archivoUrl !== undefined) updateData.archivoUrl = data.archivoUrl;
     if (data.observaciones !== undefined) updateData.observaciones = data.observaciones;
 
-    const registro = await prisma.empleadoCapacitacion.update({
-      where: { id: req.params.id },
+    // El tipo nuevo también tiene que ser del propio catálogo
+    if (data.tipoId !== undefined) {
+      const tipo = await prisma.tipoCapacitacion.findFirst({ where: { id: data.tipoId, empresaId }, select: { id: true } });
+      if (!tipo) { res.status(400).json({ error: 'Tipo de capacitación no encontrado' }); return; }
+    }
+
+    // Tenant en el WHERE por la relación usuario (el modelo no tiene empresaId propio)
+    const result = await prisma.empleadoCapacitacion.updateMany({
+      where: { id: req.params.id, usuario: { empresaId } },
       data: updateData,
+    });
+    if (result.count === 0) {
+      res.status(404).json({ error: 'No encontrado' });
+      return;
+    }
+    const registro = await prisma.empleadoCapacitacion.findUnique({
+      where: { id: req.params.id },
       include: { tipo: true },
     });
     res.json(registro);
   } catch (err: any) {
-    if (err.code === 'P2025') { res.status(404).json({ error: 'No encontrado' }); return; }
     console.error('Error updating registro:', err);
     res.status(500).json({ error: 'Error interno' });
   }
@@ -258,10 +301,15 @@ router.put('/registros/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, 
 
 router.delete('/registros/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    await prisma.empleadoCapacitacion.delete({ where: { id: req.params.id } });
+    const result = await prisma.empleadoCapacitacion.deleteMany({
+      where: { id: req.params.id, usuario: { empresaId: req.user!.empresaId } },
+    });
+    if (result.count === 0) {
+      res.status(404).json({ error: 'No encontrado' });
+      return;
+    }
     res.json({ ok: true });
   } catch (err: any) {
-    if (err.code === 'P2025') { res.status(404).json({ error: 'No encontrado' }); return; }
     console.error('Error deleting registro:', err);
     res.status(500).json({ error: 'Error interno' });
   }
@@ -275,8 +323,9 @@ router.get('/resumen', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest,
     const userNivel = req.user!.rolNivel ?? 0;
     const userId = req.user!.userId;
 
+    // EmpleadoCapacitacion no tiene empresaId propio: el tenant se acota por la relación usuario
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: any = {};
+    const where: any = { usuario: { empresaId: req.user!.empresaId } };
 
     // Sector filtering for non-RRHH
     if (userNivel < 90) {

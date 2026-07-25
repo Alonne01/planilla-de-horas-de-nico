@@ -189,8 +189,22 @@ const inputClass =
 const selectClass =
   'h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
-const DRAFT_KEY_NEW = 'wentop-draft';
-const draftKeyEdit = (id: string) => `wentop-edit-draft-${id}`;
+// Las claves de borrador llevan el id del usuario: el contenido describe el incidente (cliente,
+// pozo/locación, acciones inmediatas) y en la tablet compartida de la cuadrilla el borrador del
+// turno anterior no le tiene que aparecer al que entra después.
+const draftKeyNew = (userId: string) => `wentop-draft-${userId}`;
+const draftKeyEdit = (userId: string, id: string) => `wentop-edit-draft-${userId}-${id}`;
+
+// Claves globales de la versión anterior ('wentop-draft' y 'wentop-edit-draft-<tarjetaId>', con un
+// solo uuid): se barren una vez para no dejar borradores ajenos en los dispositivos ya en uso.
+const DRAFT_KEY_LEGACY_EDIT = /^wentop-edit-draft-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function limpiarBorradoresLegacy() {
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (k === 'wentop-draft' || DRAFT_KEY_LEGACY_EDIT.test(k)) localStorage.removeItem(k);
+    }
+  } catch { /* ignore */ }
+}
 
 // Límites de evidencia fotográfica. El backend valida los mismos valores:
 // acá solo se adelanta el aviso para no hacer subir un archivo que va a rebotar.
@@ -1452,8 +1466,10 @@ function TarjetaFormModal({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const user = useAuthStore((s) => s.user);
   const isEdit = !!tarjeta;
-  const draftKey = isEdit ? draftKeyEdit(tarjeta.id) : DRAFT_KEY_NEW;
+  const draftOwner = user?.id ?? 'anon';
+  const draftKey = isEdit ? draftKeyEdit(draftOwner, tarjeta.id) : draftKeyNew(draftOwner);
 
   // Form state
   const [fechaReporte, setFechaReporte] = useState(
@@ -1501,6 +1517,7 @@ function TarjetaFormModal({
 
   // On mount: check for existing draft
   useEffect(() => {
+    limpiarBorradoresLegacy();
     const existing = loadDraft(draftKey);
     if (existing && !tarjeta) {
       setShowDraftBanner(true);

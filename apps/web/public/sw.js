@@ -1,4 +1,6 @@
-const CACHE_NAME = 'planilla-horas-v3';
+// v4: se sube la versión a propósito para que el handler de 'activate' borre el cache anterior,
+// que en los dispositivos ya instalados tiene adjuntos de /uploads guardados (certificados médicos).
+const CACHE_NAME = 'planilla-horas-v4';
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -33,6 +35,14 @@ self.addEventListener('fetch', (event) => {
 
   // Skip Vite HMR / WebSocket upgrades
   if (event.request.headers.get('upgrade') === 'websocket') {
+    return;
+  }
+
+  // Nunca tocar /uploads: son adjuntos privados (certificados médicos, fotos de tarjetas WENTOP,
+  // adjuntos de mensajes). Si los cachea el service worker quedan escritos en el dispositivo,
+  // el cache es uno solo para todos los usuarios que usan esa tablet/PC y sobrevive al logout.
+  // Sin respondWith los pide el navegador contra el servidor, como cualquier recurso no manejado.
+  if (url.pathname.startsWith('/uploads')) {
     return;
   }
 

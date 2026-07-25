@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { fechaFlexible } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
-import { requireLevel, LEVEL_ADMIN, LEVEL_RRHH, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
+import { requireLevel, LEVEL_ADMIN, LEVEL_RRHH, LEVEL_COORDINADOR, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
 import { revokeAllRefreshTokensForUser } from '../utils/jwt.utils.js';
 
 const prisma = new PrismaClient();
@@ -86,6 +86,32 @@ async function assertCanAssignRole(req: AuthRequest, res: Response, codigo: stri
   return true;
 }
 
+// Tenant isolation for the reporting line: a coordinador/supervisor from another
+// empresa breaks the approval chain (the real supervisor stops matching) and leaks
+// the foreign user through GET /usuarios/:id. Writes the HTTP error and returns false.
+async function assertRefsDeLaEmpresa(
+  req: AuthRequest,
+  res: Response,
+  coordinadorId?: string | null,
+  supervisorId?: string | null,
+): Promise<boolean> {
+  const refs: Array<[string, string]> = [];
+  if (coordinadorId) refs.push(['Coordinador', coordinadorId]);
+  if (supervisorId) refs.push(['Supervisor', supervisorId]);
+
+  for (const [etiqueta, id] of refs) {
+    const existe = await prisma.usuario.findFirst({
+      where: { id, empresaId: req.user!.empresaId },
+      select: { id: true },
+    });
+    if (!existe) {
+      res.status(400).json({ error: `${etiqueta} inexistente` });
+      return false;
+    }
+  }
+  return true;
+}
+
 // ─── GET /usuarios ───────────────────────────────
 
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
@@ -149,23 +175,84 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
 // ─── GET /usuarios/:id ──────────────────────────
 
+// El detalle lo puede pedir cualquier compañero de sector, así que los campos se
+// recortan por nivel en vez de devolver la fila entera: los datos personales (dni,
+// cuil, nacimiento, teléfono, egreso, saldo de vacaciones) sólo salen para el propio
+// usuario o RRHH/ADMIN.
+
+// Par de sector: el mismo conjunto que ya expone el listado GET /usuarios, más la
+// empresa y el diagrama vigente que el detalle necesita.
+const SELECT_USUARIO_PAR = {
+  id: true,
+  nombre: true,
+  apellido: true,
+  email: true,
+  rol: true,
+  legajo: true,
+  activo: true,
+  avatarUrl: true,
+  tipoContrato: true,
+  fechaIngreso: true,
+  primerLogin: true,
+  diagramaColor: true,
+  empresaId: true,
+  sectorId: true,
+  empresa: { select: { id: true, nombre: true } },
+  sector: { select: { id: true, nombre: true } },
+  diagramas: {
+    where: { activo: true },
+    select: { fechaInicio: true, diagrama: true },
+    orderBy: { fechaInicio: 'desc' as const },
+    take: 1,
+  },
+} satisfies Prisma.UsuarioSelect;
+
+// Supervisor en adelante: suma la línea de mando y el período de prueba, que es lo
+// que hace falta para gestionar al empleado.
+const SELECT_USUARIO_GESTION = {
+  ...SELECT_USUARIO_PAR,
+  fechaFinPrueba: true,
+  coordinadorId: true,
+  supervisorId: true,
+  coordinador: { select: { id: true, nombre: true, apellido: true } },
+  supervisor: { select: { id: true, nombre: true, apellido: true } },
+} satisfies Prisma.UsuarioSelect;
+
+// El propio usuario y RRHH/ADMIN: ficha completa (todo menos passwordHash).
+const SELECT_USUARIO_COMPLETO = {
+  ...SELECT_USUARIO_GESTION,
+  dni: true,
+  cuil: true,
+  fechaNacimiento: true,
+  telefono: true,
+  fechaEgreso: true,
+  diasVacacionesSaldo: true,
+  diasVacacionesUsados: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.UsuarioSelect;
+
+type UsuarioDetalle = Record<string, unknown> & {
+  id: string;
+  sectorId: string | null;
+  diagramas: Array<{ fechaInicio: Date; diagrama: unknown }>;
+};
+
 router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const usuario = await prisma.usuario.findFirst({
+    const userNivel = req.user!.rolNivel ?? 0;
+    const esPropio = req.params.id === req.user!.userId;
+
+    const select = esPropio || userNivel >= LEVEL_RRHH
+      ? SELECT_USUARIO_COMPLETO
+      : userNivel >= LEVEL_SUPERVISOR
+        ? SELECT_USUARIO_GESTION
+        : SELECT_USUARIO_PAR;
+
+    const usuario = (await prisma.usuario.findFirst({
       where: { id: req.params.id as string, empresaId: req.user!.empresaId },
-      include: {
-        empresa: { select: { id: true, nombre: true } },
-        sector: { select: { id: true, nombre: true } },
-        coordinador: { select: { id: true, nombre: true, apellido: true } },
-        supervisor: { select: { id: true, nombre: true, apellido: true } },
-        diagramas: {
-          where: { activo: true },
-          include: { diagrama: true },
-          orderBy: { fechaInicio: 'desc' },
-          take: 1,
-        },
-      },
-    });
+      select: select as Prisma.UsuarioSelect,
+    })) as unknown as UsuarioDetalle | null;
 
     if (!usuario) {
       res.status(404).json({ error: 'Usuario no encontrado' });
@@ -175,9 +262,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
     // Access control: below RRHH can only see themselves or users in their own
     // sector (mirror the visibility rule of GET /usuarios). 404 to avoid leaking
     // the existence of out-of-scope users.
-    const RRHH_LEVEL = 90;
-    const userNivel = req.user!.rolNivel ?? 0;
-    if (userNivel < RRHH_LEVEL && usuario.id !== req.user!.userId) {
+    if (userNivel < LEVEL_RRHH && !esPropio) {
       const me = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } });
       if (!me?.sectorId || me.sectorId !== usuario.sectorId) {
         res.status(404).json({ error: 'Usuario no encontrado' });
@@ -185,9 +270,8 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       }
     }
 
-    const { passwordHash: _omit, ...safeUsuario } = usuario;
     res.json({
-      ...safeUsuario,
+      ...usuario,
       diagramaActual: usuario.diagramas[0]?.diagrama ?? null,
       diagramaFechaInicio: usuario.diagramas[0]?.fechaInicio ?? null,
       diagramas: undefined,
@@ -241,6 +325,10 @@ router.post('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respons
         return;
       }
     }
+
+    // La línea de mando también queda dentro del tenant: supervisorId define quién
+    // aprueba los documentos del empleado, y uno de otra empresa lo deja sin aprobador.
+    if (!(await assertRefsDeLaEmpresa(req, res, parsed.data.coordinadorId, parsed.data.supervisorId))) return;
 
     const passwordHash = await bcrypt.hash(parsed.data.password, 12);
 
@@ -330,6 +418,21 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
       res.status(403).json({ error: 'No podés modificar a un usuario de nivel superior al tuyo' });
       return;
     }
+
+    // Tenant isolation: el mismo chequeo que hace POST /. Un sectorId de otra empresa
+    // mete al empleado en el alcance de analytics/export del otro tenant, y una línea
+    // de mando ajena lo deja sin aprobador válido.
+    if (d.sectorId) {
+      const sector = await prisma.sector.findFirst({
+        where: { id: d.sectorId, empresaId: req.user!.empresaId },
+        select: { id: true },
+      });
+      if (!sector) {
+        res.status(400).json({ error: 'Sector inexistente' });
+        return;
+      }
+    }
+    if (!(await assertRefsDeLaEmpresa(req, res, d.coordinadorId, d.supervisorId))) return;
 
     const usuario = await prisma.usuario.update({
       where: { id: req.params.id as string },
@@ -474,7 +577,9 @@ router.patch('/:id/diagrama-color', requireLevel(LEVEL_COORDINADOR), async (req:
       return;
     }
 
-    if (caller?.sectorId !== target.sectorId) {
+    // Ambos sectores tienen que existir: con los dos en null la igualdad se cumple
+    // sola y un coordinador sin sector podría tocar a cualquier empleado sin sector.
+    if ((req.user!.rolNivel ?? 0) < LEVEL_RRHH && (!caller?.sectorId || caller.sectorId !== target.sectorId)) {
       res.status(403).json({ error: 'Solo puedes modificar empleados de tu sector' });
       return;
     }

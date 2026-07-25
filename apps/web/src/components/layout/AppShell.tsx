@@ -154,6 +154,43 @@ export default function AppShell() {
     } catch {
       // ignore logout errors
     }
+    // El QueryClient vive a nivel de módulo y las queryKeys no llevan el id del usuario: sin este
+    // clear(), el siguiente turno que entra en la misma PC cae en /dashboard y ve las planillas,
+    // el saldo y las ausencias del usuario anterior mientras el cache siga fresco (staleTime 5 min).
+    queryClient.clear();
+    // Borradores locales de la sesión que se va (tarjetas WENTOP con descripción de incidentes,
+    // horarios por defecto de la planilla). Solo los de ESTE usuario: las claves llevan su id
+    // justamente para que en una tablet compartida no se pisen entre turnos.
+    try {
+      const propias = user?.id
+        ? [`wentop-draft-${user.id}`, `wentop-edit-draft-${user.id}-`]
+        : [];
+      for (const k of Object.keys(localStorage)) {
+        const esBorradorPropio = propias.some((p) => k === p || k.startsWith(p));
+        // Claves viejas sin id de usuario: quedaron de versiones anteriores y no son de nadie.
+        const esBorradorLegacy = k === 'wentop-draft' || /^wentop-edit-draft-[0-9a-f-]{36}$/i.test(k);
+        if (esBorradorPropio || esBorradorLegacy || k === 'planilla-last-defaults') {
+          localStorage.removeItem(k);
+        }
+      }
+    } catch { /* ignore */ }
+    // Adjuntos de /uploads que pueda haber cacheado el service worker (certificados médicos,
+    // fotos de tarjetas): se sirven sin pasar por el token, así que no pueden quedar para el
+    // próximo turno. Se borran SOLO esas entradas: vaciar el cache entero se lleva el shell de
+    // la app y la deja sin funcionar offline hasta que el service worker se reinstale.
+    if ('caches' in window) {
+      try {
+        for (const nombre of await caches.keys()) {
+          const cache = await caches.open(nombre);
+          const requests = await cache.keys();
+          await Promise.all(
+            requests
+              .filter((r) => new URL(r.url).pathname.startsWith('/uploads'))
+              .map((r) => cache.delete(r)),
+          );
+        }
+      } catch { /* ignore */ }
+    }
     clearAuth();
     navigate('/login');
   };

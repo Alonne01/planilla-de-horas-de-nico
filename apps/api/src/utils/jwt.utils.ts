@@ -7,14 +7,13 @@ const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 
+// Sin secretos el proceso no arranca, en ningún entorno: firmar con una constante
+// del código fuente equivale a aceptar tokens forjados por cualquiera que lea el repo.
 if (!JWT_SECRET || !JWT_REFRESH_SECRET) {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('JWT_SECRET and JWT_REFRESH_SECRET environment variables are required in production');
-  }
-  console.warn('⚠️  JWT_SECRET or JWT_REFRESH_SECRET not set — using insecure dev defaults');
+  throw new Error('JWT_SECRET y JWT_REFRESH_SECRET son obligatorios: definilos antes de arrancar el API');
 }
 
-const SECRET = JWT_SECRET ?? 'fallback-dev-secret';
+const SECRET = JWT_SECRET;
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
@@ -24,6 +23,8 @@ interface TokenPayload {
   rol: string;
   rolNivel: number;
   email: string;
+  /** Sólo en tokens de cuentas con primerLogin: los acota al cambio de contraseña. */
+  scope?: 'cambio-password';
 }
 
 // Refresh tokens are persisted in the DB (hashed) so API restarts don't log everyone out.
@@ -45,6 +46,17 @@ export async function signRefreshToken(userId: string): Promise<string> {
 }
 
 export function verifyAccessToken(token: string): TokenPayload {
+  const payload = jwt.verify(token, SECRET) as TokenPayload;
+  // El cambio de contraseña obligatorio se exige acá, no sólo en el front: mientras
+  // la cuenta tenga primerLogin su token no sirve para el resto de la API.
+  if (payload.scope === 'cambio-password') {
+    throw new Error('Token acotado al cambio de contraseña obligatorio');
+  }
+  return payload;
+}
+
+/** Igual que verifyAccessToken, pero acepta además los tokens acotados al cambio de contraseña. */
+export function verifyAccessTokenForPasswordChange(token: string): TokenPayload {
   return jwt.verify(token, SECRET) as TokenPayload;
 }
 

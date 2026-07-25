@@ -289,6 +289,20 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
   }
 });
 
+// ─── CSV cell escaping ───────────────────────────
+// Siempre entre comillas: un apellido con coma ('DE LA CRUZ, JUAN') corría todas las
+// columnas del reporte de liquidación. Y prefijo apóstrofo cuando el valor arranca con
+// un carácter que Excel/LibreOffice evalúan como fórmula (los nombres y legajos los
+// carga RRHH, así que son texto controlado por el usuario). Los números se dejan
+// intactos para que sigan entrando como números en la planilla de cálculo.
+function csvCell(valor: unknown): string {
+  const s = String(valor ?? '');
+  // Un solo carácter (el '-' con que se rellena el legajo vacío) no puede ser fórmula
+  const esNumero = /^-?\d+([.,]\d+)?$/.test(s);
+  const seguro = s.length > 1 && !esNumero && /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return `"${seguro.replace(/"/g, '""')}"`;
+}
+
 // ─── GET /export/sector/:sid ─────────────────────
 // Generates a CSV with all planillas for a sector in a period
 
@@ -322,7 +336,10 @@ router.get('/sector/:sid', requireLevel(LEVEL_RRHH), async (req: AuthRequest, re
     });
 
     const BOM = '\uFEFF';
-    const header = 'Empleado,Legajo,Período,Estado,Hs Normales,Hs Extra50,Hs Extra100,Hs Viaje,Días Campo,Días Base';
+    const header = [
+      'Empleado', 'Legajo', 'Período', 'Estado', 'Hs Normales', 'Hs Extra50',
+      'Hs Extra100', 'Hs Viaje', 'Días Campo', 'Días Base',
+    ].map(csvCell).join(',');
     const rows = planillas.map((p) => [
       `${p.usuario.apellido} ${p.usuario.nombre}`,
       p.usuario.legajo ?? '-',
@@ -334,9 +351,9 @@ router.get('/sector/:sid', requireLevel(LEVEL_RRHH), async (req: AuthRequest, re
       Number(p.totalHorasViaje).toFixed(1),
       p.totalDiasCampo.toString(),
       p.totalDiasBase.toString(),
-    ].join(','));
+    ].map(csvCell).join(','));
 
-    const csv = BOM + [header, ...rows].join('\n');
+    const csv = BOM + [header, ...rows].join('\r\n');
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="Reporte sector.csv"`);
@@ -483,6 +500,12 @@ router.post('/cierre', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
     };
 
     // Determine which users to include
+    // sectorIds llega crudo del body: si no es un array de strings Prisma revienta con
+    // un 500 que tapa el diagnóstico real del cierre de período.
+    if (sectorIds != null && (!Array.isArray(sectorIds) || sectorIds.some((s: unknown) => typeof s !== 'string'))) {
+      res.status(400).json({ error: 'sectorIds debe ser un array de ids de sector' });
+      return;
+    }
     let userFilter: any = { empresaId, activo: true };
     if (!exportarTodos && sectorIds?.length) {
       userFilter.sectorId = { in: sectorIds };
