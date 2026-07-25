@@ -163,8 +163,22 @@ export async function recalcularTotalesPlanilla(planillaId: string): Promise<voi
   });
 }
 
-export function getPeriodoActual(diaInicio: number, diaFin: number): { inicio: Date; fin: Date } {
-  const hoy = new Date();
+// Construye una fecha sin desbordar al mes siguiente. `new Date(2026, 1, 31)`
+// devuelve el 3 de marzo; esto devuelve el 28 de febrero. Hace falta porque el
+// día de inicio/fin del período lo elige el usuario (admin.config.routes.ts
+// acepta 1-31) y el mes puede tener menos días. Misma lógica que
+// `fechaEnMes` en apps/web/src/utils/periodos.ts: hay que mantenerlas iguales.
+function fechaEnMes(anio: number, mes: number, dia: number): Date {
+  const base = new Date(anio, mes, 1); // normaliza meses fuera de rango (negativos o >11)
+  const ultimoDia = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+  return new Date(base.getFullYear(), base.getMonth(), Math.min(dia, ultimoDia));
+}
+
+export function getPeriodoActual(
+  diaInicio: number,
+  diaFin: number,
+  hoy: Date = new Date(),
+): { inicio: Date; fin: Date } {
   const anio = hoy.getFullYear();
   const mes = hoy.getMonth(); // 0-indexed
 
@@ -173,15 +187,15 @@ export function getPeriodoActual(diaInicio: number, diaFin: number): { inicio: D
 
   if (hoy.getDate() >= diaInicio) {
     // Estamos en la segunda mitad del período
-    inicio = new Date(anio, mes, diaInicio);
+    inicio = fechaEnMes(anio, mes, diaInicio);
     // Fin es el diaFin del MES SIGUIENTE
     const nextMonth = mes + 1;
-    fin = new Date(anio, nextMonth, diaFin);
+    fin = fechaEnMes(anio, nextMonth, diaFin);
   } else {
     // Estamos en la primera mitad del período
     const prevMonth = mes - 1;
-    inicio = new Date(anio, prevMonth, diaInicio);
-    fin = new Date(anio, mes, diaFin);
+    inicio = fechaEnMes(anio, prevMonth, diaInicio);
+    fin = fechaEnMes(anio, mes, diaFin);
   }
 
   return { inicio, fin };
