@@ -13,6 +13,13 @@ import { pruneExpiredRefreshTokens, verifyRefreshToken } from './utils/jwt.utils
 import { puedeVerUpload, type ActorUpload } from './utils/upload-access.utils.js';
 import { DEBUG_AUTH, avisarModoDebug } from './utils/debug-auth.utils.js';
 import { startFeriadosSync, stopFeriadosSync } from './utils/feriados-sync.service.js';
+import { instalarMensajesEnCastellano } from './utils/zod-es.js';
+
+// El override de zod se guarda en un módulo singleton (zod/v3/errors.js) y se
+// consulta recién cuando se genera un issue durante el parseo, no cuando se
+// define el schema — así que da igual que los routers de arriba ya hayan
+// construido sus schemas de zod al importarse: nadie los parsea todavía.
+instalarMensajesEnCastellano();
 
 const prisma = new PrismaClient();
 
