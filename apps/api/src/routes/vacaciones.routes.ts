@@ -7,6 +7,14 @@ import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
 import { notificarVacacion, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import { puedeVerCalendario } from '../utils/calendario-access.utils.js';
+import {
+  construirCircuito,
+  nivelesPorRol,
+  pasoActualDe,
+  pasosDe,
+  resolverFlujo,
+  type PasoCircuito,
+} from '../utils/circuito.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -410,9 +418,11 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const anio = new Date().getFullYear();
 
     // Check saldo from VacacionSaldo
+    // `sectorId` y `rol` salen de la misma consulta porque son los que resuelven
+    // el circuito más abajo: el dueño de la solicitud es siempre quien la crea.
     const usuario = await prisma.usuario.findUnique({
       where: { id: userId },
-      select: { fechaIngreso: true, sectorId: true },
+      select: { fechaIngreso: true, sectorId: true, rol: true },
     });
     if (!usuario) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
@@ -420,39 +430,27 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const fechaFin = new Date(parsed.data.fechaFin);
     const diasTotales = Math.ceil((fechaFin.getTime() - fechaInicio.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
-    // Find applicable flow (read-only, outside transaction)
-    // Priority-based flujo lookup: user-specific → sector → company-wide default
-    let flujo = await prisma.flujoAprobacion.findFirst({
-      where: {
-        empresaId, tipoDocumento: 'VACACION', activo: true,
-        asignaciones: { some: { usuarioId: userId, activo: true, tipoDocumento: 'VACACION' } },
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true },
+    // El circuito se resuelve y se CONGELA acá, y no en /enviar, porque en
+    // vacaciones el alta ES el envío: la solicitud nace PENDIENTE en el paso 1 y
+    // nunca pasa por /enviar salvo que la rechacen. Desde este punto, tocar la
+    // configuración de flujos no altera el recorrido de lo que ya está en vuelo.
+    // (Lectura sola: va fuera de la transacción.)
+    const flujo = await resolverFlujo(prisma, 'VACACION', {
+      userId, empresaId, sectorId: usuario.sectorId,
     });
+    const niveles = await nivelesPorRol(prisma, empresaId);
+    const nivelSolicitante = niveles[usuario.rol] ?? 0;
 
-    if (!flujo && usuario?.sectorId) {
-      flujo = await prisma.flujoAprobacion.findFirst({
-        where: {
-          empresaId, tipoDocumento: 'VACACION', activo: true,
-          asignaciones: { some: { sectorId: usuario.sectorId, activo: true, tipoDocumento: 'VACACION' } },
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
+    let circuito: PasoCircuito[] = [];
+    if (flujo) {
+      const pasosDelFlujo = await prisma.flujoPaso.findMany({
+        where: { flujoId: flujo.id },
+        orderBy: { orden: 'asc' },
       });
+      // Sin cast: `FlujoPaso` trae campos de más (id, flujoId, accion*), pero por
+      // tipado estructural encaja en `PasoCircuito` tal cual sale de Prisma.
+      circuito = construirCircuito(pasosDelFlujo, nivelSolicitante, niveles);
     }
-
-    if (!flujo) {
-      flujo = await prisma.flujoAprobacion.findFirst({
-        where: {
-          empresaId, tipoDocumento: 'VACACION', activo: true,
-          asignaciones: { some: { sectorId: null, usuarioId: null, activo: true, tipoDocumento: 'VACACION' } },
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
-    }
-
     const flujoId = flujo?.id ?? null;
 
     // Critical section: balance check + create atomically to prevent double-spend
@@ -497,6 +495,13 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
           diasTotales,
           motivo: parsed.data.motivo ?? null,
           flujoId,
+          // Se guarda SIEMPRE el arreglo, aunque venga vacío: un `[]` dice "se
+          // envió sin circuito", que es un hecho del documento. Dejar la columna
+          // en null lo haría indistinguible de una solicitud anterior a este
+          // cambio y `pasosDe` caería al flujo vivo, así que si después le cargan
+          // pasos a ese flujo la solicitud en vuelo empezaría a seguir la cadena
+          // nueva — justo lo que el congelado tiene que impedir.
+          circuitoSnapshot: circuito,
           estado: 'PENDIENTE',
           pasoActual: 1,
         },
@@ -519,7 +524,15 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
       return vac;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    res.status(201).json(vacacion);
+    res.status(201).json({
+      ...vacacion,
+      // Sin circuito la solicitud queda en la rama de escape del avance, que
+      // exige nivel RRHH o superior: conviene que el empleado lo sepa al pedirla
+      // y no cuando ve que nadie se la aprueba.
+      avisoSinCircuito: circuito.length === 0
+        ? 'Tu sector no tiene circuito de aprobación configurado: la solicitud va a requerir una aprobación manual de RRHH o superior.'
+        : undefined,
+    });
   } catch (error) {
     if (error instanceof Error && error.message === 'SALDO_INSUFICIENTE') {
       res.status(400).json({ error: `Saldo insuficiente. Disponible: ${(error as Error & { disponible: number }).disponible} días` });
@@ -605,6 +618,37 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
+    // `sectorId` y `rol` resuelven el circuito; `nombre`/`apellido` van en el
+    // aviso a los aprobadores. El dueño es siempre quien envía: el findFirst de
+    // arriba filtra por `usuarioId: req.user!.userId`.
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: req.user!.userId },
+      select: { sectorId: true, rol: true, nombre: true, apellido: true },
+    });
+
+    // El circuito se resuelve recién ahora y queda CONGELADO en la solicitud: a
+    // partir de acá, tocar la configuración de flujos no altera el recorrido de
+    // lo que ya está en vuelo. Un reenvío después de un rechazo es un envío
+    // nuevo, así que vuelve a resolver y a congelar.
+    const flujo = await resolverFlujo(prisma, 'VACACION', {
+      userId: vacacion.usuarioId,
+      empresaId: req.user!.empresaId,
+      sectorId: usuario?.sectorId ?? null,
+    });
+    const niveles = await nivelesPorRol(prisma, req.user!.empresaId);
+    const nivelSolicitante = niveles[usuario?.rol ?? ''] ?? 0;
+
+    let circuito: PasoCircuito[] = [];
+    if (flujo) {
+      const pasosDelFlujo = await prisma.flujoPaso.findMany({
+        where: { flujoId: flujo.id },
+        orderBy: { orden: 'asc' },
+      });
+      // Sin cast: `FlujoPaso` trae campos de más (id, flujoId, accion*), pero por
+      // tipado estructural encaja en `PasoCircuito` tal cual sale de Prisma.
+      circuito = construirCircuito(pasosDelFlujo, nivelSolicitante, niveles);
+    }
+
     // Re-submitting from RECHAZADA: re-add dias to pending balance (rejection decremented it)
     // Also re-validate available balance — user may have spent days since rejection
     // Use createdAt year (matches POST creation logic) to avoid mismatch with fechaInicio year
@@ -633,7 +677,26 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
         }
         return tx.vacacion.update({
           where: { id: vacId },
-          data: { estado: 'PENDIENTE', pasoActual: 1, obsRechazo: null },
+          data: {
+            estado: 'PENDIENTE',
+            pasoActual: 1,
+            obsRechazo: null,
+            flujoId: flujo?.id ?? null,
+            // Se guarda SIEMPRE el arreglo, aunque venga vacío, y nunca
+            // `undefined`:
+            //  - con `undefined` Prisma ni toca la columna, así que al reenviar
+            //    una solicitud rechazada cuyo sector se quedó sin flujo quedaría
+            //    pegado el snapshot viejo — el circuito fantasma que este cambio
+            //    viene a eliminar;
+            //  - con `DbNull` el vacío sería indistinguible de una solicitud
+            //    anterior a este cambio, y `pasosDe` caería al flujo vivo. Si
+            //    después le cargan pasos a ese flujo, la solicitud en vuelo
+            //    empezaría a seguir la cadena nueva, que es exactamente lo que el
+            //    congelado tiene que impedir.
+            // Un `[]` guardado dice "se envió sin circuito", que es un hecho del
+            // documento y no una ausencia de dato.
+            circuitoSnapshot: circuito,
+          },
         });
       });
     } catch (err: any) {
@@ -654,17 +717,26 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
     });
 
     // Notify step 1 approvers
-    const solicitante = await prisma.usuario.findUnique({
-      where: { id: req.user!.userId },
-      select: { nombre: true, apellido: true },
-    });
-    const solicitanteNombre = solicitante ? `${solicitante.nombre} ${solicitante.apellido}` : 'Un empleado';
+    const solicitanteNombre = usuario ? `${usuario.nombre} ${usuario.apellido}` : 'Un empleado';
+    // El rol sale del circuito recién congelado, no de `vacacion.flujoId`: la fila
+    // que cargamos al principio del handler es la de ANTES del update, y ahí un
+    // borrador no tiene flujo, así que nadie recibiría el aviso. Además el
+    // snapshot está renumerado desde 1, con lo que buscar el paso vivo por
+    // `(flujoId, orden)` le avisaría al rol equivocado.
     await notificarAprobadoresPaso(
       vacacion.usuarioId, req.user!.empresaId,
-      { flujoId: vacacion.flujoId, orden: 1 }, 'VACACION', solicitanteNombre,
+      { rolAprobador: circuito[0]?.rolAprobador }, 'VACACION', solicitanteNombre,
     );
 
-    res.json(updated);
+    res.json({
+      ...updated,
+      // Sin circuito la solicitud queda en la rama de escape del avance, que
+      // exige nivel RRHH o superior: conviene que el empleado lo sepa al enviarla
+      // y no cuando ve que nadie se la aprueba.
+      avisoSinCircuito: circuito.length === 0
+        ? 'Tu sector no tiene circuito de aprobación configurado: la solicitud va a requerir una aprobación manual de RRHH o superior.'
+        : undefined,
+    });
   } catch (error) {
     console.error('Error al enviar vacacion:', error);
     res.status(500).json({ error: 'Error interno' });
@@ -688,26 +760,32 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       res.status(404).json({ error: 'Vacación no encontrada' });
       return;
     }
+    // Nadie aprueba lo suyo, ni siquiera un ADMIN. Con la regla por nivel esto es
+    // crítico: un RRHH que envía conserva el paso RRHH en su circuito.
+    if (vacacion.usuarioId === req.user!.userId) {
+      res.status(403).json({ error: 'No podés aprobar ni rechazar tu propia solicitud de vacaciones' });
+      return;
+    }
     if (vacacion.estado !== 'PENDIENTE' && vacacion.estado !== 'EN_REVISION') {
       res.status(400).json({ error: 'La vacación no está pendiente de revisión' });
       return;
     }
 
-    const pasos = vacacion.flujo?.pasos ?? [];
+    // El circuito congelado al enviar; los pasos vivos del flujo son sólo el
+    // fallback de las solicitudes anteriores a este cambio.
+    const pasos = pasosDe(vacacion);
     const totalPasos = pasos.length;
     const pasoActual = vacacion.pasoActual;
     let nuevoEstado: VacacionEstado;
     let nuevoPaso: number;
 
-    // pasoActual is 1-based (matches FlujoPaso.orden)
-    // Sin flujo, o con un pasoActual que quedó fuera del flujo (p. ej. si se acortó
-    // mientras la solicitud estaba en curso): mismo criterio que planillas/ausencias.
+    // pasoActual is 1-based (matches el `orden` del circuito).
+    // Sin circuito, o con un pasoActual que quedó fuera de él: con el snapshot ya
+    // no pasa por editar el flujo mientras la solicitud circula, pero sigue
+    // cubriendo las solicitudes viejas sin snapshot, que leen los pasos vivos.
     if (pasoActual > totalPasos || totalPasos === 0) {
-      // No approval flow configured: block self-approval and require RRHH+
-      if (vacacion.usuario.id === req.user!.userId) {
-        res.status(403).json({ error: 'No podés aprobar tu propia solicitud de vacaciones' });
-        return;
-      }
+      // Sin circuito: se exige RRHH o superior. La guarda de autoaprobación que
+      // vivía acá ya la cubre la general del principio del handler.
       if ((req.user!.rolNivel ?? 0) < 90) {
         res.status(403).json({ error: 'Se requiere nivel RRHH o superior para aprobar una vacación sin flujo definido' });
         return;
@@ -715,9 +793,9 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       nuevoEstado = 'APROBADA';
       nuevoPaso = pasoActual;
     } else {
-      const pasoConfig = pasos.find(p => p.orden === pasoActual);
+      const pasoConfig = pasoActualDe(vacacion);
       if (!pasoConfig) {
-        res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada en el flujo` });
+        res.status(500).json({ error: `Configuración de paso ${pasoActual} no encontrada en el circuito` });
         return;
       }
       const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
@@ -745,7 +823,10 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         });
         if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
 
-        // Duplicate check inside tx scoped to current submission
+        // Duplicate check inside tx scoped to current submission.
+        // Se compara contra el paso que se está APROBANDO, no contra el destino:
+        // lo que hay que impedir es que la misma persona firme dos veces el mismo
+        // recorrido, y con el destino la comparación se corría un paso.
         const lastSubmission = await tx.vacacionHistorial.findFirst({
           where: { vacacionId: vacId, estadoNuevo: 'PENDIENTE' },
           orderBy: { createdAt: 'desc' },
@@ -754,7 +835,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
           where: {
             vacacionId: vacId,
             usuarioId: req.user!.userId,
-            pasoFlujo: nuevoPaso,
+            pasoFlujo: vacacion.pasoActual,
             createdAt: { gt: lastSubmission?.createdAt ?? new Date(0) },
           },
         });
@@ -832,7 +913,10 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       const ownerNombre = ownerInfo ? `${ownerInfo.nombre} ${ownerInfo.apellido}` : 'Un empleado';
       await notificarAprobadoresPaso(
         vacacion.usuarioId, req.user!.empresaId,
-        { flujoId: vacacion.flujoId, orden: nuevoPaso }, 'VACACION', ownerNombre,
+        // El rol sale del circuito de ESTA solicitud: `nuevoPaso` indexa el
+        // snapshot renumerado, no la cadena configurada.
+        { rolAprobador: pasos.find((p) => p.orden === nuevoPaso)?.rolAprobador },
+        'VACACION', ownerNombre,
       );
     }
 
@@ -867,6 +951,12 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       return;
     }
 
+    // Nadie rechaza lo suyo: mismo criterio que en /avanzar.
+    if (vacacion.usuarioId === req.user!.userId) {
+      res.status(403).json({ error: 'No podés aprobar ni rechazar tu propia solicitud de vacaciones' });
+      return;
+    }
+
     // Explicit state guard (mirrors /avanzar): rechazar sólo aplica a una vacación
     // en revisión. Devuelve 400 claro en vez del 409 "modificada simultáneamente"
     // del guard transaccional, que sólo debe dispararse ante una carrera real.
@@ -875,9 +965,9 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       return;
     }
 
-    // Verify the caller is the responsible approver for this step
-    const pasos = vacacion.flujo?.pasos ?? [];
-    const currentStep = pasos.find(p => p.orden === vacacion.pasoActual);
+    // Verify the caller is the responsible approver for this step (el paso sale
+    // del circuito congelado; los pasos vivos son el fallback de lo viejo)
+    const currentStep = pasoActualDe(vacacion);
     const approverSectorId = (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null;
     if (!currentStep || !isResponsibleApprover(currentStep.rolAprobador, vacacion.usuario, req.user!.userId, req.user!.rol, req.user!.rolNivel ?? 0, approverSectorId)) {
       res.status(403).json({ error: 'No tenés autorización para rechazar esta vacación' });
