@@ -1491,6 +1491,22 @@ function TarjetaFormModal({
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const isEdit = !!tarjeta;
+
+  // El listado (de donde viene `tarjeta`) no trae la relación `fotos`, solo
+  // `_count.fotos`. Se pide el detalle con la MISMA queryKey que usa
+  // TarjetaDetailModal: si se entró por "Editar" desde el detalle, el dato ya
+  // está en caché y pinta instantáneo; si se entra por otro camino, se pide
+  // solo. Deshabilitada en modo creación, donde no hay `id`.
+  const { data: detalle } = useQuery({
+    queryKey: ['wentop', 'tarjeta', tarjeta?.id],
+    queryFn: async () => {
+      const { data } = await api.get(`/wentop/${tarjeta!.id}`);
+      return data as WentopTarjeta;
+    },
+    enabled: isEdit && !!tarjeta?.id,
+    placeholderData: tarjeta ?? undefined,
+  });
+
   const draftOwner = user?.id ?? 'anon';
   const draftKey = isEdit ? draftKeyEdit(draftOwner, tarjeta.id) : draftKeyNew(draftOwner);
 
@@ -1680,7 +1696,7 @@ function TarjetaFormModal({
 
   // --- Evidencia fotográfica ----------------------------------------------
   const bytesActuales = newFiles.reduce((acc, f) => acc + f.size, 0);
-  const fotosExistentes = isEdit ? (tarjeta.fotos?.length ?? tarjeta._count?.fotos ?? 0) : 0;
+  const fotosExistentes = isEdit ? (detalle?.fotos?.length ?? tarjeta?._count?.fotos ?? 0) : 0;
   const fotosTotales = fotosExistentes + newFiles.length;
 
   const agregarArchivos = (seleccion: File[]) => {
@@ -2146,11 +2162,11 @@ function TarjetaFormModal({
                     </div>
                   )}
 
-                  {isEdit && (tarjeta.fotos?.length ?? 0) > 0 && (
+                  {isEdit && (detalle?.fotos?.length ?? 0) > 0 && (
                     <div className="mt-3">
                       <p className="mb-1 text-xs text-muted-foreground">Fotos ya cargadas</p>
                       <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-                        {tarjeta.fotos?.map((f) => (
+                        {detalle?.fotos?.map((f) => (
                           <div
                             key={f.id}
                             className="relative aspect-square rounded-lg overflow-hidden border border-border bg-muted"
