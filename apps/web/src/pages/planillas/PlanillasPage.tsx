@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { ESTADO_STYLES, ESTADO_LABELS } from '@/constants/planillaConstants';
 import { toast } from '@/stores/toastStore';
+import { mensajeDeError } from '@/lib/errores';
 
 interface Planilla {
   id: string;
@@ -180,14 +181,15 @@ export default function PlanillasPage() {
       navigate(`/planillas/${res.data.id}`);
     },
     onError: (err: unknown) => {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string; planillaId?: string } } };
-        if (axiosErr.response?.data?.planillaId) {
-          navigate(`/planillas/${axiosErr.response.data.planillaId}`);
-        } else {
-          toast({ title: 'Error', description: axiosErr.response?.data?.error ?? 'Error al crear planilla', variant: 'destructive' });
-        }
+      // Caso especial: el backend agrega planillaId cuando el 409 es "ya existe una
+      // planilla para este período" — redirige en vez de mostrar un error, porque la
+      // acción de crear ya cumplió su objetivo (llevar al usuario a esa planilla).
+      const planillaId = (err as { response?: { data?: { planillaId?: string } } })?.response?.data?.planillaId;
+      if (planillaId) {
+        navigate(`/planillas/${planillaId}`);
+        return;
       }
+      toast({ title: 'Error', description: mensajeDeError(err).mensaje, variant: 'destructive' });
     },
   });
 

@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import api from '@/services/api';
 import { Loader2, Mail, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { mensajeDeError } from '@/lib/errores';
 
 const forgotPasswordSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -36,12 +37,7 @@ export default function ForgotPasswordPage() {
       }
       setSent(true);
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        setError(axiosErr.response?.data?.error ?? 'Error al enviar el email');
-      } else {
-        setError('Error de conexión con el servidor');
-      }
+      setError(mensajeDeError(err).mensaje);
     }
   };
 

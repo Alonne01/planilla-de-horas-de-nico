@@ -11,6 +11,7 @@ import {
 import ScopeToggle from '@/components/layout/ScopeToggle';
 import { toast } from '@/stores/toastStore';
 import { useDialogStore } from '@/stores/dialogStore';
+import { mensajeDeError } from '@/lib/errores';
 
 interface TipoCapacitacion {
   id: string;
@@ -232,7 +233,7 @@ export default function CapacitacionesPage() {
       resetTipoForm();
     },
     onError: (err: any) => {
-      toast({ title: 'Error al guardar el tipo', description: err?.response?.data?.error, variant: 'destructive' });
+      toast({ title: 'Error al guardar el tipo', description: mensajeDeError(err).mensaje, variant: 'destructive' });
     },
   });
 
@@ -285,8 +286,7 @@ export default function CapacitacionesPage() {
       setSesionForm(emptySesionForm);
     },
     onError: (err: any) => {
-      const msg = err?.response?.data?.error || err?.message || 'Error al crear la sesión';
-      toast({ title: 'Error al crear sesión', description: msg, variant: 'destructive' });
+      toast({ title: 'Error al crear sesión', description: mensajeDeError(err).mensaje, variant: 'destructive' });
     },
   });
 

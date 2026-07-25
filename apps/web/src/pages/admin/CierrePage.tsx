@@ -9,6 +9,7 @@ import {
   AlertTriangle, Users, Filter, RotateCcw, ShieldAlert
 } from 'lucide-react';
 import { toast } from '@/stores/toastStore';
+import { mensajeDeError } from '@/lib/errores';
 import PeriodSelector from '@/components/layout/PeriodSelector';
 import { usePeriodoActual } from '@/hooks/usePeriodoConfig';
 
@@ -188,7 +189,7 @@ export default function CierrePage() {
       setCerrarTarget(null);
       setCerrarConfirmed(false);
     } catch (err: any) {
-      toast({ title: 'Error', description: err.response?.data?.error ?? 'Error al cerrar planilla', variant: 'destructive' });
+      toast({ title: 'Error', description: mensajeDeError(err).mensaje, variant: 'destructive' });
     } finally {
       setCerrarLoading(false);
     }
@@ -203,7 +204,7 @@ export default function CierrePage() {
       setReabrirTarget(null);
       setReabrirMotivo('');
     } catch (err: any) {
-      toast({ title: 'Error', description: err.response?.data?.error ?? 'Error al reabrir planilla', variant: 'destructive' });
+      toast({ title: 'Error', description: mensajeDeError(err).mensaje, variant: 'destructive' });
     } finally {
       setReabrirLoading(false);
     }

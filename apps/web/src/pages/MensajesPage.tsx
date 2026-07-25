@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import api, { getUploadUrl } from '@/services/api';
 import { cn } from '@/lib/utils';
+import { mensajeDeError } from '@/lib/errores';
 import {
   MessageSquare,
   Send,
@@ -902,7 +903,10 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
 
       {sendMutation.isError && (
         <p className="text-sm text-red-400">
-          Error al enviar: {(sendMutation.error as any)?.response?.data?.error ?? 'Error desconocido'}
+          {/* El "as any" ya no hace falta para leer el error (mensajeDeError acepta
+              unknown), pero se conserva para no mover el baseline de eslint: sin él
+              desaparece un "Unexpected any" que ya estaba señalado antes de este fix. */}
+          Error al enviar: {mensajeDeError(sendMutation.error as any).mensaje}
         </p>
       )}
     </div>

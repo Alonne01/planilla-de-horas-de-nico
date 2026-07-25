@@ -5,6 +5,7 @@ import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/stores/toastStore';
+import { mensajeDeError } from '@/lib/errores';
 import {
   ArrowLeft, Send, CheckCircle2, XCircle, Loader2,
   Clock, MapPin, Car, Moon, Sun, AlertCircle, AlertTriangle, X, Download, Lock, Printer, Trash2, Copy, Eraser,
@@ -228,7 +229,7 @@ export default function PlanillaDetailPage() {
       if (err.response?.status === 400 && err.response?.data?.diasFaltantes) {
         setDiasFaltantes(err.response.data.diasFaltantes);
       } else {
-        toast({ title: 'Error', description: err.response?.data?.error ?? 'Error al enviar planilla', variant: 'destructive' });
+        toast({ title: 'Error', description: mensajeDeError(err).mensaje, variant: 'destructive' });
       }
     },
   });
@@ -241,7 +242,7 @@ export default function PlanillaDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['aprobaciones'] });
     },
     onError: (err: any) => {
-      toast({ title: 'Error', description: err.response?.data?.error ?? 'Error al aprobar planilla', variant: 'destructive' });
+      toast({ title: 'Error', description: mensajeDeError(err).mensaje, variant: 'destructive' });
     },
   });
 
@@ -254,7 +255,7 @@ export default function PlanillaDetailPage() {
       setShowRechazo(false);
     },
     onError: (err: any) => {
-      toast({ title: 'Error', description: err.response?.data?.error ?? 'Error al rechazar planilla', variant: 'destructive' });
+      toast({ title: 'Error', description: mensajeDeError(err).mensaje, variant: 'destructive' });
     },
   });
 
@@ -266,7 +267,7 @@ export default function PlanillaDetailPage() {
       navigate('/planillas');
     },
     onError: (err: any) => {
-      toast({ title: 'No se puede eliminar', description: err.response?.data?.error ?? 'Error al eliminar planilla', variant: 'destructive' });
+      toast({ title: 'No se puede eliminar', description: mensajeDeError(err).mensaje, variant: 'destructive' });
     },
   });
 
@@ -329,22 +330,22 @@ export default function PlanillaDetailPage() {
   const marcarDiaMutation = useMutation({
     mutationFn: (vars: { fecha: string; tipo: string }) => api.post(`/planillas/${id}/marcar-dia`, vars),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); setSelectedDate(null); },
-    onError: (err: any) => toast({ title: 'No se pudo marcar', description: err.response?.data?.error ?? 'Error al marcar el día', variant: 'destructive' }),
+    onError: (err: any) => toast({ title: 'No se pudo marcar', description: mensajeDeError(err).mensaje, variant: 'destructive' }),
   });
   const validarMarcaMutation = useMutation({
     mutationFn: (ausenciaId: string) => api.post(`/planillas/${id}/marcas/${ausenciaId}/validar`),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); setSelectedDate(null); },
-    onError: (err: any) => toast({ title: 'No se pudo validar', description: err.response?.data?.error ?? 'Error al validar', variant: 'destructive' }),
+    onError: (err: any) => toast({ title: 'No se pudo validar', description: mensajeDeError(err).mensaje, variant: 'destructive' }),
   });
   const validarTodoMutation = useMutation({
     mutationFn: () => api.post(`/planillas/${id}/marcas/validar-todo`),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); },
-    onError: (err: any) => toast({ title: 'No se pudo validar', description: err.response?.data?.error ?? 'Error al validar', variant: 'destructive' }),
+    onError: (err: any) => toast({ title: 'No se pudo validar', description: mensajeDeError(err).mensaje, variant: 'destructive' }),
   });
   const quitarMarcaMutation = useMutation({
     mutationFn: (ausenciaId: string) => api.delete(`/planillas/${id}/marcas/${ausenciaId}`),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); setSelectedDate(null); },
-    onError: (err: any) => toast({ title: 'No se pudo quitar', description: err.response?.data?.error ?? 'Error', variant: 'destructive' }),
+    onError: (err: any) => toast({ title: 'No se pudo quitar', description: mensajeDeError(err).mensaje, variant: 'destructive' }),
   });
 
   const TIPOS_MARCA: { value: string; label: string }[] = [
