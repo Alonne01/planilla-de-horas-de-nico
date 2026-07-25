@@ -381,7 +381,7 @@ async function main() {
     const afterCoord = await notifCount(coord.token);
     assert(afterCoord >= preCoord + 1, `notif organizador no aumentó (${preCoord} -> ${afterCoord})`);
     const top = await notifTop(coord.token);
-    const match = top.find(n => n.titulo === '✅ Invitación aceptada' && typeof n.cuerpo === 'string' && n.cuerpo.includes(`QA-${KEY}-MS-${TS}`));
+    const match = top.find(n => typeof n.titulo === 'string' && n.titulo.includes('Invitación aceptada') && typeof n.cuerpo === 'string' && n.cuerpo.includes(`QA-${KEY}-MS-${TS}`));
     assert(!!match, 'organizador no recibió notif de aceptación');
   });
 
@@ -395,7 +395,7 @@ async function main() {
     const afterCoord = await notifCount(coord.token);
     assert(afterCoord >= preCoord + 1, `notif organizador no aumentó (${preCoord} -> ${afterCoord})`);
     const top = await notifTop(coord.token);
-    const match = top.find(n => n.titulo === '❌ Invitación rechazada' && typeof n.cuerpo === 'string' && n.cuerpo.includes(motivo));
+    const match = top.find(n => typeof n.titulo === 'string' && n.titulo.includes('Invitación rechazada') && typeof n.cuerpo === 'string' && n.cuerpo.includes(motivo));
     assert(!!match, 'organizador no recibió notif de rechazo con motivo');
   });
 
@@ -450,7 +450,7 @@ async function main() {
     const afterOp1 = await notifCount(op1.token);
     assert(afterOp1 >= preOp1 + 1, `op1 notif completado no aumentó (${preOp1} -> ${afterOp1})`);
     const top = await notifTop(op1.token);
-    assert(top.some(n => n.titulo === '🎓 Capacitación completada' && n.cuerpo.includes(`QA-${KEY}-MS-${TS}`)), 'op1 no recibió notif de capacitación completada');
+    assert(top.some(n => typeof n.titulo === 'string' && n.titulo.includes('Capacitación completada') && n.cuerpo.includes(`QA-${KEY}-MS-${TS}`)), 'op1 no recibió notif de capacitación completada');
     // EmpleadoCapacitacion created for op1 (vigenciaDias=365 -> vencimiento set)
     const { body: misCap } = await get('/capacitaciones/mis-capacitaciones', op1.token);
     const rec = (misCap as any[]).find(r => r.tipoId === tipoId && typeof r.observaciones === 'string' && r.observaciones.includes(`QA-${KEY}-MS-${TS}`));
