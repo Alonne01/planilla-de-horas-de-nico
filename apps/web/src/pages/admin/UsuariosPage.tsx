@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
+import { mensajeDeError } from '@/lib/errores';
 import {
   Pencil, Trash2, Search, UserPlus,
   Loader2, X, ChevronDown, ChevronUp, KeyRound, Copy, Check
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useDialogStore } from '@/stores/dialogStore';
+import { toast } from '@/stores/toastStore';
 
 interface User {
   id: string;
@@ -352,6 +354,8 @@ function UserFormModal({
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  const errorRef = useRef<HTMLDivElement>(null);
   const isEdit = !!user;
 
   // Diagram state — loaded from GET /usuarios/:id when editing
@@ -399,6 +403,18 @@ function UserFormModal({
     e.preventDefault();
     setLoading(true);
     setError('');
+    setFieldErrors({});
+
+    // El input de fecha no tiene `required`, solo `disabled={!diagramaId}`: se
+    // puede elegir un diagrama y después borrar la fecha. Sin este chequeo,
+    // `new Date('' + 'T00:00:00').toISOString()` más abajo tira un RangeError
+    // que el catch disfraza de "Error de conexión".
+    if (diagramaId && !diagramaFechaInicio) {
+      setFieldErrors({ diagramaFechaInicio: ['Elegí la fecha de inicio del ciclo'] });
+      setError('Falta la fecha de inicio del ciclo del diagrama');
+      setLoading(false);
+      return;
+    }
 
     try {
       const body: Record<string, unknown> = {
@@ -428,24 +444,35 @@ function UserFormModal({
           });
         }
       } else {
-        const created = await api.post('/usuarios', body);
-        // Assign diagram to new user if selected
+        const creado = await api.post('/usuarios', body);
+        // El usuario YA quedó creado en este punto. Si el PATCH de abajo falla,
+        // no hay que dejar el modal abierto: un reintento del POST se comería
+        // un 409 "Ya existe un usuario con ese email" sin que el admin entienda
+        // por qué, porque el usuario ya existe en la base.
         if (diagramaId) {
-          await api.patch(`/usuarios/${created.data.id}/diagrama`, {
-            diagramaId,
-            fechaInicio: new Date(diagramaFechaInicio + 'T00:00:00').toISOString(),
-          });
+          try {
+            await api.patch(`/usuarios/${creado.data.id}/diagrama`, {
+              diagramaId,
+              fechaInicio: new Date(diagramaFechaInicio + 'T00:00:00').toISOString(),
+            });
+          } catch (errDiagrama) {
+            toast({
+              title: 'Usuario creado, pero no se pudo asignar el diagrama',
+              description: mensajeDeError(errDiagrama).mensaje,
+              variant: 'destructive',
+            });
+            onSuccess();
+            return;
+          }
         }
       }
 
       onSuccess();
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        setError(axiosErr.response?.data?.error ?? 'Error al guardar');
-      } else {
-        setError('Error de conexión');
-      }
+      const { mensaje, fieldErrors: fe } = mensajeDeError(err);
+      setFieldErrors(fe);
+      setError(mensaje);
+      requestAnimationFrame(() => errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
     } finally {
       setLoading(false);
     }
@@ -467,7 +494,7 @@ function UserFormModal({
 
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {error && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+            <div ref={errorRef} className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
               {error}
             </div>
           )}
@@ -475,23 +502,35 @@ function UserFormModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground">Nombre *</label>
-              <input className={inputClass} value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} required />
+              <input className={cn(inputClass, fieldErrors.nombre && 'border-destructive')} value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} required />
+              {fieldErrors.nombre && (
+                <p className="text-xs text-destructive mt-1">{fieldErrors.nombre.join('. ')}</p>
+              )}
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">Apellido *</label>
-              <input className={inputClass} value={form.apellido} onChange={(e) => setForm({ ...form, apellido: e.target.value })} required />
+              <input className={cn(inputClass, fieldErrors.apellido && 'border-destructive')} value={form.apellido} onChange={(e) => setForm({ ...form, apellido: e.target.value })} required />
+              {fieldErrors.apellido && (
+                <p className="text-xs text-destructive mt-1">{fieldErrors.apellido.join('. ')}</p>
+              )}
             </div>
           </div>
 
           <div>
             <label className="text-xs font-medium text-muted-foreground">Email *</label>
-            <input type="email" className={inputClass} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+            <input type="email" className={cn(inputClass, fieldErrors.email && 'border-destructive')} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+            {fieldErrors.email && (
+              <p className="text-xs text-destructive mt-1">{fieldErrors.email.join('. ')}</p>
+            )}
           </div>
 
           {!isEdit && (
             <div>
               <label className="text-xs font-medium text-muted-foreground">Contraseña inicial *</label>
-              <input type="password" className={inputClass} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required minLength={8} />
+              <input type="password" className={cn(inputClass, fieldErrors.password && 'border-destructive')} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required minLength={8} />
+              {fieldErrors.password && (
+                <p className="text-xs text-destructive mt-1">{fieldErrors.password.join('. ')}</p>
+              )}
               <p className="text-xs text-muted-foreground mt-1">Mín. 8 caracteres, 1 mayúscula, 1 número</p>
             </div>
           )}
@@ -505,7 +544,10 @@ function UserFormModal({
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">Legajo</label>
-              <input className={inputClass} value={form.legajo} onChange={(e) => setForm({ ...form, legajo: e.target.value })} />
+              <input className={cn(inputClass, fieldErrors.legajo && 'border-destructive')} value={form.legajo} onChange={(e) => setForm({ ...form, legajo: e.target.value })} />
+              {fieldErrors.legajo && (
+                <p className="text-xs text-destructive mt-1">{fieldErrors.legajo.join('. ')}</p>
+              )}
             </div>
           </div>
 
@@ -557,11 +599,14 @@ function UserFormModal({
                 <label className="text-xs font-medium text-muted-foreground">Fecha inicio ciclo</label>
                 <input
                   type="date"
-                  className={inputClass}
+                  className={cn(inputClass, fieldErrors.diagramaFechaInicio && 'border-destructive')}
                   value={diagramaFechaInicio}
                   onChange={(e) => setDiagramaFechaInicio(e.target.value)}
                   disabled={!diagramaId}
                 />
+                {fieldErrors.diagramaFechaInicio && (
+                  <p className="text-xs text-destructive mt-1">{fieldErrors.diagramaFechaInicio.join('. ')}</p>
+                )}
               </div>
             </div>
             {diagramaId && (() => {
