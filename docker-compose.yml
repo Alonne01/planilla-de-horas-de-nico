@@ -1,4 +1,13 @@
-version: '3.9'
+# Planilla de Horas — stack de desarrollo (recarga en caliente).
+#
+# Uso:  docker compose up --build
+#       Front  → http://localhost:3000
+#       API    → http://localhost:4000/api/v1/health
+#
+# Para producción usar docker-compose.prod.yml.
+# Sin Redis: el código no lo usa.
+
+name: planilla-dev
 
 services:
   db:
@@ -7,24 +16,17 @@ services:
     environment:
       POSTGRES_DB: planilla_horas
       POSTGRES_USER: planilla_user
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-planilla_dev}
+      TZ: ${TZ:-America/Argentina/Buenos_Aires}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
       - '5432:5432'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U planilla_user -d planilla_horas"]
+      test: ['CMD-SHELL', 'pg_isready -U planilla_user -d planilla_horas']
       interval: 10s
       timeout: 5s
       retries: 5
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    ports:
-      - '6379:6379'
-    volumes:
-      - redisdata:/data
 
   api:
     build:
@@ -32,22 +34,21 @@ services:
       dockerfile: Dockerfile.dev
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://planilla_user:${DB_PASSWORD}@db:5432/planilla_horas
-      REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
-      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
-      PORT: 4000
+      DATABASE_URL: postgresql://planilla_user:${DB_PASSWORD:-planilla_dev}@db:5432/planilla_horas
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_no_usar_en_produccion}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_refresh_secret_no_usar_en_produccion}
       NODE_ENV: development
+      PORT: 4000
+      FRONTEND_URL: http://localhost:3000
+      TZ: ${TZ:-America/Argentina/Buenos_Aires}
     volumes:
       - ./apps/api/src:/app/src
+      - ./apps/api/prisma:/app/prisma
       - uploads:/app/uploads
+      - backups:/app/backups
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_started
     ports:
       - '4000:4000'
 
@@ -57,14 +58,19 @@ services:
       dockerfile: Dockerfile.dev
     restart: unless-stopped
     environment:
-      VITE_API_URL: http://localhost:4000
-      VITE_WS_URL: ws://localhost:4000
+      # Vacío → el front usa rutas relativas y las resuelve el proxy de Vite
+      VITE_API_URL: ''
+      VITE_PROXY_TARGET: http://api:4000
     volumes:
       - ./apps/web/src:/app/src
+      - ./apps/web/public:/app/public
+      - ./apps/web/index.html:/app/index.html
     ports:
       - '3000:3000'
+    depends_on:
+      - api
 
 volumes:
   pgdata:
-  redisdata:
   uploads:
+  backups:

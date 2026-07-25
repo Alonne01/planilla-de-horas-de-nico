@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1
+# Imagen de desarrollo del frontend: servidor de Vite con HMR sobre el volumen ./src.
+FROM node:20-bookworm-slim
+WORKDIR /app
+
+ENV NODE_ENV=development \
+    TZ=America/Argentina/Buenos_Aires
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY tsconfig*.json vite.config.ts index.html ./
+COPY public ./public
+COPY src ./src
+
+EXPOSE 3000
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

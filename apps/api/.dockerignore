@@ -1,0 +1,12 @@
+node_modules
+dist
+uploads
+backups
+tests
+*.log
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+Dockerfile*
+.dockerignore

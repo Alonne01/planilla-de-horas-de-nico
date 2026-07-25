@@ -37,6 +37,57 @@ set "WEB_DIR=%ROOT%apps\web"
 set "TEMP_DIR=%TEMP%\planilla-remote"
 set "LINK_FILE=%USERPROFILE%\Desktop\planilla-link.txt"
 
+:: ------------------------------------------------
+:: DIRECCION FIJA - opcional
+:: Si existe deploy\tunnel.env se usa una direccion que nunca cambia:
+::   - Cloudflare Named Tunnel (TUNNEL_TOKEN + TUNNEL_HOSTNAME), o
+::   - DuckDNS (DUCKDNS_SUBDOMAIN + DUCKDNS_TOKEN)
+:: Si no existe, se cae al tunel rapido de siempre (URL aleatoria).
+:: Ver deploy\tunnel.env.example para armarlo.
+:: ------------------------------------------------
+set "TUNNEL_TOKEN="
+set "TUNNEL_HOSTNAME="
+set "DUCKDNS_SUBDOMAIN="
+set "DUCKDNS_TOKEN="
+set "DUCKDNS_PUERTO="
+set "ACCESO_HOST="
+if exist "%ROOT%deploy\tunnel.env" (
+    for /f "usebackq eol=# tokens=1,* delims==" %%a in ("%ROOT%deploy\tunnel.env") do (
+        if /I "%%a"=="TUNNEL_TOKEN"       set "TUNNEL_TOKEN=%%b"
+        if /I "%%a"=="TUNNEL_HOSTNAME"    set "TUNNEL_HOSTNAME=%%b"
+        if /I "%%a"=="DUCKDNS_SUBDOMAIN"  set "DUCKDNS_SUBDOMAIN=%%b"
+        if /I "%%a"=="DUCKDNS_TOKEN"      set "DUCKDNS_TOKEN=%%b"
+        if /I "%%a"=="DUCKDNS_PUERTO"     set "DUCKDNS_PUERTO=%%b"
+    )
+)
+
+:: El tunel de Cloudflare tiene prioridad: da HTTPS y no necesita abrir puertos
+if defined TUNNEL_HOSTNAME (
+    if defined TUNNEL_TOKEN (
+        set "ACCESO_HOST=https://!TUNNEL_HOSTNAME!"
+        echo   Modo direccion fija: !ACCESO_HOST!
+    )
+)
+if not defined ACCESO_HOST (
+    set "TUNNEL_TOKEN="
+    if defined DUCKDNS_SUBDOMAIN (
+        if defined DUCKDNS_TOKEN (
+            if defined DUCKDNS_PUERTO (
+                set "ACCESO_HOST=http://!DUCKDNS_SUBDOMAIN!.duckdns.org:!DUCKDNS_PUERTO!"
+            ) else (
+                set "ACCESO_HOST=http://!DUCKDNS_SUBDOMAIN!.duckdns.org"
+            )
+            echo   Modo direccion fija: !ACCESO_HOST!
+            echo   Avisando la IP actual a DuckDNS...
+            powershell -NoProfile -Command "try { $r = Invoke-RestMethod ('https://www.duckdns.org/update?domains=' + '!DUCKDNS_SUBDOMAIN!' + '&token=' + '!DUCKDNS_TOKEN!' + '&ip=') -TimeoutSec 15; if ($r -match 'OK') { '   DuckDNS actualizado OK' } else { '   [AVISO] DuckDNS respondio: ' + $r } } catch { '   [AVISO] No se pudo contactar a DuckDNS' }"
+        )
+    )
+)
+:: TUNNEL_HOSTNAME se usa mas abajo para el CORS y el mensaje final
+if not defined TUNNEL_HOSTNAME (
+    if defined DUCKDNS_SUBDOMAIN set "TUNNEL_HOSTNAME=!DUCKDNS_SUBDOMAIN!.duckdns.org"
+)
+
 if exist "%TEMP_DIR%" rmdir /s /q "%TEMP_DIR%"
 mkdir "%TEMP_DIR%"
 
@@ -200,7 +251,11 @@ cd /d "%ROOT%"
 :: Step 7: Start API server
 :: ------------------------------------------------
 echo [7/9] Iniciando API server (puerto 4000)...
-start "API-Server" /D "%API_DIR%" cmd /c "set DEBUG_APPROVALS=1 && npm run dev"
+:: Con dominio propio hay que autorizarlo explicitamente: el modo desarrollo
+:: solo permite solo IPs privadas y los tuneles trycloudflare/ngrok.
+set "API_EXTRA_ENV="
+if defined ACCESO_HOST set "API_EXTRA_ENV=set CORS_ORIGINS=!ACCESO_HOST! && "
+start "API-Server" /D "%API_DIR%" cmd /c "set DEBUG_APPROVALS=1 && !API_EXTRA_ENV!npm run dev"
 set API_ATTEMPTS=0
 :wait_api
 timeout /t 2 /nobreak >nul
@@ -233,7 +288,10 @@ echo       Frontend respondiendo OK
 :: ------------------------------------------------
 :: Step 9: Single tunnel for everything (Vite proxy handles API)
 :: ------------------------------------------------
-echo [9/9] Creando tunel Cloudflare...
+if defined TUNNEL_TOKEN goto named_tunnel
+if defined ACCESO_HOST goto sin_tunel
+
+echo [9/9] Creando tunel Cloudflare (URL temporal)...
 start "Cloudflare-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --url http://localhost:3000 >%TEMP_DIR%\tunnel.txt 2>&1"
 echo       Esperando URL del tunel...
 
@@ -259,6 +317,46 @@ if "!WEB_URL!"=="" (
     type "%TEMP_DIR%\tunnel.txt" 2>nul
     goto cleanup
 )
+goto tunnel_ready
+
+:: ------------------------------------------------
+:: Tunel con nombre: la URL ya se conoce de antemano
+:: ------------------------------------------------
+:named_tunnel
+echo [9/9] Conectando tunel Cloudflare con nombre (URL fija)...
+start "Cloudflare-Tunnel" /D "%ROOT%" cmd /c "cloudflared tunnel --no-autoupdate run --token !TUNNEL_TOKEN! >%TEMP_DIR%\tunnel.txt 2>&1"
+set "WEB_URL=https://!TUNNEL_HOSTNAME!"
+echo       Esperando conexion con Cloudflare...
+
+set NAMED_ATTEMPTS=0
+:wait_named
+timeout /t 2 /nobreak >nul
+set /a NAMED_ATTEMPTS+=1
+if %NAMED_ATTEMPTS% gtr 20 (
+    echo [ERROR] El tunel no se registro. Revisa el token en deploy\tunnel.env
+    echo [DEBUG] Contenido del log:
+    type "%TEMP_DIR%\tunnel.txt" 2>nul
+    goto cleanup
+)
+findstr /I /C:"Registered tunnel connection" "%TEMP_DIR%\tunnel.txt" >nul 2>&1
+if %ERRORLEVEL% neq 0 goto wait_named
+echo       Tunel conectado OK
+
+goto tunnel_ready
+
+:: ------------------------------------------------
+:: DuckDNS: no hay tunel, se entra directo por la IP publica
+:: ------------------------------------------------
+:sin_tunel
+echo [9/9] Direccion fija por DuckDNS (sin tunel)...
+set "WEB_URL=!ACCESO_HOST!"
+echo       Direccion: !WEB_URL!
+echo.
+echo       RECORDATORIO: esto solo funciona si el router reenvia el
+echo       puerto externo al 3000 de esta PC. Si no entra desde afuera,
+echo       revisa la redireccion de puertos del router.
+
+:tunnel_ready
 
 :: Copy URL to clipboard AND save to a file on the Desktop
 powershell -NoProfile -Command "Set-Clipboard -Value '!WEB_URL!'" >nul 2>&1
@@ -298,11 +396,18 @@ echo    Un solo tunel - Vite proxy enruta /api al backend.
 echo    HMR desactivado para evitar errores WebSocket.
 echo    Suspension automatica desactivada mientras esto corra.
 echo.
-echo    OJO: si esta ventana se cierra, la PC se reinicia, o hay
-echo    un corte de luz/red, el tunel se corta y la URL cambia
-echo    al volver a correr este script. Si necesitas un link que
-echo    NUNCA cambie, se puede armar con un dominio fijo (ngrok
-echo    static domain o Cloudflare Named Tunnel).
+if defined ACCESO_HOST (
+    echo    URL FIJA: este link no cambia nunca. Si esta ventana se
+    echo    cierra o la PC se reinicia, el servicio se corta, pero al
+    echo    volver a correr este script queda disponible en la MISMA
+    echo    direccion.
+) else (
+    echo    OJO: si esta ventana se cierra, la PC se reinicia, o hay
+    echo    un corte de luz/red, el tunel se corta y la URL cambia
+    echo    al volver a correr este script. Para un link que NUNCA
+    echo    cambie, ver deploy\tunnel.env.example ^(Cloudflare Named
+    echo    Tunnel con dominio propio^).
+)
 echo.
 echo ========================================================
 echo.

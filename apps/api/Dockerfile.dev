@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1
+# Imagen de desarrollo del API: tsx watch + recarga en caliente sobre el volumen ./src.
+FROM node:20-bookworm-slim
+WORKDIR /app
+
+ENV NODE_ENV=development \
+    PORT=4000 \
+    TZ=America/Argentina/Buenos_Aires
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 make g++ openssl ca-certificates curl gnupg tzdata \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+         -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+         > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y --no-install-recommends postgresql-client-16 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY prisma ./prisma
+RUN npx prisma generate
+
+COPY tsconfig.json ./
+COPY src ./src
+
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
+    && mkdir -p /app/uploads /app/backups
+
+EXPOSE 4000
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["npm", "run", "dev"]

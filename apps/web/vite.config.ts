@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
+// Dentro de Docker el API no está en localhost sino en el servicio `api`.
+const proxyTarget = process.env.VITE_PROXY_TARGET || 'http://localhost:4000'
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -16,8 +19,8 @@ export default defineConfig({
     allowedHosts: true,
     hmr: process.env.VITE_DISABLE_HMR === '1' ? false : { host: 'localhost' },
     proxy: {
-      '/api': 'http://localhost:4000',
-      '/uploads': 'http://localhost:4000',
+      '/api': proxyTarget,
+      '/uploads': proxyTarget,
     },
   },
 })

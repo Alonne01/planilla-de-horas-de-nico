@@ -13,6 +13,10 @@
 .env
 .env.*
 !.env.example
+!.env.docker.example
+
+# Token del tunel de Cloudflare (credencial)
+deploy/tunnel.env
 
 # Logs
 logs/
