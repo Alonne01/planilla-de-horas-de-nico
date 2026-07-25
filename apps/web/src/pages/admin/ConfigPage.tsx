@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
+import { mensajeDeError } from '@/lib/errores';
+import { toast } from '@/stores/toastStore';
 import { Settings, Save, Loader2, Clock, Calendar, MapPin, UtensilsCrossed } from 'lucide-react';
 
 interface EmpresaConfig {
@@ -42,9 +44,16 @@ export default function ConfigPage() {
     mutationFn: (data: Partial<EmpresaConfig>) => api.put('/admin/config', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-config'] });
+      // usePeriodoConfig cachea GET /config/periodo 5 minutos aparte de esta
+      // key: sin invalidarla también, el selector de período de las otras 5
+      // pantallas sigue mostrando los días viejos hasta que expire el cache.
+      queryClient.invalidateQueries({ queryKey: ['config', 'periodo'] });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       setForm({});
+    },
+    onError: (err) => {
+      toast({ title: 'No se pudo guardar', description: mensajeDeError(err).mensaje, variant: 'destructive' });
     },
   });
 
