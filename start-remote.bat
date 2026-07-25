@@ -242,9 +242,13 @@ cd /d "%API_DIR%"
 call npx prisma migrate deploy 2>nul || (
     echo   Migraciones ya aplicadas
 )
+:: Solo siembra si la base esta vacia. Sin el flag repuebla la nomina completa
+:: en CADA arranque: el seed es idempotente, asi que ya no falla como antes y
+:: no alcanza con dejar que reviente para no re-sembrar.
+:: Para sembrar a proposito: cd apps\api ^&^& npm run db:seed
 echo       Verificando datos de seed...
-call npx tsx prisma/seed.ts 2>nul || (
-    echo   Seeds ya ejecutados o error
+call npx tsx prisma/seed.ts --solo-si-vacia || (
+    echo   [AVISO] El seed fallo. Revisa el mensaje de arriba.
 )
 cd /d "%ROOT%"
 

@@ -471,7 +471,29 @@ const EMPLEADOS: {
 // ═══════════════════════════════════════════════════════════════
 // MAIN SEED
 // ═══════════════════════════════════════════════════════════════
+/**
+ * Con --solo-si-vacia el seed no hace nada si la base ya tiene una empresa.
+ *
+ * Lo usa start-remote.bat, que corre en CADA arranque. Antes de que el seed
+ * fuera idempotente, ese llamado reventaba con P2002 al llegar al admin y esa
+ * explosión hacía las veces de guarda: no re-creaba los usuarios (a costa de
+ * dejar una empresa huérfana por corrida). Al arreglar la idempotencia el seed
+ * pasó a terminar bien, así que repoblaba la nómina completa cada vez que se
+ * levantaba el entorno.
+ *
+ * Sin el flag el comportamiento es el de siempre: sembrar y completar lo que
+ * falte. Eso es lo que se quiere en `npm run db:seed` a mano.
+ */
+async function baseYaSembrada(): Promise<boolean> {
+  return (await prisma.empresa.count()) > 0;
+}
+
 async function main() {
+  if (process.argv.includes('--solo-si-vacia') && (await baseYaSembrada())) {
+    console.log('↩️  La base ya tiene datos: no se siembra (--solo-si-vacia).');
+    return;
+  }
+
   console.log('🌱 Iniciando seed beta 1.0...');
 
   // ─────────────────────────────────
