@@ -10,10 +10,10 @@ import type { PasoAprobacion } from '@/components/ui/ApprovalProgressBar';
 import {
   Palmtree, Plus, Send, XCircle,
   Loader2, X, Calendar, ChevronLeft, ChevronRight, Filter, UserCheck, Clock,
-  ChevronDown, ChevronUp, User,
+  ChevronDown, ChevronUp, User, AlertTriangle,
 } from 'lucide-react';
 import PeriodSelector from '@/components/layout/PeriodSelector';
-import { usePeriodoActual } from '@/hooks/usePeriodoConfig';
+import { usePeriodoActual, AVISO_PERIODO_POR_DEFECTO } from '@/hooks/usePeriodoConfig';
 import ScopeToggle from '@/components/layout/ScopeToggle';
 
 
@@ -217,7 +217,7 @@ export default function VacacionesPage({ embedded = false }: VacacionesPageProps
     return params.get('crear') === 'true' && ['OPERADOR', 'SUPERVISOR', 'COORDINADOR', 'GERENTE'].includes(rol);
   });
   const [filterSector, setFilterSector] = useState('');
-  const { periodo, setPeriodo, listo } = usePeriodoActual();
+  const { periodo, setPeriodo, listo, usandoValoresPorDefecto } = usePeriodoActual();
   const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
   const canApprove = useCanApprove();
@@ -270,6 +270,14 @@ export default function VacacionesPage({ embedded = false }: VacacionesPageProps
 
   return (
     <div className="space-y-6">
+      {/* Cuando está embebida (tab "Vacaciones" dentro de Ausencias), la
+         pantalla contenedora ya muestra este aviso — evitamos duplicarlo. */}
+      {!embedded && usandoValoresPorDefecto && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+          <p className="text-xs text-amber-400">{AVISO_PERIODO_POR_DEFECTO}</p>
+        </div>
+      )}
       {!embedded && (
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>

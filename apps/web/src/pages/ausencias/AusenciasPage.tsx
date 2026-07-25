@@ -15,7 +15,7 @@ import {
   DollarSign, Check,
 } from 'lucide-react';
 import PeriodSelector from '@/components/layout/PeriodSelector';
-import { usePeriodoActual } from '@/hooks/usePeriodoConfig';
+import { usePeriodoActual, AVISO_PERIODO_POR_DEFECTO } from '@/hooks/usePeriodoConfig';
 import ScopeToggle from '@/components/layout/ScopeToggle';
 import { useDialogStore } from '@/stores/dialogStore';
 
@@ -99,7 +99,7 @@ export default function AusenciasPage() {
   const [showSolicitarForm, setShowSolicitarForm] = useState(false);
   const [filterTipo, setFilterTipo] = useState('');
   const [filterSector, setFilterSector] = useState('');
-  const { periodo, setPeriodo, listo } = usePeriodoActual();
+  const { periodo, setPeriodo, listo, usandoValoresPorDefecto } = usePeriodoActual();
   const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
   const canApprove = useCanApprove();
@@ -179,6 +179,12 @@ export default function AusenciasPage() {
 
   return (
     <div className="space-y-6">
+      {usandoValoresPorDefecto && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+          <p className="text-xs text-amber-400">{AVISO_PERIODO_POR_DEFECTO}</p>
+        </div>
+      )}
       {/* Page header with tabs */}
       <div>
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2 mb-4">

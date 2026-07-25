@@ -12,7 +12,7 @@ import {
   History, AlertCircle, ChevronRight, ChevronDown, X, Send, AlertTriangle, Filter
 } from 'lucide-react';
 import PeriodSelector from '@/components/layout/PeriodSelector';
-import { usePeriodoActual } from '@/hooks/usePeriodoConfig';
+import { usePeriodoActual, AVISO_PERIODO_POR_DEFECTO } from '@/hooks/usePeriodoConfig';
 import ScopeToggle from '@/components/layout/ScopeToggle';
 import ApprovalProgressBar, { type PasoAprobacion } from '@/components/ui/ApprovalProgressBar';
 
@@ -163,7 +163,7 @@ export default function AprobacionesPage() {
   const [confirmandoNombre, setConfirmandoNombre] = useState('');
   const [confirmandoChecked, setConfirmandoChecked] = useState(false);
   const [filterSector, setFilterSector] = useState('');
-  const { periodo, setPeriodo, listo } = usePeriodoActual();
+  const { periodo, setPeriodo, listo, usandoValoresPorDefecto } = usePeriodoActual();
   const [scope, setScope] = useState<'mio' | 'equipo'>('equipo');
   const [faltantesPeriodoTab, setFaltantesPeriodoTab] = useState<'actual' | 'anterior'>('actual');
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
@@ -281,6 +281,12 @@ export default function AprobacionesPage() {
 
   return (
     <div className="space-y-5">
+      {usandoValoresPorDefecto && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+          <p className="text-xs text-amber-400">{AVISO_PERIODO_POR_DEFECTO}</p>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
