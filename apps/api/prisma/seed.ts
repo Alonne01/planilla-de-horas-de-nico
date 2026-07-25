@@ -1,5 +1,16 @@
+/**
+ * seed.ts — Siembra los datos base de la empresa.
+ *
+ * ES IDEMPOTENTE: correrlo dos veces no duplica nada. Cada entidad se busca por
+ * su clave natural antes de crearse, y las filas existentes NUNCA se pisan.
+ *
+ * Límite conocido: sectores, diagramas y flujos se identifican por `nombre`.
+ * Si alguien renombra uno desde la UI, una corrida posterior del seed lo vuelve
+ * a crear con el nombre original.
+ */
 import { PrismaClient, DiagramaTipo, ContratoTipo } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import { buscarOCrear } from './seed-helpers.js';
 
 const prisma = new PrismaClient();
 
@@ -466,13 +477,12 @@ async function main() {
   // ─────────────────────────────────
   // 1. EMPRESA
   // ─────────────────────────────────
-  const empresa = await prisma.empresa.create({
-    data: {
-      nombre: 'WENLEN',
-      cuit: '30-12345678-9',
-    },
-  });
-  console.log('✅ Empresa creada:', empresa.nombre);
+  const { fila: empresa } = await buscarOCrear(
+    prisma.empresa,
+    { cuit: '30-12345678-9' },
+    { nombre: 'WENLEN', cuit: '30-12345678-9' },
+  );
+  console.log('✅ Empresa:', empresa.nombre, `(${empresa.id})`);
 
   // ─────────────────────────────────
   // 1b. ROLES (dynamic)
@@ -486,10 +496,16 @@ async function main() {
     { codigo: 'SUPERVISOR', nombre: 'Supervisor', descripcion: 'Supervisión de operaciones en campo', color: '#10B981', nivel: 60, esSistema: true },
     { codigo: 'OPERADOR', nombre: 'Operador', descripcion: 'Carga de horas y solicitudes', color: '#64748B', nivel: 10, esSistema: true },
   ];
+  let rolesCreados = 0;
   for (const r of rolesData) {
-    await prisma.rolConfig.create({ data: { empresaId: empresa.id, ...r } });
+    const { creada } = await buscarOCrear(
+      prisma.rolConfig,
+      { empresaId: empresa.id, codigo: r.codigo },
+      { empresaId: empresa.id, ...r },
+    );
+    if (creada) rolesCreados++;
   }
-  console.log('✅ 7 roles del sistema creados');
+  console.log(`✅ Roles del sistema: ${rolesCreados} creados, ${rolesData.length - rolesCreados} ya existían`);
 
   // ─────────────────────────────────
   // 2. SECTORES
@@ -507,13 +523,17 @@ async function main() {
   ];
 
   const sectores: Record<string, string> = {};
+  let sectoresCreados = 0;
   for (const s of sectoresData) {
-    const sector = await prisma.sector.create({
-      data: { empresaId: empresa.id, ...s },
-    });
-    sectores[s.nombre] = sector.id;
+    const { fila, creada } = await buscarOCrear(
+      prisma.sector,
+      { empresaId: empresa.id, nombre: s.nombre },
+      { empresaId: empresa.id, ...s },
+    );
+    if (creada) sectoresCreados++;
+    sectores[s.nombre] = fila.id;
   }
-  console.log('✅ 9 sectores creados');
+  console.log(`✅ Sectores: ${sectoresCreados} creados, ${sectoresData.length - sectoresCreados} ya existían`);
 
   // ─────────────────────────────────
   // 5. DIAGRAMAS DE TRABAJO
@@ -531,9 +551,12 @@ async function main() {
   ];
 
   const diagramas: Record<string, string> = {};
+  let diagramasCreados = 0;
   for (const d of diagramasData) {
-    const diagrama = await prisma.diagrama.create({
-      data: {
+    const { fila, creada } = await buscarOCrear(
+      prisma.diagrama,
+      { empresaId: empresa.id, nombre: d.nombre },
+      {
         empresaId: empresa.id,
         nombre: d.nombre,
         tipo: d.tipo,
@@ -542,10 +565,11 @@ async function main() {
         diasSemana: d.diasSemana ?? [],
         descripcion: d.descripcion,
       },
-    });
-    diagramas[d.nombre] = diagrama.id;
+    );
+    if (creada) diagramasCreados++;
+    diagramas[d.nombre] = fila.id;
   }
-  console.log('✅ 9 diagramas creados');
+  console.log(`✅ Diagramas: ${diagramasCreados} creados, ${diagramasData.length - diagramasCreados} ya existían`);
 
   // ─────────────────────────────────
   // 6. FLUJOS DE APROBACIÓN
@@ -626,45 +650,47 @@ async function main() {
   // Mapa para almacenar IDs de flujos: key = 'TIPO_PATRON' (e.g., 'PLANILLA_A')
   const flujos: Record<string, string> = {};
 
+  let flujosCreados = 0;
   for (const fc of flujosConfig) {
-    const flujo = await prisma.flujoAprobacion.create({
-      data: {
+    const { fila, creada } = await buscarOCrear(
+      prisma.flujoAprobacion,
+      { empresaId: empresa.id, nombre: fc.nombre },
+      {
         empresaId: empresa.id,
         nombre: fc.nombre,
         tipoDocumento: fc.tipoDocumento,
         descripcion: fc.descripcion,
         pasos: { create: fc.pasos },
       },
-    });
+    );
+    if (creada) flujosCreados++;
 
     // Determine pattern letter from name
     let patron: string;
     if (fc.nombre.includes('Coordinador')) patron = 'A';
     else if (fc.nombre.includes('Supervisor')) patron = 'B';
     else patron = 'C';
-    flujos[`${fc.tipoDocumento}_${patron}`] = flujo.id;
+    flujos[`${fc.tipoDocumento}_${patron}`] = fila.id;
   }
-  console.log('✅ 9 flujos de aprobación creados');
+  console.log(`✅ Flujos de aprobación: ${flujosCreados} creados, ${flujosConfig.length - flujosCreados} ya existían`);
 
   // ─────────────────────────────────
   // 7. CONFIG DE EMPRESA
   // ─────────────────────────────────
-  await prisma.empresaConfig.create({
-    data: {
-      empresaId: empresa.id,
-      feriadosPersonalizados: FERIADOS_PETROLEROS,
-    },
+  await prisma.empresaConfig.upsert({
+    where: { empresaId: empresa.id },
+    update: {},
+    create: { empresaId: empresa.id, feriadosPersonalizados: FERIADOS_PETROLEROS },
   });
-  console.log(
-    '✅ Config de empresa creada con', FERIADOS_PETROLEROS.length,
-    'feriados propios del CCT (los nacionales los sincroniza el servidor)',
-  );
+  console.log('✅ Config de empresa (no se pisa si ya existía)');
 
   // ─────────────────────────────────
   // 8. CONFIG DE VACACIONES
   // ─────────────────────────────────
-  await prisma.vacacionesConfig.create({
-    data: {
+  await prisma.vacacionesConfig.upsert({
+    where: { empresaId: empresa.id },
+    update: {},
+    create: {
       empresaId: empresa.id,
       reglasAntiguedad: [
         { desde_anos: 0, hasta_anos: 1, dias: 14 },
@@ -675,7 +701,7 @@ async function main() {
       ],
     },
   });
-  console.log('✅ Config de vacaciones creada');
+  console.log('✅ Config de vacaciones (no se pisa si ya existía)');
 
   // ─────────────────────────────────
   // 9. USUARIOS (nómina completa)
@@ -686,8 +712,10 @@ async function main() {
   const adminPasswordHash = await hashPassword(seedAdminPassword);
 
   // Cuenta de sistema (superusuario)
-  await prisma.usuario.create({
-    data: {
+  const { creada: adminCreado } = await buscarOCrear(
+    prisma.usuario,
+    { email: 'admin@wenlen.com' },
+    {
       empresaId: empresa.id,
       sectorId: null,
       nombre: 'Administrador',
@@ -700,8 +728,10 @@ async function main() {
       fechaIngreso: new Date('2024-01-01'),
       primerLogin: true,
     },
-  });
-  console.log('✅ Cuenta admin del sistema creada: admin@wenlen.com');
+  );
+  console.log(adminCreado
+    ? '✅ Cuenta admin del sistema creada: admin@wenlen.com'
+    : '↩️  admin@wenlen.com ya existía, no se toca');
 
   const sectorMap: Record<string, string> = {
     'FRACTURA': sectores['Fractura'],
@@ -718,9 +748,12 @@ async function main() {
   };
 
   let userCount = 0;
+  let userSkipped = 0;
   for (const emp of EMPLEADOS) {
-    await prisma.usuario.create({
-      data: {
+    const { creada } = await buscarOCrear(
+      prisma.usuario,
+      { email: emp.email },
+      {
         empresaId: empresa.id,
         sectorId: ['ADMIN', 'RRHH', 'GERENTE'].includes(emp.rol) && emp.sector === 'ADMINISTRACION'
           ? null
@@ -737,11 +770,12 @@ async function main() {
         fechaIngreso: new Date(emp.fechaIngreso),
         primerLogin: true,
       },
-    });
+    );
+    if (!creada) { userSkipped++; continue; }
     userCount++;
     if (userCount % 50 === 0) console.log(`  ... ${userCount} usuarios creados`);
   }
-  console.log(`✅ ${userCount} usuarios creados`);
+  console.log(`✅ Usuarios: ${userCount} creados, ${userSkipped} ya existían`);
 
   // ─────────────────────────────────
   // 10. ASIGNACIÓN DE FLUJOS A SECTORES
@@ -753,36 +787,36 @@ async function main() {
   // Patrón C (1 paso): Administración, Almacén, Intendencia, Wireline
   const sectoresPatronC = ['Administración', 'Almacén', 'Intendencia', 'Wireline'];
 
+  let asignacionesCreadas = 0;
+  const asignar = async (flujoId: string, tipo: string, sectorId: string) => {
+    const { creada } = await buscarOCrear(
+      prisma.flujoAsignacion,
+      { flujoId, tipoDocumento: tipo, sectorId },
+      { flujoId, tipoDocumento: tipo, sectorId },
+    );
+    if (creada) asignacionesCreadas++;
+  };
+
   for (const tipo of ['PLANILLA', 'VACACION', 'AUSENCIA', 'CAMBIO_DIAGRAMA'] as const) {
-    for (const sectorNombre of sectoresPatronA) {
-      await prisma.flujoAsignacion.create({
-        data: { flujoId: flujos[`${tipo}_A`], tipoDocumento: tipo, sectorId: sectores[sectorNombre] },
-      });
-    }
-    for (const sectorNombre of sectoresPatronB) {
-      await prisma.flujoAsignacion.create({
-        data: { flujoId: flujos[`${tipo}_B`], tipoDocumento: tipo, sectorId: sectores[sectorNombre] },
-      });
-    }
-    for (const sectorNombre of sectoresPatronC) {
-      await prisma.flujoAsignacion.create({
-        data: { flujoId: flujos[`${tipo}_C`], tipoDocumento: tipo, sectorId: sectores[sectorNombre] },
-      });
-    }
+    for (const sectorNombre of sectoresPatronA) await asignar(flujos[`${tipo}_A`], tipo, sectores[sectorNombre]);
+    for (const sectorNombre of sectoresPatronB) await asignar(flujos[`${tipo}_B`], tipo, sectores[sectorNombre]);
+    for (const sectorNombre of sectoresPatronC) await asignar(flujos[`${tipo}_C`], tipo, sectores[sectorNombre]);
   }
-  console.log('✅ 36 asignaciones de flujo creadas (9 sectores × 4 tipos)');
+  console.log(`✅ Asignaciones de flujo: ${asignacionesCreadas} creadas`);
 
   // ═════════════════════════════════════════════════
   // RESUMEN
   // ═════════════════════════════════════════════════
   console.log('\n🎉 Seed beta 2.0 completado exitosamente!');
   console.log('═══════════════════════════════════════════');
-  console.log('  9 sectores');
-  console.log('  12 flujos de aprobación (3 patrones × 4 tipos documento)');
-  console.log(`  ${userCount + 1} usuarios (1 admin sistema + ${userCount} empleados)`);
+  console.log(`  Roles: ${rolesCreados} creados, ${rolesData.length - rolesCreados} ya existían`);
+  console.log(`  Sectores: ${sectoresCreados} creados, ${sectoresData.length - sectoresCreados} ya existían`);
+  console.log(`  Diagramas: ${diagramasCreados} creados, ${diagramasData.length - diagramasCreados} ya existían`);
+  console.log(`  Flujos de aprobación: ${flujosCreados} creados, ${flujosConfig.length - flujosCreados} ya existían (3 patrones × 4 tipos documento)`);
+  console.log(`  Asignaciones de flujo: ${asignacionesCreadas} creadas`);
+  console.log(`  Usuarios: ${userCount + (adminCreado ? 1 : 0)} creados (${adminCreado ? '1 admin sistema + ' : ''}${userCount} empleados), ${userSkipped} ya existían`);
   console.log('  Convenios: CCT 644/12 PP (22 cats) + CCT 637/11 PJ (1 cat SPJ)');
-  console.log('  9 diagramas de trabajo');
-  console.log('  ' + feriados.length + ' feriados configurados');
+  console.log('  ' + FERIADOS_PETROLEROS.length + ' feriados configurados');
   console.log('───────────────────────────────────────────');
   console.log('Usuarios clave para login:');
   // Sólo se imprime la contraseña cuando es la del default (que ya está en el repo):
