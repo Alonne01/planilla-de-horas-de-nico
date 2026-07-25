@@ -6,8 +6,13 @@ import type { PrismaClient, Prisma } from '@prisma/client';
  * Esta es la forma que se guarda en `circuitoSnapshot` del documento: una vez
  * enviado, el recorrido es de ese documento y no vuelve a depender de la
  * configuración, que puede cambiar mientras el documento circula.
+ *
+ * Va como `type` y no como `interface` a propósito: TypeScript solo le da
+ * index signature implícita a los type alias, y sin ella un `PasoCircuito[]` no
+ * encaja en el `Prisma.InputJsonValue` de la columna `circuitoSnapshot`. Con
+ * `interface` cada uno de los cuatro tipos de documento necesitaría un cast.
  */
-export interface PasoCircuito {
+export type PasoCircuito = {
   orden: number;
   nombrePaso: string;
   rolAprobador: string;
@@ -15,7 +20,7 @@ export interface PasoCircuito {
   requiereComentarioRechazo: boolean;
   tiempoLimiteHoras: number | null;
   notificarRoles: string[];
-}
+};
 
 /**
  * Arma el circuito que le corresponde a quien envía, según su nivel.

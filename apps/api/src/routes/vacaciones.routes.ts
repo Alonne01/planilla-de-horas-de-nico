@@ -660,7 +660,8 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
     });
     const solicitanteNombre = solicitante ? `${solicitante.nombre} ${solicitante.apellido}` : 'Un empleado';
     await notificarAprobadoresPaso(
-      vacacion.usuarioId, req.user!.empresaId, vacacion.flujoId, 1, 'VACACION', solicitanteNombre,
+      vacacion.usuarioId, req.user!.empresaId,
+      { flujoId: vacacion.flujoId, orden: 1 }, 'VACACION', solicitanteNombre,
     );
 
     res.json(updated);
@@ -830,7 +831,8 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       });
       const ownerNombre = ownerInfo ? `${ownerInfo.nombre} ${ownerInfo.apellido}` : 'Un empleado';
       await notificarAprobadoresPaso(
-        vacacion.usuarioId, req.user!.empresaId, vacacion.flujoId, nuevoPaso, 'VACACION', ownerNombre,
+        vacacion.usuarioId, req.user!.empresaId,
+        { flujoId: vacacion.flujoId, orden: nuevoPaso }, 'VACACION', ownerNombre,
       );
     }
 

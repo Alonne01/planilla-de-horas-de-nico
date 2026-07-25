@@ -528,16 +528,17 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
         enviadaAt: new Date(),
         obsRechazo: null,
         flujoId: flujo?.id ?? null,
-        // `Prisma.DbNull` y no `undefined`: con `undefined` Prisma ni toca la
-        // columna, así que al reenviar una planilla rechazada cuyo sector se quedó
-        // sin flujo quedaría pegado el snapshot viejo — el circuito fantasma que
-        // este cambio viene a eliminar. El doble cast, en cambio, es una limitación
-        // de TypeScript y no un tipo dudoso: una `interface` no recibe index
-        // signature implícita y por eso no encaja en `InputJsonValue`, aunque sean
-        // objetos planos de string/number/boolean/array.
-        circuitoSnapshot: circuito.length > 0
-          ? (circuito as unknown as Prisma.InputJsonValue)
-          : Prisma.DbNull,
+        // Se guarda SIEMPRE el arreglo, aunque venga vacío, y nunca `undefined`:
+        //  - con `undefined` Prisma ni toca la columna, así que al reenviar una
+        //    planilla rechazada cuyo sector se quedó sin flujo quedaría pegado el
+        //    snapshot viejo — el circuito fantasma que este cambio viene a eliminar;
+        //  - con `DbNull` el vacío sería indistinguible de una planilla anterior a
+        //    este cambio, y `pasosDe` caería al flujo vivo. Si después le cargan
+        //    pasos a ese flujo, la planilla en vuelo empezaría a seguir la cadena
+        //    nueva, que es exactamente lo que el congelado tiene que impedir.
+        // Un `[]` guardado dice "se envió sin circuito", que es un hecho del
+        // documento y no una ausencia de dato.
+        circuitoSnapshot: circuito,
       },
     });
 
@@ -564,7 +565,8 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
     // principio del handler es la de ANTES del update y ahí el borrador no tiene
     // flujo, así que nadie recibiría el aviso.
     await notificarAprobadoresPaso(
-      planilla.usuarioId, req.user!.empresaId, flujo?.id ?? null, 1, 'PLANILLA', solicitanteNombre,
+      planilla.usuarioId, req.user!.empresaId,
+      { rolAprobador: circuito[0]?.rolAprobador }, 'PLANILLA', solicitanteNombre,
     );
 
     res.json({
@@ -756,7 +758,11 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       });
       const ownerNombre = ownerInfo ? `${ownerInfo.nombre} ${ownerInfo.apellido}` : 'Un empleado';
       await notificarAprobadoresPaso(
-        planilla.usuarioId, req.user!.empresaId, planilla.flujoId, nuevoPaso, 'PLANILLA', ownerNombre,
+        planilla.usuarioId, req.user!.empresaId,
+        // El rol sale del circuito de ESTA planilla: `nuevoPaso` indexa el
+        // snapshot renumerado, no la cadena configurada.
+        { rolAprobador: pasos.find((p) => p.orden === nuevoPaso)?.rolAprobador },
+        'PLANILLA', ownerNombre,
       );
     }
 

@@ -120,23 +120,46 @@ export async function notificarEnvio(
 }
 
 /**
+ * De dónde sale el rol que tiene que aprobar el paso al que se avisa.
+ *
+ * `{ rolAprobador }` es la forma correcta para un documento con circuito
+ * congelado: el snapshot renumera los pasos desde 1, así que el `orden` del
+ * documento NO indexa la cadena configurada. Buscar el paso vivo por
+ * `(flujoId, orden)` en ese caso le avisa al rol equivocado — por ejemplo, a un
+ * coordinador cuyo circuito arranca en GERENTE le llegaría el aviso al
+ * SUPERVISOR, que es el paso 1 del flujo original.
+ *
+ * `{ flujoId, orden }` queda solo para los documentos anteriores al congelado,
+ * donde `pasoActual` sí indexa la cadena viva.
+ */
+export type OrigenPasoNotificacion =
+  | { rolAprobador: string | null | undefined }
+  | { flujoId: string | null | undefined; orden: number };
+
+/**
  * Notify the approvers for a specific flow step.
  * Finds users with the matching role who are responsible for the document owner.
  */
 export async function notificarAprobadoresPaso(
   ownerUserId: string,
   empresaId: string,
-  flujoId: string | null | undefined,
-  pasoOrden: number,
+  origen: OrigenPasoNotificacion,
   tipo: 'PLANILLA' | 'VACACION' | 'AUSENCIA',
   solicitanteNombre: string,
 ): Promise<void> {
-  if (!flujoId) return;
   try {
-    const paso = await prisma.flujoPaso.findFirst({
-      where: { flujoId, orden: pasoOrden },
-    });
-    if (!paso) return;
+    let rolAprobador: string;
+    if ('rolAprobador' in origen) {
+      if (!origen.rolAprobador) return;
+      rolAprobador = origen.rolAprobador;
+    } else {
+      if (!origen.flujoId) return;
+      const paso = await prisma.flujoPaso.findFirst({
+        where: { flujoId: origen.flujoId, orden: origen.orden },
+      });
+      if (!paso) return;
+      rolAprobador = paso.rolAprobador;
+    }
 
     const owner = await prisma.usuario.findUnique({
       where: { id: ownerUserId },
@@ -144,7 +167,6 @@ export async function notificarAprobadoresPaso(
     });
     if (!owner) return;
 
-    const rolAprobador = paso.rolAprobador;
     let approverIds: string[] = [];
 
     if (rolAprobador === 'SUPERVISOR' && owner.supervisorId) {

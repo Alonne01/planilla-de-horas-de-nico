@@ -302,7 +302,8 @@ router.post('/solicitar', async (req: AuthRequest, res: Response): Promise<void>
     // Notify step 1 approvers via flow
     const solicitanteNombre = usuario ? `${usuario.nombre} ${usuario.apellido}` : 'Un empleado';
     await notificarAprobadoresPaso(
-      userId, empresaId, ausencia.flujoId, 1, 'AUSENCIA', solicitanteNombre,
+      userId, empresaId,
+      { flujoId: ausencia.flujoId, orden: 1 }, 'AUSENCIA', solicitanteNombre,
     );
 
     res.status(201).json(ausencia);
@@ -851,7 +852,8 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       });
       const ownerNombre = ownerInfo ? `${ownerInfo.nombre} ${ownerInfo.apellido}` : 'Un empleado';
       await notificarAprobadoresPaso(
-        ausencia.usuarioId, req.user!.empresaId, ausencia.flujoId, nuevoPaso, 'AUSENCIA', ownerNombre,
+        ausencia.usuarioId, req.user!.empresaId,
+        { flujoId: ausencia.flujoId, orden: nuevoPaso }, 'AUSENCIA', ownerNombre,
       );
     }
 
