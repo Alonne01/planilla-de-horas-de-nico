@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { mensajeDeError } from '@/lib/errores';
 import { Plus, Pencil, Trash2, Loader2, X, Calendar } from 'lucide-react';
 import { useDialogStore } from '@/stores/dialogStore';
+import { toast } from '@/stores/toastStore';
 
 interface Diagrama {
   id: string;
@@ -37,8 +38,22 @@ export default function DiagramasPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/admin/diagramas/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['diagramas'] }),
+    mutationFn: async (id: string) => {
+      const { data } = await api.delete(`/admin/diagramas/${id}`);
+      // 204 sin body cuando se borra de verdad; 200 con esto cuando el backend
+      // decide desactivar en lugar de borrar (asignaciones históricas o
+      // solicitudes de cambio que referencian el diagrama).
+      return data as { softDeleted?: boolean; message?: string } | undefined;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['diagramas'] });
+      if (data?.softDeleted) {
+        toast({ title: 'Diagrama desactivado en lugar de borrado', description: data.message, variant: 'default' });
+      }
+    },
+    onError: (err) => {
+      toast({ title: 'No se pudo borrar el diagrama', description: mensajeDeError(err).mensaje, variant: 'destructive' });
+    },
   });
 
   return (
