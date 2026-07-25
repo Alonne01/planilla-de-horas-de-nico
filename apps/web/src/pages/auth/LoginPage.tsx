@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/authStore';
 import api from '@/services/api';
 import { Loader2, LogIn, Eye, EyeOff, Bug, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { mensajeDeError } from '@/lib/errores';
 import { claveDebug, olvidarClaveDebug } from '@/lib/debugClave';
 
 const loginSchema = z.object({
@@ -88,12 +89,13 @@ export default function LoginPage() {
         navigate('/dashboard');
       }
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        setError(axiosErr.response?.data?.error ?? 'Error al iniciar sesión');
-      } else {
-        setError('Error de conexión con el servidor');
-      }
+      // Un 401 acá es "email o contraseña incorrectos" y nada más: el backend ya
+      // responde con el mismo mensaje genérico exista o no la cuenta
+      // (auth.routes.ts), pero fijamos el texto igual para no depender de eso ni
+      // enumerar campos si el backend cambiara. mensajeDeError solo se usa para
+      // los demás casos (red, error de servidor, JS del cliente).
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      setError(status === 401 ? 'Email o contraseña incorrectos' : mensajeDeError(err).mensaje);
     }
   };
 

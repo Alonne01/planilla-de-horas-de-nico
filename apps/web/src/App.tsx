@@ -34,6 +34,7 @@ import WentopPage from '@/pages/WentopPage';
 import { Loader2 } from 'lucide-react';
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { toast } from '@/stores/toastStore';
+import { mensajeDeError } from '@/lib/errores';
 import Toaster from '@/components/ui/Toaster';
 import GlobalDialog from '@/components/ui/GlobalDialog';
 import ServidorInactivo from '@/components/ServidorInactivo';
@@ -48,8 +49,10 @@ const queryClient = new QueryClient({
       // Con el servidor caído ya se muestra el cartel bloqueante: un toast
       // encima sería ruido, y además diría "SERVIDOR_INACTIVO".
       if (esServidorCaido(err)) return;
-      const message = err.response?.data?.error || 'Ocurrió un error inesperado';
-      toast({ title: 'Error', description: message, variant: 'destructive' });
+      // Este es el fallback para cualquier mutación que no defina su propio
+      // onError: usa el mismo traductor que el resto de la app para no mostrar
+      // "Datos inválidos" a secas cuando el backend sí manda el detalle por campo.
+      toast({ title: 'Error', description: mensajeDeError(error).mensaje, variant: 'destructive' });
     },
   }),
   defaultOptions: {

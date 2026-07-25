@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
+import { mensajeDeError } from '@/lib/errores';
 import { useAuthStore } from '@/stores/authStore';
 import { useCanApprove } from '@/hooks/useCanApprove';
 import ApprovalProgressBar, { enriquecerPasos } from '@/components/ui/ApprovalProgressBar';
@@ -458,10 +459,7 @@ function VacacionFormModal({
       });
       onSuccess();
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        setError(axiosErr.response?.data?.error ?? 'Error al crear');
-      }
+      setError(mensajeDeError(err).mensaje);
     } finally {
       setLoading(false);
     }

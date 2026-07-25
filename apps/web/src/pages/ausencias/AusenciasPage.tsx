@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import api, { getUploadUrl } from '@/services/api';
 import { cn } from '@/lib/utils';
+import { mensajeDeError } from '@/lib/errores';
 import { useAuthStore } from '@/stores/authStore';
 import { useCanApprove } from '@/hooks/useCanApprove';
 import CalendarRangePicker from '@/components/layout/CalendarRangePicker';
@@ -494,10 +495,7 @@ function AusenciaFormModal({ onClose, onSuccess }: { onClose: () => void; onSucc
 
       onSuccess();
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        setError(axiosErr.response?.data?.error ?? 'Error al crear');
-      }
+      setError(mensajeDeError(err).mensaje);
     } finally {
       setLoading(false);
     }
@@ -693,10 +691,7 @@ function CompensatorioFormModal({
       });
       onSuccess();
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        setError(axiosErr.response?.data?.error ?? 'Error al crear');
-      }
+      setError(mensajeDeError(err).mensaje);
     } finally {
       setLoading(false);
     }
@@ -836,10 +831,7 @@ function SolicitarAusenciaModal({ onClose, onSuccess }: { onClose: () => void; o
 
       onSuccess();
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        setError(axiosErr.response?.data?.error ?? 'Error al crear');
-      }
+      setError(mensajeDeError(err).mensaje);
     } finally {
       setLoading(false);
     }

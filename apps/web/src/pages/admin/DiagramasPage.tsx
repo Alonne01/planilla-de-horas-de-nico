@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
+import { mensajeDeError } from '@/lib/errores';
 import { Plus, Pencil, Trash2, Loader2, X, Calendar } from 'lucide-react';
 import { useDialogStore } from '@/stores/dialogStore';
 
@@ -176,12 +177,7 @@ function DiagramaFormModal({
       }
       onSuccess();
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        setError(axiosErr.response?.data?.error ?? 'Error');
-      } else {
-        setError('Error de conexión');
-      }
+      setError(mensajeDeError(err).mensaje);
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
+import { mensajeDeError } from '@/lib/errores';
 import { Shield, Plus, Pencil, Trash2, X, Loader2 } from 'lucide-react';
 import { useDialogStore } from '@/stores/dialogStore';
 
@@ -144,12 +145,7 @@ function RolFormModal({ rol, onClose, onSuccess }: { rol: RolConfig | null; onCl
       }
       onSuccess();
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        setError(axiosErr.response?.data?.error ?? 'Error al guardar');
-      } else {
-        setError('Error de conexión');
-      }
+      setError(mensajeDeError(err).mensaje);
     } finally {
       setLoading(false);
     }

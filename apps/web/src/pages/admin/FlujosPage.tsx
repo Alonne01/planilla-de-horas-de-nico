@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
+import { mensajeDeError } from '@/lib/errores';
 import {
   GitBranch, Plus, Trash2, Loader2, X,
   Users, FileText, Pencil, ChevronUp, ChevronDown,
@@ -259,8 +260,7 @@ function CreateFlujoModal({ onClose, onSuccess }: { onClose: () => void; onSucce
       await api.post('/admin/flujos', { nombre, tipoDocumento, descripcion: descripcion || undefined, pasos });
       onSuccess();
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { error?: string } } };
-      setError(axiosErr.response?.data?.error ?? 'Error al crear');
+      setError(mensajeDeError(err).mensaje);
     } finally {
       setLoading(false);
     }
@@ -380,8 +380,7 @@ function EditFlujoModal({
       });
       onSuccess();
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { error?: string } } };
-      setError(axiosErr.response?.data?.error ?? 'Error al guardar');
+      setError(mensajeDeError(err).mensaje);
     } finally {
       setLoading(false);
     }

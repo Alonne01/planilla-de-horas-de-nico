@@ -27,6 +27,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useDialogStore } from '@/stores/dialogStore';
 import { toast } from '@/stores/toastStore';
 import { cn } from '@/lib/utils';
+import { mensajeDeError } from '@/lib/errores';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1789,9 +1790,7 @@ function TarjetaFormModal({
             headers: { 'Content-Type': 'multipart/form-data' },
           });
         } catch (err) {
-          const motivo =
-            (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-            'No se pudieron subir las fotos';
+          const motivo = mensajeDeError(err).mensaje;
           clearDraft(draftKey);
           queryClient.invalidateQueries({ queryKey: ['wentop'] });
           toast({

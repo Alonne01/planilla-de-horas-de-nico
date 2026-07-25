@@ -6,6 +6,7 @@ import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import api from '@/services/api';
 import { Loader2, KeyRound, Eye, EyeOff, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { mensajeDeError } from '@/lib/errores';
 
 const resetPasswordSchema = z
   .object({
@@ -77,12 +78,7 @@ export default function ResetPasswordPage() {
       setSuccess(true);
       setTimeout(() => navigate('/login'), 2500);
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        setError(axiosErr.response?.data?.error ?? 'Error al restablecer la contraseña');
-      } else {
-        setError('Error de conexión con el servidor');
-      }
+      setError(mensajeDeError(err).mensaje);
     }
   };
 

@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/authStore';
 import api from '@/services/api';
 import { Loader2, KeyRound, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { mensajeDeError } from '@/lib/errores';
 
 const changePasswordSchema = z
   .object({
@@ -63,12 +64,7 @@ export default function ChangePasswordPage() {
 
       setTimeout(() => navigate('/dashboard'), 1500);
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { error?: string } } };
-        setError(axiosErr.response?.data?.error ?? 'Error al cambiar la contraseña');
-      } else {
-        setError('Error de conexión con el servidor');
-      }
+      setError(mensajeDeError(err).mensaje);
     }
   };
 
