@@ -365,12 +365,12 @@ export default function CierrePage() {
       {/* ─── Tab: Pendientes ─── */}
       {activeTab === 'pendientes' && (
         <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <Users className="h-5 w-5 text-amber-400" />
               Pendientes de aprobación ({pendientesTab.length})
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={async () => {
                   try {
@@ -384,21 +384,23 @@ export default function CierrePage() {
                   } catch { /* noop */ }
                 }}
                 disabled={pendientesTab.length === 0}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors shrink-0 whitespace-nowrap"
               >
                 <Download className="h-3.5 w-3.5" /> Descargar Excel
               </button>
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              <select
-                className="h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm"
-                value={pendientesFilter}
-                onChange={(e) => setPendientesFilter(e.target.value)}
-              >
-                <option value="">Todos los sectores</option>
-                {sectores.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nombre}</option>
-                ))}
-              </select>
+              <div className="flex w-full items-center gap-2 sm:w-auto">
+                <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <select
+                  className="h-9 w-full min-w-0 px-3 rounded-lg border border-input bg-background text-foreground text-sm sm:w-auto sm:min-w-[180px]"
+                  value={pendientesFilter}
+                  onChange={(e) => setPendientesFilter(e.target.value)}
+                >
+                  <option value="">Todos los sectores</option>
+                  {sectores.map((s) => (
+                    <option key={s.id} value={s.id}>{s.nombre}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -410,14 +412,14 @@ export default function CierrePage() {
               <p className="text-sm text-muted-foreground">Todos los empleados tienen planilla aprobada</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="overflow-x-auto -mx-5 px-5 sm:mx-0 sm:px-0">
+              <table className="w-full min-w-[520px] text-sm">
                 <thead>
                   <tr className="border-b border-border text-left">
                     <th className="pb-2 pr-4 font-medium text-muted-foreground">Empleado</th>
                     <th className="pb-2 pr-4 font-medium text-muted-foreground">Legajo</th>
                     <th className="pb-2 pr-4 font-medium text-muted-foreground">Sector</th>
-                    <th className="pb-2 font-medium text-muted-foreground">Estado planilla</th>
+                    <th className="pb-2 font-medium text-muted-foreground whitespace-nowrap">Estado planilla</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -426,7 +428,7 @@ export default function CierrePage() {
                       <td className="py-2.5 pr-4 font-medium">{u.apellido} {u.nombre}</td>
                       <td className="py-2.5 pr-4 text-muted-foreground">{u.legajo ?? '—'}</td>
                       <td className="py-2.5 pr-4 text-muted-foreground">{u.sector?.nombre ?? '—'}</td>
-                      <td className="py-2.5">
+                      <td className="py-2.5 whitespace-nowrap">
                         <span className={cn(
                           'px-2 py-0.5 rounded-full text-[10px] font-medium',
                           u.estadoPlanilla === 'Sin planilla'
@@ -456,7 +458,7 @@ export default function CierrePage() {
         <div className="space-y-4">
           {/* Aprobadas section */}
           <div className="rounded-xl border border-border bg-card p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <FileText className="h-5 w-5 text-blue-400" />
                 Planillas aprobadas ({planillasAprobadas.length})
@@ -512,7 +514,7 @@ export default function CierrePage() {
           {/* Cerradas section */}
           {planillasCerradas.length > 0 && (
             <div className="rounded-xl border border-border bg-card p-5">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                 <h2 className="text-lg font-semibold flex items-center gap-2">
                   <Lock className="h-5 w-5 text-zinc-400" />
                   Planillas cerradas ({planillasCerradas.length})
