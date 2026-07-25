@@ -17,9 +17,10 @@ con `SELECT` de solo lectura contra `postgresql://localhost:5432/planilla_horas`
 | WENTOP / creador | Habilitar cerrar + editar + borrar fotos (alinear front con backend) |
 | Limpieza de datos | **Reset completo** con `reset-testing.ts` (deja solo admin, conserva config) |
 | Selector de Flujos | Arreglarlo para que lea los roles reales de `/admin/roles` |
+| Seed | Hacerlo idempotente (frente H) |
 
-Fuera de alcance por decisión explícita: migrar fechas de planillas históricas, hacer idempotente
-el seed. Ambos quedan anotados al final.
+Fuera de alcance por decisión explícita: migrar fechas de planillas históricas. Queda anotado
+al final.
 
 ---
 
@@ -568,19 +569,84 @@ No requiere ningún cambio de backend salvo el punto 3, que solo consume un endp
 
 ---
 
+## H. Hacer idempotente el seed
+
+Origen de las 2 empresas huérfanas del frente E. No estaba en las capturas; se detectó
+investigando el frente E y el usuario pidió arreglarlo.
+
+### Causa raíz
+
+`seed.ts` usa `.create()` en las **12** escrituras que hace, sin un solo `upsert` ni guarda previa:
+`empresa` (`:469`), `rolConfig` (`:490`), `sector` (`:511`), `diagrama` (`:535`),
+`flujoAprobacion` (`:630`), `empresaConfig` (`:652`), `vacacionesConfig` (`:666`),
+`usuario` (`:689` y `:722`), `flujoAsignacion` (`:758`, `:763`, `:768`).
+
+El mecanismo del daño, verificado contra el schema:
+
+- `Empresa` **no tiene `@unique` en `cuit`** (`schema.prisma:83-117`), así que
+  `empresa.create({ nombre: 'WENLEN', cuit: '30-12345678-9' })` crea un duplicado sin protestar.
+- Todo lo demás cuelga de `empresa.id`, así que la corrida entera se replica.
+- `Usuario.email` **sí** es `@unique` global (`schema.prisma:295`), así que la corrida **revienta
+  con P2002** al llegar a `admin@wenlen.com` (`:689`).
+
+Resultado: una empresa nueva con 7 roles, 9 sectores, 9 diagramas, 9 flujos y sus dos configs,
+**sin ningún usuario** y sin forma de acceder a ella. Es exactamente el estado de
+`bf79f36c…` y `bddb5a38…`, ambas creadas hoy: el seed se corrió dos veces y falló dos veces a
+mitad de camino, dejando la basura atrás.
+
+### Cambio
+
+**Estrategia: find-or-create en toda la cadena**, no `upsert`. Motivo: `Sector`, `Diagrama` y
+`FlujoAprobacion` no tienen restricción única sobre `(empresaId, nombre)`, así que `upsert`
+exigiría migraciones de schema. `findFirst` + `create` si falta consigue lo mismo sin tocar la
+base. Donde sí hay clave natural se usa: `RolConfig` tiene `@@unique([empresaId, codigo])`
+(`:131`) y `Usuario` tiene `email` (`:295`).
+
+1. **Empresa** — `findFirst({ where: { cuit } })` y reutilizar si existe. Esto solo ya elimina el
+   problema de raíz: sin empresa duplicada no hay cadena duplicada.
+2. **Roles, sectores, diagramas, flujos** — find-or-create por `(empresaId, nombre)` (por
+   `(empresaId, codigo)` en roles). Los mapas `sectores` / `diagramas` / `flujos` que el seed
+   arma para las etapas siguientes se pueblan igual, exista o no la fila.
+3. **Configs** — `empresaConfig` y `vacacionesConfig` tienen `empresaId @unique` (`:504`, `:626`),
+   así que van con `upsert` directo. **`update` vacío**: si la config ya existe no se pisa, para no
+   revertir los 16/15 ni los feriados que el servidor sincronizó.
+4. **Usuarios** — `findUnique` por email, y **crear solo si falta**. Nunca actualizar: pisaría el
+   `passwordHash` de usuarios que ya cambiaron su contraseña y revertiría `primerLogin`.
+5. **Asignaciones de flujo** — find-or-create por `(flujoId, tipoDocumento, sectorId)`.
+6. **Resumen honesto al final** — hoy imprime cantidades fijas («9 sectores», «36 asignaciones»,
+   `:773`, `:780-781`) que serían mentira en una corrida parcial. Pasa a contar creados vs.
+   existentes.
+
+**No se envuelve en `$transaction`.** Con find-or-create, una corrida que falle a mitad se repara
+sola volviendo a correr el seed, que es mejor garantía que una transacción — y meter ~200
+`usuario.create` en una transacción interactiva de Prisma pide subir el `timeout` y arriesga
+quedarse corto igual.
+
+### Riesgo
+
+- Identificar sectores y diagramas por `nombre` significa que si alguien renombra uno desde la UI,
+  una corrida posterior del seed lo vuelve a crear. Aceptable para un seed; se documenta en el
+  encabezado del archivo.
+- El cambio se prueba corriendo el seed **dos veces seguidas** sobre una base limpia: la segunda
+  no debe crear nada ni fallar, y la cantidad de empresas debe seguir en 1.
+
+---
+
 ## Orden de ejecución
 
 El orden importa en dos puntos: el error map va **antes** del helper de errores (D), y el reset va
 **antes** de verificar cualquier cosa que dependa de datos (E).
 
-1. **E — Reset** (`pg_dump` → prefijos → `--dry-run` → reset). Deja la base limpia para verificar
+1. **H — Seed idempotente.** Va antes del reset: así, si después de limpiar querés volver a
+   sembrar, el seed ya es seguro y no vuelve a dejar una empresa huérfana.
+2. **E — Reset** (`pg_dump` → prefijos → `--dry-run` → reset). Deja la base limpia para verificar
    todo lo demás.
-2. **B — Períodos.** Es el bug de fondo y toca 5 pantallas.
-3. **C — WENTOP.** Requiere crear una tarjeta nueva post-reset para verificar.
-4. **D — Errores** (error map global → helper → 15 pantallas → modal de usuarios).
-5. **F — UI de Cierre.** Independiente.
-6. **G — Permisos por nivel** + selector de Flujos.
-7. **A — Emojis.** Último a propósito: toca 11 archivos de forma superficial y generaría
+3. **B — Períodos.** Es el bug de fondo y toca 5 pantallas.
+4. **C — WENTOP.** Requiere crear una tarjeta nueva post-reset para verificar.
+5. **D — Errores** (error map global → helper → 15 pantallas → modal de usuarios).
+6. **F — UI de Cierre.** Independiente.
+7. **G — Permisos por nivel** + selector de Flujos.
+8. **A — Emojis.** Último a propósito: toca 11 archivos de forma superficial y generaría
    conflictos con todos los frentes anteriores si va primero.
 
 Commits agrupados por frente, en ese orden, sobre `anvil/ui-improvements`.
@@ -597,6 +663,8 @@ Cada frente se verifica en la app real, no solo con tests:
 - **D** — Crear usuario con `"abcdefgh"` → el cartel debe decir qué falta, en castellano, y el
   campo debe quedar marcado. Probar también el camino del diagrama fallido.
 - **E** — `--dry-run` primero; contar filas de `diagramas` antes y después (48 → 9).
+- **H** — correr el seed **dos veces seguidas** sobre una base limpia: la segunda no crea nada, no
+  falla, y `SELECT count(*) FROM empresas` sigue en 1.
 - **F** — En 360px de ancho: el filtro no debe sangrar fuera de la card; la tabla debe scrollear.
 - **G** — Abrir Nuevo rol, mover el nivel y ver el escalón resaltado; crear un rol y comprobar que
   aparece en el selector de aprobador de Flujos.
@@ -604,9 +672,6 @@ Cada frente se verifica en la app real, no solo con tests:
 ## Fuera de alcance (anotado, no se hace)
 
 - **Migrar las fechas de planillas históricas** al ciclo 16/15. Sin sentido tras el reset.
-- **Hacer idempotente el seed.** `seed.ts:469` hace `prisma.empresa.create` incondicional, sin
-  upsert ni deleteMany previo: **cada `npm run db:seed` futuro crea otra empresa «WENLEN» con 9
-  sectores y 9 diagramas duplicados**. Es el origen de las 2 empresas huérfanas. Volverá a pasar.
 - Las tablas de `VacacionSaldosPage.tsx:228` y `WentopPage.tsx:1086`, con el mismo bug de
   `overflow-x-auto` inútil que el frente F.
 - Selección múltiple + «Eliminar seleccionados» en `/admin/diagramas`.
