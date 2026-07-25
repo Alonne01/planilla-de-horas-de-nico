@@ -7,7 +7,8 @@
  *     WENTOP, mensajes, notificaciones, auditoría, exportaciones…)
  *   - Las empresas basura que dejaron las simulaciones (todas menos la del admin)
  *   - La configuración creada por corridas de prueba: sectores, flujos y
- *     diagramas cuyo nombre empieza con "qa-" o "Verif"
+ *     diagramas cuyo nombre empieza con "qa-", "Verif", "hunt-", "smoke-" o
+ *     "sim-" (la comparación es case-insensitive, así que "sim3-" cubre "SIM3-")
  *
  * Conserva:
  *   - admin@wenlen.com y su empresa
@@ -24,7 +25,7 @@ const prisma = new PrismaClient();
 
 const ADMIN_EMAIL = 'admin@wenlen.com';
 // Prefijos que usan los scripts de QA y las simulaciones al crear datos
-const PREFIJOS_DE_PRUEBA = ['qa-', 'Verif', 'verif-', 'hunt-', 'smoke-'];
+const PREFIJOS_DE_PRUEBA = ['qa-', 'Verif', 'verif-', 'hunt-', 'smoke-', 'sim-', 'sim3-'];
 
 const esDePrueba = (nombre: string | null | undefined) =>
   !!nombre && PREFIJOS_DE_PRUEBA.some((p) => nombre.toLowerCase().startsWith(p.toLowerCase()));
