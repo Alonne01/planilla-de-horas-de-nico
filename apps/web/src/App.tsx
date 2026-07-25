@@ -32,7 +32,7 @@ import CambiosDiagramaPage from '@/pages/CambiosDiagramaPage';
 import MisSolicitudesPage from '@/pages/MisSolicitudesPage';
 import WentopPage from '@/pages/WentopPage';
 import { Loader2 } from 'lucide-react';
-import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryClient, QueryClientProvider, type Mutation } from '@tanstack/react-query';
 import { toast } from '@/stores/toastStore';
 import { mensajeDeError } from '@/lib/errores';
 import Toaster from '@/components/ui/Toaster';
@@ -41,7 +41,7 @@ import ServidorInactivo from '@/components/ServidorInactivo';
 
 const queryClient = new QueryClient({
   mutationCache: new MutationCache({
-    onError: (error: unknown) => {
+    onError: (error: unknown, _variables, _onMutateResult, mutation: Mutation<unknown, unknown, unknown>) => {
       const err = error as {
         code?: string;
         response?: { data?: { error?: string }; status?: number };
@@ -49,6 +49,13 @@ const queryClient = new QueryClient({
       // Con el servidor caído ya se muestra el cartel bloqueante: un toast
       // encima sería ruido, y además diría "SERVIDOR_INACTIVO".
       if (esServidorCaido(err)) return;
+      // Si la mutación define su propio onError, ese callback ya se ocupa de
+      // avisarle al usuario (o de redirigirlo, como en PlanillasPage). El
+      // MutationCache global llama a ambos onError sin early-return posible
+      // desde acá, así que el que decide si hace falta un toast doble es este:
+      // saltarlo cuando ya hay uno específico evita apilar dos toasts rojos
+      // (o un toast contradictorio con una redirección).
+      if (mutation.options.onError) return;
       // Este es el fallback para cualquier mutación que no defina su propio
       // onError: usa el mismo traductor que el resto de la app para no mostrar
       // "Datos inválidos" a secas cuando el backend sí manda el detalle por campo.
