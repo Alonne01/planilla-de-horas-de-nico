@@ -287,10 +287,15 @@ async function cancelarVacacion(res: Response, id: string, userId: string, empre
   if (vac.estado !== 'PENDIENTE') {
     res.status(400).json({ error: `No se puede cancelar una vacación en estado ${vac.estado}` }); return;
   }
+  // Nace en paso 1 y sube uno por firma, sin salir de PENDIENTE: el estado solo no
+  // distingue "nadie la miró" de "ya la firmaron dos". Mismo criterio que `esCancelable`.
+  if (vac.pasoActual > 1) {
+    res.status(400).json({ error: 'La solicitud ya fue firmada por un aprobador' }); return;
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     const { count } = await tx.vacacion.updateMany({
-      where: { id, estado: 'PENDIENTE' },
+      where: { id, estado: 'PENDIENTE', pasoActual: vac.pasoActual },
       data: { estado: 'CANCELADA' },
     });
     if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
@@ -326,10 +331,13 @@ async function cancelarAusencia(res: Response, id: string, userId: string, empre
   if (aus.estado !== 'PENDIENTE') {
     res.status(400).json({ error: `No se puede cancelar una ausencia en estado ${aus.estado}` }); return;
   }
+  if (aus.pasoActual > 1) {
+    res.status(400).json({ error: 'La solicitud ya fue firmada por un aprobador' }); return;
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     const { count } = await tx.ausencia.updateMany({
-      where: { id, estado: 'PENDIENTE' },
+      where: { id, estado: 'PENDIENTE', pasoActual: aus.pasoActual },
       data: { estado: 'CANCELADA', aprobada: false },
     });
     if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
@@ -362,9 +370,15 @@ async function cancelarCambioDiagrama(res: Response, id: string, userId: string,
   if (sol.estado !== 'PENDIENTE') {
     res.status(400).json({ error: `No se puede cancelar una solicitud en estado ${sol.estado}` }); return;
   }
+  if (sol.pasoActual > 1) {
+    res.status(400).json({ error: 'La solicitud ya fue firmada por un aprobador' }); return;
+  }
   // El cambio de diagrama no tiene CANCELADA en su enum: el borrado físico es la
   // semántica que ya tenía y no se cambia acá. Su historial va con onDelete: Cascade.
-  await prisma.solicitudCambioDiagrama.delete({ where: { id } });
+  const { count } = await prisma.solicitudCambioDiagrama.deleteMany({
+    where: { id, estado: 'PENDIENTE', pasoActual: sol.pasoActual },
+  });
+  if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
   res.json({ id, estado: 'CANCELADA' });
 }
 
