@@ -483,10 +483,17 @@ const EMPLEADOS: {
  *
  * Sin el flag el comportamiento es el de siempre: sembrar y completar lo que
  * falte. Eso es lo que se quiere en `npm run db:seed` a mano.
+ *
+ * `--sin-nomina` siembra todo MENOS los ~400 empleados de `EMPLEADOS`. Es lo que
+ * hace falta cuando se agrega configuración nueva (un flujo, un feriado) a una
+ * base que se está usando para probar con usuarios propios: sin el flag, correr
+ * el seed para traer esa configuración arrastra la nómina de demo entera.
  */
 async function baseYaSembrada(): Promise<boolean> {
   return (await prisma.empresa.count()) > 0;
 }
+
+const SIN_NOMINA = process.argv.includes('--sin-nomina');
 
 async function main() {
   if (process.argv.includes('--solo-si-vacia') && (await baseYaSembrada())) {
@@ -779,7 +786,7 @@ async function main() {
 
   let userCount = 0;
   let userSkipped = 0;
-  for (const emp of EMPLEADOS) {
+  for (const emp of SIN_NOMINA ? [] : EMPLEADOS) {
     const { creada } = await buscarOCrear(
       prisma.usuario,
       { email: emp.email },
@@ -805,7 +812,11 @@ async function main() {
     userCount++;
     if (userCount % 50 === 0) console.log(`  ... ${userCount} usuarios creados`);
   }
-  console.log(`✅ Usuarios: ${userCount} creados, ${userSkipped} ya existían`);
+  console.log(
+    SIN_NOMINA
+      ? '↩️  Nómina de demo salteada (--sin-nomina)'
+      : `✅ Usuarios: ${userCount} creados, ${userSkipped} ya existían`,
+  );
 
   // ─────────────────────────────────
   // 10. ASIGNACIÓN DE FLUJOS A SECTORES
