@@ -629,6 +629,9 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
 
     let nuevoEstado: PlanillaEstado;
     let nuevoPaso: number;
+    // El rol del paso que se está FIRMANDO, para dejarlo escrito en el historial.
+    // Queda en null en la rama sin circuito: ahí no hay paso que firmar.
+    let rolPasoAprobado: string | null = null;
 
     // pasoActual is 1-based (matches FlujoPaso.orden). 0 = not started, 1..N = current step.
     if (pasoActual > totalPasos || totalPasos === 0) {
@@ -655,6 +658,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         return;
       }
 
+      rolPasoAprobado = pasoConfig.rolAprobador;
       nuevoPaso = pasoActual + 1;
       nuevoEstado = nuevoPaso > totalPasos ? 'APROBADA' : 'EN_REVISION';
     }
@@ -726,7 +730,11 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
             usuarioId: req.user!.userId,
             estadoAnterior: planilla.estado,
             estadoNuevo: nuevoEstado,
-            pasoFlujo: nuevoPaso,
+            // El paso FIRMADO, no el destino: el historial tiene que decir por
+            // dónde pasó la planilla, y el destino ni siquiera existe cuando la
+            // firma es la última del circuito.
+            pasoFlujo: pasoActual,
+            rolAprobador: rolPasoAprobado,
             comentario: req.body?.comentario ?? null,
           },
         });
@@ -834,6 +842,11 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
         usuarioId: req.user!.userId,
         estadoAnterior: planilla.estado,
         estadoNuevo: 'RECHAZADA',
+        // Dónde se cortó el circuito. El update de arriba ya dejó `pasoActual` en
+        // 0, así que el valor sale de la fila que se leyó ANTES de rechazar: sin
+        // esto el historial no dice en qué paso murió la planilla.
+        pasoFlujo: planilla.pasoActual,
+        rolAprobador: currentStep.rolAprobador,
         comentario: motivo,
       },
     });

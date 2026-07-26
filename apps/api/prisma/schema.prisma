@@ -420,7 +420,13 @@ model PlanillaHistorial {
   usuarioId      String          @map("usuario_id")
   estadoAnterior PlanillaEstado? @map("estado_anterior")
   estadoNuevo    PlanillaEstado  @map("estado_nuevo")
+  /// El paso del circuito que se FIRMÓ (no el destino), para poder reconstruir
+  /// el recorrido real aunque después cambien los pasos configurados.
   pasoFlujo      Int?            @map("paso_flujo")
+  /// El rol que tenía ese paso en el circuito congelado. Además de documentar
+  /// quién firmó como qué, distingue las filas nuevas de las viejas (que lo
+  /// tienen en null y guardaban el paso DESTINO).
+  rolAprobador   String?         @map("rol_aprobador")
   comentario     String?
   createdAt      DateTime        @default(now()) @map("created_at")
 
@@ -511,7 +517,13 @@ model VacacionHistorial {
   usuarioId      String          @map("usuario_id")
   estadoAnterior VacacionEstado? @map("estado_anterior")
   estadoNuevo    VacacionEstado  @map("estado_nuevo")
+  /// El paso del circuito que se FIRMÓ (no el destino), para poder reconstruir
+  /// el recorrido real aunque después cambien los pasos configurados.
   pasoFlujo      Int?            @map("paso_flujo")
+  /// El rol que tenía ese paso en el circuito congelado. Además de documentar
+  /// quién firmó como qué, distingue las filas nuevas de las viejas (que lo
+  /// tienen en null y guardaban el paso DESTINO).
+  rolAprobador   String?         @map("rol_aprobador")
   comentario     String?
   createdAt      DateTime        @default(now()) @map("created_at")
 
@@ -612,7 +624,13 @@ model AusenciaHistorial {
   usuarioId      String          @map("usuario_id")
   estadoAnterior AusenciaEstado? @map("estado_anterior")
   estadoNuevo    AusenciaEstado  @map("estado_nuevo")
+  /// El paso del circuito que se FIRMÓ (no el destino), para poder reconstruir
+  /// el recorrido real aunque después cambien los pasos configurados.
   pasoFlujo      Int?            @map("paso_flujo")
+  /// El rol que tenía ese paso en el circuito congelado. Además de documentar
+  /// quién firmó como qué, distingue las filas nuevas de las viejas (que lo
+  /// tienen en null y guardaban el paso DESTINO).
+  rolAprobador   String?         @map("rol_aprobador")
   comentario     String?
   createdAt      DateTime        @default(now()) @map("created_at")
 
@@ -946,7 +964,13 @@ model CambioDiagramaHistorial {
   usuarioId      String                @map("usuario_id")
   estadoAnterior CambioDiagramaEstado? @map("estado_anterior")
   estadoNuevo    CambioDiagramaEstado  @map("estado_nuevo")
+  /// El paso del circuito que se FIRMÓ (no el destino), para poder reconstruir
+  /// el recorrido real aunque después cambien los pasos configurados.
   pasoFlujo      Int?                  @map("paso_flujo")
+  /// El rol que tenía ese paso en el circuito congelado. Además de documentar
+  /// quién firmó como qué, distingue las filas nuevas de las viejas (que lo
+  /// tienen en null y guardaban el paso DESTINO).
+  rolAprobador   String?               @map("rol_aprobador")
   comentario     String?
   createdAt      DateTime              @default(now()) @map("created_at")
 

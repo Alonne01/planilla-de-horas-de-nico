@@ -804,6 +804,9 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
     const pasoActual = ausencia.pasoActual;
     let nuevoEstado: AusenciaEstado;
     let nuevoPaso: number;
+    // El rol del paso que se está FIRMANDO, para dejarlo escrito en el historial.
+    // Queda en null en la rama sin circuito: ahí no hay paso que firmar.
+    let rolPasoAprobado: string | null = null;
 
     // pasoActual is 1-based (matches el `orden` del circuito).
     if (pasoActual > totalPasos || totalPasos === 0) {
@@ -827,6 +830,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
         return;
       }
 
+      rolPasoAprobado = pasoConfig.rolAprobador;
       nuevoPaso = pasoActual + 1;
       nuevoEstado = nuevoPaso > totalPasos ? 'APROBADA' : 'EN_REVISION';
     }
@@ -888,7 +892,11 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
             usuarioId: req.user!.userId,
             estadoAnterior: ausencia.estado as AusenciaEstado,
             estadoNuevo: nuevoEstado,
-            pasoFlujo: nuevoPaso,
+            // El paso FIRMADO, no el destino: el historial tiene que decir por
+            // dónde pasó la solicitud, y el destino ni siquiera existe cuando la
+            // firma es la última del circuito.
+            pasoFlujo: pasoActual,
+            rolAprobador: rolPasoAprobado,
             comentario: req.body?.comentario ?? null,
           },
         });
@@ -1013,6 +1021,11 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
             usuarioId: req.user!.userId,
             estadoAnterior: ausencia.estado as AusenciaEstado,
             estadoNuevo: 'RECHAZADA',
+            // Dónde se cortó el circuito. El updateMany de arriba ya dejó
+            // `pasoActual` en 0, así que el valor sale de la fila que se leyó
+            // ANTES de rechazar: sin esto el historial no dice en qué paso murió.
+            pasoFlujo: ausencia.pasoActual,
+            rolAprobador: currentStep.rolAprobador,
             comentario: motivo,
           },
         });

@@ -176,3 +176,79 @@ export function pasoActualDe(
 ): PasoCircuito | null {
   return pasosDe(documento).find((p) => p.orden === documento.pasoActual) ?? null;
 }
+
+// ═══════════════════════════════════════════════════════
+// RECONSTRUCCIÓN DEL RECORRIDO
+// ═══════════════════════════════════════════════════════
+
+/** Un paso del circuito ya cruzado con quién lo firmó. Lo consume el front. */
+export interface PasoRecorrido {
+  orden: number;
+  nombrePaso: string;
+  rolAprobador: string;
+  completado: boolean;
+  actual: boolean;
+  aprobadoPor?: { nombre: string; apellido: string } | null;
+  fecha?: string | null;
+  comentario?: string | null;
+}
+
+/**
+ * Una fila de historial, reducida a lo que los cuatro tipos tienen en común.
+ * `estadoNuevo` va como string y no como los cuatro enums de Prisma: lo único
+ * que se hace con él es descartar los rechazos, y los cuatro los nombran igual.
+ */
+export interface FirmaHistorial {
+  pasoFlujo: number | null;
+  rolAprobador: string | null;
+  estadoNuevo: string;
+  comentario: string | null;
+  createdAt: Date;
+  usuario: { nombre: string; apellido: string };
+}
+
+/**
+ * Cruza los pasos de un documento con su historial para reconstruir el recorrido.
+ *
+ * Los `pasos` tienen que salir de `pasosDe(documento)` —el circuito congelado—,
+ * NO de los pasos vivos del flujo: con la cadena editada, los pasos vivos le
+ * atribuirían a alguien la aprobación de un paso que no existía cuando el
+ * documento circuló.
+ *
+ * Convive con dos criterios de historial, sin migrar los datos viejos:
+ *  - filas NUEVAS (`rolAprobador` no nulo): `pasoFlujo` es el paso que se FIRMÓ;
+ *  - filas VIEJAS (`rolAprobador` nulo): `pasoFlujo` guardaba el paso DESTINO,
+ *    o sea el firmado + 1.
+ * Un documento puede tener las dos si se aprobó a caballo del cambio, así que la
+ * fila nueva gana: bajo el criterio viejo la firma del paso N‑1 también matchea
+ * el paso N, y sin esa prioridad se le atribuiría al aprobador equivocado.
+ */
+export function enriquecerPasos(
+  pasos: Array<{ orden: number; nombrePaso: string; rolAprobador: string }>,
+  pasoActual: number,
+  historial: FirmaHistorial[],
+): PasoRecorrido[] {
+  // Un rechazo no es una firma del paso: corta el circuito, no lo completa.
+  const firmas = historial.filter((h) => h.estadoNuevo !== 'RECHAZADA');
+
+  return pasos.map((paso) => {
+    const entry =
+      firmas.find((h) => h.rolAprobador !== null && h.pasoFlujo === paso.orden) ??
+      firmas.find((h) => h.rolAprobador === null && h.pasoFlujo === paso.orden + 1);
+
+    return {
+      orden: paso.orden,
+      nombrePaso: paso.nombrePaso,
+      rolAprobador: paso.rolAprobador,
+      // Un paso con firma registrada está completado aunque `pasoActual` diga
+      // otra cosa: al rechazar, el documento vuelve a 0 y sin esto los pasos que
+      // sí se aprobaron antes del corte se mostrarían como si nunca hubieran
+      // pasado. Para un documento en curso las dos condiciones coinciden.
+      completado: paso.orden < pasoActual || entry !== undefined,
+      actual: paso.orden === pasoActual,
+      aprobadoPor: entry ? { nombre: entry.usuario.nombre, apellido: entry.usuario.apellido } : null,
+      fecha: entry ? entry.createdAt.toISOString() : null,
+      comentario: entry?.comentario ?? null,
+    };
+  });
+}
