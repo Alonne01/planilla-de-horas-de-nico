@@ -77,7 +77,7 @@ async function main() {
       });
       // Create global assignment
       await prisma.flujoAsignacion.create({
-        data: { flujoId: flujo.id, tipoDocumento: f.tipoDocumento },
+        data: { empresaId: flujo.empresaId, flujoId: flujo.id, tipoDocumento: f.tipoDocumento },
       });
       console.log(`  ✅ Flujo creado: ${f.nombre} (${f.tipoDocumento})`);
       flujosCreados++;

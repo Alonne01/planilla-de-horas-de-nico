@@ -94,6 +94,7 @@ model Empresa {
   usuarios              Usuario[]
   diagramas             Diagrama[]
   flujos                FlujoAprobacion[]
+  flujoAsignaciones     FlujoAsignacion[]
   config                EmpresaConfig?
   vacacionesConfig      VacacionesConfig?
   exportaciones         Exportacion[]
@@ -272,17 +273,25 @@ model FlujoPaso {
 
 model FlujoAsignacion {
   id            String  @id @default(uuid())
+  /// Denormalizado del flujo. Existe solo para que el índice único de la
+  /// asignación GLOBAL se pueda acotar por empresa: un índice parcial no puede
+  /// mirar columnas de otra tabla, así que sin esto "un solo flujo global por
+  /// tipo" valdría para toda la base y la segunda empresa no podría tener el
+  /// suyo. Siempre igual a `flujo.empresaId`.
+  empresaId     String  @map("empresa_id")
   flujoId       String  @map("flujo_id")
   tipoDocumento String  @map("tipo_documento")
   sectorId      String? @map("sector_id")
   usuarioId     String? @map("usuario_id")
   activo        Boolean @default(true)
 
+  empresa Empresa         @relation(fields: [empresaId], references: [id])
   flujo   FlujoAprobacion @relation(fields: [flujoId], references: [id])
   sector  Sector?         @relation(fields: [sectorId], references: [id])
   usuario Usuario?        @relation("flujo_asignaciones_usuario", fields: [usuarioId], references: [id])
 
-  // Un solo flujo por sector y tipo de documento. No alcanza para los casos
+  // Un solo flujo por sector y tipo de documento. El sector ya pertenece a una
+  // sola empresa, así que no hace falta sumarla acá. No alcanza para los casos
   // global y por usuario, donde sectorId es NULL y Postgres no considera
   // iguales a dos NULL: esos los cubren dos índices parciales que agrega la
   // migración a mano (Prisma no sabe expresarlos).

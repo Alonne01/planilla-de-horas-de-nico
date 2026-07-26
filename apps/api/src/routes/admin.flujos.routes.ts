@@ -573,26 +573,32 @@ router.post('/asignaciones', async (req: AuthRequest, res: Response): Promise<vo
     // Tampoco filtra por `activo`: los índices únicos de la base no lo miran, y
     // una asignación desactivada ocupa el lugar igual. Si filtráramos, el insert
     // pasaría la guarda y explotaría con un P2002 crudo.
+    // La asignación global se acota por empresa (así lo hace su índice único);
+    // las de sector y usuario no hace falta, porque el sector y el usuario ya
+    // pertenecen a una sola empresa.
+    const esGlobal = sectorId === null && usuarioId === null;
     const ocupado = await prisma.flujoAsignacion.findFirst({
-      where: { tipoDocumento: parsed.data.tipoDocumento, sectorId, usuarioId },
-      include: { flujo: { select: { nombre: true, empresaId: true } } },
+      where: {
+        tipoDocumento: parsed.data.tipoDocumento,
+        sectorId,
+        usuarioId,
+        ...(esGlobal ? { empresaId } : {}),
+      },
+      include: { flujo: { select: { nombre: true } } },
     });
     if (ocupado) {
-      // Los índices únicos no llevan empresa (la tabla no tiene empresa_id), así
-      // que el choque puede venir de otra empresa: en ese caso no se filtra el
-      // nombre del flujo ajeno.
-      const detalle =
-        ocupado.flujo.empresaId === empresaId
-          ? `ya usa el flujo "${ocupado.flujo.nombre}"${ocupado.activo ? '' : ' (desactivado, pero ocupa el lugar igual)'}`
-          : 'ya está ocupado';
       res.status(409).json({
-        error: `Ese alcance ${detalle}. Cada sector puede tener un solo flujo por tipo de documento: borrá la asignación existente antes de crear otra.`,
+        error: `Ese alcance ya usa el flujo "${ocupado.flujo.nombre}"${ocupado.activo ? '' : ' (desactivado, pero ocupa el lugar igual)'}. Cada sector puede tener un solo flujo por tipo de documento: borrá la asignación existente antes de crear otra.`,
       });
       return;
     }
 
     const asignacion = await prisma.flujoAsignacion.create({
       data: {
+        // Denormalizado del flujo, nunca del usuario logueado: la columna existe
+        // para acotar por empresa el índice único de la asignación global y tiene
+        // que coincidir con `flujo.empresaId` o el índice deja de significar algo.
+        empresaId: flujo.empresaId,
         flujoId: parsed.data.flujoId,
         tipoDocumento: parsed.data.tipoDocumento,
         sectorId,
