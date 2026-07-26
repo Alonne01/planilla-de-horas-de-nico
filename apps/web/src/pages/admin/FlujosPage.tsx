@@ -7,73 +7,15 @@ import { circuitoPara } from '@/utils/circuito';
 import {
   GitBranch, Plus, Trash2, Loader2, X,
   Users, FileText, Pencil, ChevronUp, ChevronDown,
-  Link2, MessageSquare, Clock, ArrowRight,
+  Link2, MessageSquare, Clock, ArrowRight, Table2,
 } from 'lucide-react';
 import { useDialogStore } from '@/stores/dialogStore';
 import { toast } from '@/stores/toastStore';
-
-interface FlujoPaso {
-  id: string;
-  orden: number;
-  nombrePaso: string;
-  rolAprobador: string;
-  requiereComentarioRechazo: boolean;
-  tiempoLimiteHoras: number | null;
-  notificarRoles: string[];
-}
-
-interface Flujo {
-  id: string;
-  nombre: string;
-  tipoDocumento: string;
-  descripcion: string | null;
-  activo: boolean;
-  pasos: FlujoPaso[];
-  _count: { asignaciones: number; planillas: number; vacaciones: number };
-}
-
-interface Asignacion {
-  id: string;
-  flujoId: string;
-  tipoDocumento: string;
-  sectorId: string | null;
-  usuarioId: string | null;
-  activo: boolean;
-  flujo: { nombre: string; tipoDocumento: string };
-  sector: { id: string; nombre: string } | null;
-  usuario: { id: string; nombre: string; apellido: string } | null;
-}
-
-interface Sector {
-  id: string;
-  nombre: string;
-  activo: boolean;
-}
-
-interface Rol {
-  codigo: string;
-  nombre: string;
-  color: string;
-  activo: boolean;
-  /** Jerarquía del rol. Es lo que decide qué pasos se saltea quien envía. */
-  nivel: number;
-}
-
-// Los cinco tipos de documento que pasan por un circuito. Es la misma lista que
-// `TIPOS_DOCUMENTO` de apps/api/src/routes/admin.flujos.routes.ts: si acá falta
-// uno, el admin que borre ese flujo no tiene forma de recrearlo. CAMBIO_DIAGRAMA
-// faltaba, aunque el back ya lo aceptaba.
-const TIPOS_DOCUMENTO: { valor: string; label: string; color: string }[] = [
-  { valor: 'PLANILLA', label: 'Planilla', color: 'bg-blue-500/20 text-blue-400' },
-  { valor: 'VACACION', label: 'Vacación', color: 'bg-emerald-500/20 text-emerald-400' },
-  { valor: 'AUSENCIA', label: 'Ausencia', color: 'bg-amber-500/20 text-amber-400' },
-  { valor: 'COMPENSATORIO', label: 'Compensatorio', color: 'bg-purple-500/20 text-purple-400' },
-  { valor: 'CAMBIO_DIAGRAMA', label: 'Cambio de diagrama', color: 'bg-cyan-500/20 text-cyan-400' },
-];
-
-const COLOR_TIPO_DOC: Record<string, string> = Object.fromEntries(
-  TIPOS_DOCUMENTO.map((t) => [t.valor, t.color]),
-);
+import MatrizFlujos from './MatrizFlujos';
+import {
+  TIPOS_DOCUMENTO, COLOR_TIPO_DOC, ROL_COLORS, nombreDeRol as nombreDeRolBase,
+  type Asignacion, type Flujo, type Rol, type Sector,
+} from './flujos.shared';
 
 /**
  * El código HTTP de un error de axios, o undefined si nunca hubo respuesta.
@@ -88,28 +30,6 @@ function estadoHttp(err: unknown): number | undefined {
 function etiquetaAlcance(nombre: string, flujoQueLoOcupa: string | undefined): string {
   return flujoQueLoOcupa ? `${nombre} — ocupado por «${flujoQueLoOcupa}»` : nombre;
 }
-
-// Respaldo de presentación: solo se usa si un paso ya guardado referencia un
-// código de rol que ya no está entre los roles activos del servidor (por
-// ejemplo, un rol borrado). El selector de aprobador se arma con los roles
-// reales via GET /admin/roles, no con esta lista fija.
-const ROL_LABELS: Record<string, string> = {
-  OPERADOR: 'Operador',
-  SUPERVISOR: 'Supervisor',
-  COORDINADOR: 'Coordinador',
-  GERENTE: 'Gerente',
-  RRHH: 'RRHH',
-  ADMIN: 'Admin',
-};
-
-const ROL_COLORS: Record<string, string> = {
-  OPERADOR: 'bg-slate-500/20 text-slate-400',
-  SUPERVISOR: 'bg-blue-500/20 text-blue-400',
-  COORDINADOR: 'bg-purple-500/20 text-purple-400',
-  GERENTE: 'bg-amber-500/20 text-amber-400',
-  RRHH: 'bg-emerald-500/20 text-emerald-400',
-  ADMIN: 'bg-red-500/20 text-red-400',
-};
 
 // ─── Local type for editable steps (no id yet) ────────────────────
 
@@ -154,7 +74,6 @@ function StepRow({
   // distinto sin que el onChange llegue a dispararse.
   const rolesActivos = roles.filter((r) => r.activo);
   const rolActualEntreActivos = rolesActivos.some((r) => r.codigo === paso.rolAprobador);
-  const rolActualInfo = roles.find((r) => r.codigo === paso.rolAprobador);
 
   return (
     <div className="rounded-lg border border-border bg-background/50 p-3 space-y-2">
@@ -181,7 +100,7 @@ function StepRow({
         >
           {!rolActualEntreActivos && (
             <option value={paso.rolAprobador}>
-              {(rolActualInfo?.nombre ?? ROL_LABELS[paso.rolAprobador] ?? paso.rolAprobador)} (ya no existe)
+              {nombreDeRolBase(roles, paso.rolAprobador)} (ya no existe)
             </option>
           )}
           {rolesActivos.map((r) => (
@@ -544,6 +463,7 @@ function EditFlujoModal({
 export default function FlujosPage() {
   const queryClient = useQueryClient();
   const dialog = useDialogStore();
+  const [vista, setVista] = useState<'flujos' | 'matriz'>('flujos');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingFlujo, setEditingFlujo] = useState<Flujo | null>(null);
@@ -569,14 +489,7 @@ export default function FlujosPage() {
     queryFn: async () => (await api.get('/admin/roles')).data,
   });
 
-  // Nombre a mostrar para un código de rol. Un paso ya guardado puede
-  // referenciar un código que ya no está entre los roles activos (por
-  // ejemplo, un rol borrado); en ese caso cae al respaldo fijo y, si tampoco
-  // está ahí, muestra el código crudo en vez de romper o dejar vacío.
-  const nombreDeRol = useCallback(
-    (codigo: string) => roles.find((r) => r.codigo === codigo)?.nombre ?? ROL_LABELS[codigo] ?? codigo,
-    [roles],
-  );
+  const nombreDeRol = useCallback((codigo: string) => nombreDeRolBase(roles, codigo), [roles]);
 
   const { data: sectores = [], isError: sectoresError } = useQuery<Sector[]>({
     queryKey: ['admin-sectores'],
@@ -689,23 +602,48 @@ export default function FlujosPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Flujos de Aprobación</h1>
           <p className="text-sm text-muted-foreground">{flujos.length} flujo{flujos.length !== 1 ? 's' : ''} configurados</p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-        >
-          <Plus className="h-4 w-4" /> Nuevo flujo
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Dos maneras de mirar lo mismo: la lista arma y edita las cadenas;
+              la matriz responde qué usa cada sector para cada trámite. */}
+          <div className="inline-flex rounded-lg border border-border p-0.5">
+            {([
+              { valor: 'flujos', label: 'Por flujo', icono: GitBranch },
+              { valor: 'matriz', label: 'Por sector', icono: Table2 },
+            ] as const).map((v) => (
+              <button
+                key={v.valor}
+                onClick={() => setVista(v.valor)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors',
+                  vista === v.valor
+                    ? 'bg-primary text-primary-foreground font-medium'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent',
+                )}
+              >
+                <v.icono className="h-3.5 w-3.5" /> {v.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="h-4 w-4" /> Nuevo flujo
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
         <div className="flex items-center justify-center h-32">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
+      ) : vista === 'matriz' ? (
+        <MatrizFlujos flujos={flujos} sectores={sectores} asignaciones={asignaciones} roles={roles} />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Flow list */}
