@@ -150,7 +150,7 @@ async function main() {
   assert(admin.user.rolNivel >= 100, `admin nivel ${admin.user.rolNivel}`);
 
   // El aprobador de RRHH se crea acá en vez de tomarse de la nómina: antes era
-  // un login fijo a ana.martinez@demo.com, y la suite entera moría con un 401 el
+  // un login fijo a rrhh1@test.wenlen.com, y la suite entera moría con un 401 el
   // día que ese usuario dejó de existir. Va SIN sector, como los RRHH del seed:
   // así es transversal y ve los documentos de cualquier sector.
   const rrhhUser = await createUser(admin.token, 'RRHH', 'rrhh', null);

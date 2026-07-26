@@ -93,7 +93,7 @@ async function main() {
 
   // ── Setup identities ──
   const admin = await login('admin@wenlen.com');
-  const rrhh = await login('ana.martinez@demo.com');
+  const rrhh = await login('rrhh1@test.wenlen.com');
   assert(rrhh.user.rolNivel >= 90, `ana.martinez nivel ${rrhh.user.rolNivel} (<90)`);
 
   // Discover users

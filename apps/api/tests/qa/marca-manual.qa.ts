@@ -1,5 +1,11 @@
 /**
- * QA Suite — MARCA MANUAL de días en planilla (KEY=marca-manual)
+ * QA Suite — MARCA MANUAL de días en planilla, "plan B" (KEY=marca-manual)
+ *
+ * Modelo vigente: la planilla es del dueño. Solo él marca días, solo él los quita,
+ * y las marcas se aprueban solas cuando la cadena aprueba la planilla. No hay
+ * validar/validar-todo. El alta está detrás del flag `marcaManualActiva`, que
+ * nace apagado; borrar y ver NO dependen del flag.
+ *
  * Black-box HTTP contra la API viva.
  * Run: cd apps/api && npx tsx tests/qa/marca-manual.qa.ts
  */
@@ -33,23 +39,58 @@ const post = (p: string, b: unknown, tok?: string) => apiCall('POST', p, { token
 const put = (p: string, b: unknown, tok?: string) => apiCall('PUT', p, { token: tok, body: b });
 const del = (p: string, tok?: string) => apiCall('DELETE', p, { token: tok });
 
-interface Session { token: string; user: { id: string; rol: string; rolNivel: number; empresaId: string; sectorId: string | null }; }
+/** Sube un PNG mínimo como certificado. multipart, no JSON. */
+async function subirArchivo(path: string, tok: string, nombre = 'cert.png'): Promise<{ status: number; body: any }> {
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  const fd = new FormData();
+  fd.append('archivo', new Blob([png], { type: 'image/png' }), nombre);
+  const res = await fetch(`${BASE}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${tok}` }, body: fd });
+  const ct = res.headers.get('content-type') ?? '';
+  return { status: res.status, body: ct.includes('application/json') ? await res.json() : await res.text() };
+}
+
+interface Session { token: string; cookie: string; user: { id: string; rol: string; rolNivel: number; empresaId: string; sectorId: string | null }; }
 async function login(email: string): Promise<Session> {
-  const { status, body } = await post('/auth/login', { email, password: 'Test1234!' });
-  assertStatus(status, 200, `Login ${email}: ${JSON.stringify(body)}`);
-  return { token: body.accessToken, user: body.user };
+  const res = await fetch(`${BASE}/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password: 'Test1234!' }),
+  });
+  const body: any = await res.json();
+  assertStatus(res.status, 200, `Login ${email}: ${JSON.stringify(body)}`);
+  // /uploads no mira el header Authorization: autentica con la cookie httpOnly
+  // 'refreshToken', que es lo único que manda un <img> del navegador.
+  const raw = res.headers.get('set-cookie') ?? '';
+  const cookie = raw.split(/,(?=\s*\w+=)/).map(c => c.split(';')[0]!.trim()).filter(Boolean).join('; ');
+  return { token: body.accessToken, cookie, user: body.user };
+}
+/** GET a /uploads con la cookie de sesión, como lo haría el navegador. */
+async function getUpload(url: string, ses: Session): Promise<number> {
+  const res = await fetch(`${BASE.replace('/api/v1', '')}${url}`, { headers: { Cookie: ses.cookie } });
+  return res.status;
 }
 function fmtDateTime(d: Date) { return d.toISOString(); }
 async function getCompSaldo(tok: string): Promise<{ acum: number; usados: number; pend: number; disp: number }> {
   const { body } = await get('/vacacion-saldos/mi-saldo', tok);
   return { acum: body.compensatoriosAcumulados, usados: body.compensatoriosUsados, pend: body.compensatoriosPendientes, disp: body.compensatoriosDisponible };
 }
-const RANDOM_UUID = '00000000-0000-4000-8000-000000000000';
 
 async function main() {
   console.log(col('CYAN', `\n═══ QA MARCA MANUAL suite (ts=${TS}) ═══\n`));
   const admin = await login('admin@wenlen.com');
-  const ana = await login('ana.martinez@demo.com'); // RRHH nivel 90
+  const ana = await login('rrhh1@test.wenlen.com'); // RRHH nivel 90
+
+  // ── Flag del plan B: se prende y apaga por empresa. Se restaura al final. ──
+  async function setFlag(activo: boolean): Promise<void> {
+    const { status, body } = await put('/admin/config', { marcaManualActiva: activo }, admin.token);
+    assertStatus(status, 200, `set flag=${activo}: ${JSON.stringify(body)}`);
+  }
+  const { body: cfg0 } = await get('/admin/config', admin.token);
+  const flagOriginal: boolean = cfg0?.marcaManualActiva ?? false;
+  info(`flag marcaManualActiva original = ${flagOriginal}`);
+  cleanupQueue.push(async () => { await setFlag(flagOriginal).catch(() => {}); });
 
   const ingreso = fmtDateTime(new Date('2020-01-01T00:00:00Z'));
   async function createUser(role: string, tag: string, extra: Record<string, unknown> = {}): Promise<string> {
@@ -61,251 +102,299 @@ async function main() {
     return body.id as string;
   }
 
-  let supId = '', ownerId = '', otherSupId = '';
+  let supId = '', ownerId = '';
   await scenario('SETUP supervisor', async () => { supId = await createUser('SUPERVISOR', 'sup'); });
   await scenario('SETUP owner OPERADOR (supervisorId=sup)', async () => { ownerId = await createUser('OPERADOR', 'owner', { supervisorId: supId }); });
-  await scenario('SETUP unrelated supervisor', async () => { otherSupId = await createUser('SUPERVISOR', 'othersup'); });
-  cleanupQueue.push(async () => { for (const id of [ownerId, supId, otherSupId]) if (id) await del(`/usuarios/${id}`, admin.token).catch(() => {}); });
+  cleanupQueue.push(async () => { for (const id of [ownerId, supId]) if (id) await del(`/usuarios/${id}`, admin.token).catch(() => {}); });
 
   const owner = await login(`qa.${KEY}.${TS}.owner@demo.com`);
   const sup = await login(`qa.${KEY}.${TS}.sup@demo.com`);
-  const otherSup = await login(`qa.${KEY}.${TS}.othersup@demo.com`);
 
-  // Seed owner compensatorio saldo (acumulados=3) for the marked year
   const compYear = 2026;
   let saldoId = '';
-  await scenario('SETUP seed owner compensatorio saldo (acumulados=3)', async () => {
+  await scenario('SETUP seed owner compensatorio saldo (acumulados=5)', async () => {
     await get('/vacacion-saldos/mi-saldo', owner.token);
     const { body } = await get(`/vacacion-saldos?anio=${compYear}`, ana.token);
     const s = (body as any[]).find(x => x.usuarioId === ownerId);
     assert(!!s, `owner saldo for ${compYear} not found`);
     saldoId = s.id;
-    const { status } = await put(`/vacacion-saldos/${saldoId}`, { compensatoriosAcumulados: 3, compensatoriosUsados: 0 }, ana.token);
+    const { status } = await put(`/vacacion-saldos/${saldoId}`, { compensatoriosAcumulados: 5, compensatoriosUsados: 0 }, ana.token);
     assertStatus(status, 200, 'seed saldo');
   });
   cleanupQueue.push(async () => { if (saldoId) await put(`/vacacion-saldos/${saldoId}`, { compensatoriosAcumulados: 0, compensatoriosUsados: 0 }, ana.token).catch(() => {}); });
 
-  // Helper: create a planilla for a distinct 1-day period (avoids overlap collisions)
   const createdPlanillas: string[] = [];
   cleanupQueue.push(async () => { for (const id of createdPlanillas) await del(`/planillas/${id}`, owner.token).catch(() => {}); });
-  async function nuevaPlanilla(fecha: string): Promise<string> {
-    const { status, body } = await post('/planillas', { periodoInicio: fecha, periodoFin: fecha }, owner.token);
+  async function nuevaPlanilla(fecha: string, fin?: string): Promise<string> {
+    const { status, body } = await post('/planillas', { periodoInicio: fecha, periodoFin: fin ?? fecha }, owner.token);
     assertStatus(status, 201, `crear planilla ${fecha}: ${JSON.stringify(body)}`);
     createdPlanillas.push(body.id);
     return body.id as string;
   }
+  async function marcar(pid: string, fecha: string, tipo: string, tok: string, descripcion?: string) {
+    return post(`/planillas/${pid}/marcar-dia`, { fecha, tipo, ...(descripcion ? { descripcion } : {}) }, tok);
+  }
+  /** `enviar` exige que todo día hábil tenga registro cargado o esté bloqueado. */
+  async function completarDias(pid: string, fechas: string[]): Promise<void> {
+    for (const fecha of fechas) {
+      // entradaTurno1/salidaTurno1 son DateTime completos, no "HH:mm".
+      const r = await post(`/planillas/${pid}/registros`, {
+        fecha, lugarTrabajo: 'BASE',
+        entradaTurno1: `${fecha}T08:00:00.000Z`, salidaTurno1: `${fecha}T16:00:00.000Z`,
+      }, owner.token);
+      if (r.status !== 201 && r.status !== 200) throw new Error(`completar ${fecha}: HTTP ${r.status} ${JSON.stringify(r.body)}`);
+    }
+  }
+  /**
+   * Sin flujo de PLANILLA configurado, `avanzar` exige RRHH+. Se avanza con RRHH
+   * hasta que quede APROBADA, sin asumir de cuántos pasos es el circuito.
+   */
+  async function aprobarPlanilla(pid: string): Promise<string> {
+    let estado = '';
+    for (let i = 0; i < 6; i++) {
+      const av = await post(`/planillas/${pid}/avanzar`, {}, ana.token);
+      if (av.status !== 200) throw new Error(`avanzar #${i + 1}: HTTP ${av.status} ${JSON.stringify(av.body)}`);
+      estado = av.body.estado;
+      if (estado === 'APROBADA') return estado;
+    }
+    return estado;
+  }
 
-  // ═══ A. marcar-dia: auth + validación ═══
-  await scenario('A1 owner marca FALTA_JUSTIFICADA → 201 PENDIENTE + registro bloqueado + marcaManual', async () => {
+  // ═══ A. El flag: el plan B nace apagado ═══
+  await setFlag(false);
+
+  await scenario('A1 GET /config/modulos informa el flag a cualquier autenticado', async () => {
+    const { status, body } = await get('/config/modulos', owner.token);
+    assertStatus(status, 200, JSON.stringify(body));
+    assert(body.marcaManualActiva === false, `marcaManualActiva=${body.marcaManualActiva}`);
+  });
+  await scenario('A2 flag apagado: el dueño NO puede marcar → 403', async () => {
     const pid = await nuevaPlanilla('2026-11-03');
-    const { status, body } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-03', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+    const { status, body } = await marcar(pid, '2026-11-03', 'FALTA_JUSTIFICADA', owner.token);
+    assertStatus(status, 403, JSON.stringify(body));
+    assert(/habilitada/i.test(JSON.stringify(body)), `msg=${JSON.stringify(body)}`);
+  });
+  await scenario('A3 flag apagado: una marca preexistente SÍ se puede borrar', async () => {
+    await setFlag(true);
+    const pid = await nuevaPlanilla('2026-11-04');
+    const { status: ms, body: reg } = await marcar(pid, '2026-11-04', 'FALTA_JUSTIFICADA', owner.token);
+    assertStatus(ms, 201, JSON.stringify(reg));
+    await setFlag(false);
+    const { status } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, owner.token);
+    assertStatus(status, 204, 'borrar con flag apagado');
+  });
+
+  // El resto de la suite corre con el plan B encendido.
+  await setFlag(true);
+
+  // ═══ B. Alta: solo el dueño ═══
+  await scenario('B1 dueño marca FALTA_JUSTIFICADA → 201 PENDIENTE, día bloqueado', async () => {
+    const pid = await nuevaPlanilla('2026-11-06');
+    const { status, body } = await marcar(pid, '2026-11-06', 'FALTA_JUSTIFICADA', owner.token);
     assertStatus(status, 201, JSON.stringify(body));
     assert(body.bloqueado === true, `bloqueado=${body.bloqueado}`);
     assert(body.motivoBloqueo === 'FALTA_JUSTIFICADA', `motivo=${body.motivoBloqueo}`);
-    assert(body.marcaManual && body.marcaManual.estado === 'PENDIENTE', `marcaManual=${JSON.stringify(body.marcaManual)}`);
-    assert(body.marcaManual.tipo === 'FALTA_JUSTIFICADA', `tipo=${body.marcaManual?.tipo}`);
+    assert(body.marcaManual?.estado === 'PENDIENTE', `estado=${body.marcaManual?.estado}`);
+    assert('archivoUrl' in (body.marcaManual ?? {}), 'el registro debe exponer archivoUrl de la marca');
   });
-  await scenario('A2 supervisor marca FALTA_JUSTIFICADA → 201 APROBADA (auto-validada)', async () => {
-    const pid = await nuevaPlanilla('2026-11-04');
-    const { status, body } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-04', tipo: 'FALTA_JUSTIFICADA' }, sup.token);
-    assertStatus(status, 201, JSON.stringify(body));
-    assert(body.marcaManual && body.marcaManual.estado === 'APROBADA', `estado=${body.marcaManual?.estado}`);
+  await scenario('B2 el supervisor NO puede marcar en la planilla del subordinado → 403', async () => {
+    const pid = await nuevaPlanilla('2026-11-07');
+    const { status, body } = await marcar(pid, '2026-11-07', 'FALTA_JUSTIFICADA', sup.token);
+    assertStatus(status, 403, JSON.stringify(body));
+    assert(/dueño/i.test(JSON.stringify(body)), `msg=${JSON.stringify(body)}`);
   });
-  await scenario('A3 unrelated supervisor marca → 403', async () => {
-    const pid = await nuevaPlanilla('2026-11-05');
-    const { status } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-05', tipo: 'FALTA_JUSTIFICADA' }, otherSup.token);
-    assertStatus(status, 403, 'unrelated sup');
+  await scenario('B3 RRHH tampoco puede marcar en una planilla ajena → 403', async () => {
+    const pid = await nuevaPlanilla('2026-11-09');
+    const { status } = await marcar(pid, '2026-11-09', 'FALTA_JUSTIFICADA', ana.token);
+    assertStatus(status, 403, 'RRHH marcando planilla ajena');
   });
-  await scenario('A4 fecha fuera del período → 400', async () => {
-    const pid = await nuevaPlanilla('2026-11-06');
-    const { status } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-12-01', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+  await scenario('B4 fecha fuera del período → 400', async () => {
+    const pid = await nuevaPlanilla('2026-11-10');
+    const { status } = await marcar(pid, '2026-12-01', 'FALTA_JUSTIFICADA', owner.token);
     assertStatus(status, 400, 'fuera de período');
   });
-  await scenario('A5 tipo inválido → 400', async () => {
-    const pid = await nuevaPlanilla('2026-11-07');
-    const { status } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-07', tipo: 'NOPE' }, owner.token);
+  await scenario('B5 tipo inválido → 400', async () => {
+    const pid = await nuevaPlanilla('2026-11-11');
+    const { status } = await marcar(pid, '2026-11-11', 'NOPE', owner.token);
     assertStatus(status, 400, 'bad tipo');
   });
-  await scenario('A6 marcar un día ya marcado → 409', async () => {
-    const pid = await nuevaPlanilla('2026-11-08');
-    await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-08', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
-    const { status } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-08', tipo: 'LICENCIA_ESPECIAL' }, owner.token);
+  await scenario('B6 día ya marcado → 409', async () => {
+    const pid = await nuevaPlanilla('2026-11-12');
+    await marcar(pid, '2026-11-12', 'FALTA_JUSTIFICADA', owner.token);
+    const { status } = await marcar(pid, '2026-11-12', 'LICENCIA_ESPECIAL', owner.token);
     assertStatus(status, 409, 'ya bloqueado');
   });
+  await scenario('B7 día con esFrancoCompensatorio ya declarado → 409', async () => {
+    const pid = await nuevaPlanilla('2026-11-13');
+    const r = await post(`/planillas/${pid}/registros`, { fecha: '2026-11-13', esFrancoCompensatorio: true }, owner.token);
+    assertStatus(r.status, 201, `crear registro comp: ${JSON.stringify(r.body)}`);
+    const { status } = await marcar(pid, '2026-11-13', 'FRANCO_COMPENSATORIO', owner.token);
+    assertStatus(status, 409, 'esFrancoCompensatorio ya declarado');
+  });
+  await scenario('B8 planilla ENVIADA: ni el dueño puede marcar → 400', async () => {
+    const pid = await nuevaPlanilla('2026-11-16', '2026-11-17');
+    await completarDias(pid, ['2026-11-16', '2026-11-17']);
+    const env = await post(`/planillas/${pid}/enviar`, {}, owner.token);
+    assertStatus(env.status, 200, `enviar: ${JSON.stringify(env.body)}`);
+    const { status } = await marcar(pid, '2026-11-17', 'FALTA_JUSTIFICADA', owner.token);
+    assertStatus(status, 400, 'planilla congelada');
+  });
 
-  // ═══ B. compensatorio: saldo ═══
-  await scenario('B1 owner marca FRANCO_COMPENSATORIO con saldo → 201, pendientes +1', async () => {
+  // ═══ C. Compensatorio ═══
+  await scenario('C1 marca FRANCO_COMPENSATORIO con saldo → pendientes +1', async () => {
+    await put(`/vacacion-saldos/${saldoId}`, { compensatoriosAcumulados: 5, compensatoriosUsados: 0 }, ana.token);
     const before = await getCompSaldo(owner.token);
-    const pid = await nuevaPlanilla('2026-11-10');
-    const { status, body } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-10', tipo: 'FRANCO_COMPENSATORIO' }, owner.token);
+    const pid = await nuevaPlanilla('2026-11-19');
+    const { status, body } = await marcar(pid, '2026-11-19', 'FRANCO_COMPENSATORIO', owner.token);
     assertStatus(status, 201, JSON.stringify(body));
     assert(body.marcaManual.estado === 'PENDIENTE', `estado=${body.marcaManual?.estado}`);
     const after = await getCompSaldo(owner.token);
-    assert(after.pend === before.pend + 1, `pendientes ${before.pend}→${after.pend} (esperado +1)`);
+    assert(after.pend === before.pend + 1, `pendientes ${before.pend}→${after.pend}`);
   });
-  await scenario('B2 supervisor marca FRANCO_COMPENSATORIO → 201 APROBADA, usados +1', async () => {
-    const before = await getCompSaldo(owner.token);
-    const pid = await nuevaPlanilla('2026-11-11');
-    const { status, body } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-11', tipo: 'FRANCO_COMPENSATORIO' }, sup.token);
-    assertStatus(status, 201, JSON.stringify(body));
-    assert(body.marcaManual.estado === 'APROBADA', `estado=${body.marcaManual?.estado}`);
-    const after = await getCompSaldo(owner.token);
-    assert(after.usados === before.usados + 1, `usados ${before.usados}→${after.usados} (esperado +1)`);
-  });
-  await scenario('B3 compensatorio sin saldo disponible → 400', async () => {
-    const s1 = await getCompSaldo(owner.token);
-    info(`saldo antes: acum=${s1.acum} usados=${s1.usados} pend=${s1.pend} disp=${s1.disp}`);
-    const pid = await nuevaPlanilla('2026-11-12');
-    await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-12', tipo: 'FRANCO_COMPENSATORIO' }, owner.token);
-    const pid2 = await nuevaPlanilla('2026-11-13');
-    const { status, body } = await post(`/planillas/${pid2}/marcar-dia`, { fecha: '2026-11-13', tipo: 'FRANCO_COMPENSATORIO' }, owner.token);
+  await scenario('C2 sin saldo disponible → 400', async () => {
+    await put(`/vacacion-saldos/${saldoId}`, { compensatoriosAcumulados: 0, compensatoriosUsados: 0 }, ana.token);
+    const s = await getCompSaldo(owner.token);
+    info(`saldo: acum=${s.acum} usados=${s.usados} pend=${s.pend} disp=${s.disp}`);
+    const pid = await nuevaPlanilla('2026-11-20');
+    const { status, body } = await marcar(pid, '2026-11-20', 'FRANCO_COMPENSATORIO', owner.token);
     assertStatus(status, 400, JSON.stringify(body));
     assert(/insuficiente/i.test(JSON.stringify(body)), `msg=${JSON.stringify(body)}`);
   });
-
-  // ═══ C. validar ═══
-  await scenario('C1 owner no puede validar su propia marca → 403', async () => {
-    const pid = await nuevaPlanilla('2026-11-15');
-    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-15', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
-    const { status } = await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, owner.token);
-    assertStatus(status, 403, 'owner self-validate');
-  });
-  await scenario('C2 supervisor valida marca pendiente del owner → 200 APROBADA', async () => {
-    const pid = await nuevaPlanilla('2026-11-16');
-    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-16', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
-    const { status, body } = await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    assert(body.estado === 'APROBADA', `estado=${body.estado}`);
-  });
-  await scenario('C3 unrelated supervisor valida → 403', async () => {
-    const pid = await nuevaPlanilla('2026-11-17');
-    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-17', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
-    const { status } = await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, otherSup.token);
-    assertStatus(status, 403, 'unrelated validate');
-  });
-  await scenario('C4 validar una marca ya APROBADA → 400', async () => {
-    const pid = await nuevaPlanilla('2026-11-18');
-    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-18', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
-    await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
-    const { status } = await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
-    assertStatus(status, 400, 'no pendiente');
-  });
-  await scenario('C5 validar-todo valida todas las pendientes → 200', async () => {
-    const { status: ps, body: pb } = await post('/planillas', { periodoInicio: '2026-11-20', periodoFin: '2026-11-22' }, owner.token);
-    assertStatus(ps, 201, JSON.stringify(pb)); createdPlanillas.push(pb.id);
-    await post(`/planillas/${pb.id}/marcar-dia`, { fecha: '2026-11-20', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
-    await post(`/planillas/${pb.id}/marcar-dia`, { fecha: '2026-11-21', tipo: 'FALTA_INJUSTIFICADA' }, owner.token);
-    const { status, body } = await post(`/planillas/${pb.id}/marcas/validar-todo`, {}, sup.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    assert(body.validadas === 2, `validadas=${body.validadas}`);
-  });
-  await scenario('C6 validar compensatorio pendiente → usados +1, pendientes -1', async () => {
+  await scenario('C3 quitar una marca comp PENDIENTE devuelve el pendiente', async () => {
     await put(`/vacacion-saldos/${saldoId}`, { compensatoriosAcumulados: 5, compensatoriosUsados: 0 }, ana.token);
     const before = await getCompSaldo(owner.token);
-    const pid = await nuevaPlanilla('2026-11-24');
-    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-24', tipo: 'FRANCO_COMPENSATORIO' }, owner.token);
-    const midPend = (await getCompSaldo(owner.token)).pend;
-    assert(midPend === before.pend + 1, `pend tras marcar ${before.pend}→${midPend}`);
-    const { status } = await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
-    assertStatus(status, 200, 'validar comp');
-    const after = await getCompSaldo(owner.token);
-    assert(after.pend === midPend - 1 && after.usados === before.usados + 1, `pend ${midPend}→${after.pend} usados ${before.usados}→${after.usados}`);
+    const pid = await nuevaPlanilla('2026-11-23');
+    const { body: reg } = await marcar(pid, '2026-11-23', 'FRANCO_COMPENSATORIO', owner.token);
+    assert((await getCompSaldo(owner.token)).pend === before.pend + 1, 'reservó el pendiente');
+    const { status } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, owner.token);
+    assertStatus(status, 204, 'quitar comp');
+    assert((await getCompSaldo(owner.token)).pend === before.pend, 'devolvió el pendiente');
   });
 
-  // ═══ D. quitar / rechazar ═══
-  await scenario('D1 owner quita su marca PENDIENTE → 204, día desbloqueado', async () => {
-    const pid = await nuevaPlanilla('2026-11-26');
-    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-26', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
+  // ═══ D. Quitar la marca — el síntoma reportado: "no puedo borrar la marca" ═══
+  await scenario('D1 el dueño quita su marca → 204 y el día queda libre', async () => {
+    const pid = await nuevaPlanilla('2026-11-25');
+    const { body: reg } = await marcar(pid, '2026-11-25', 'FALTA_JUSTIFICADA', owner.token);
     const { status } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, owner.token);
     assertStatus(status, 204, 'quitar');
     const { body: pl } = await get(`/planillas/${pid}`, owner.token);
-    const dia = (pl.registros as any[]).find(r => r.fecha.startsWith('2026-11-26'));
-    assert(!dia || dia.bloqueado === false, `día sigue bloqueado: ${JSON.stringify(dia)}`);
+    const dia = (pl.registros as any[]).find(r => String(r.fecha).startsWith('2026-11-25'));
+    assert(!dia || dia.bloqueado === false, `el día sigue bloqueado: ${JSON.stringify(dia)}`);
   });
-  await scenario('D2 owner NO puede quitar una marca ya APROBADA → 400', async () => {
+  await scenario('D2 quitar la marca cancela la solicitud: la Ausencia desaparece', async () => {
+    const pid = await nuevaPlanilla('2026-11-26');
+    const { body: reg } = await marcar(pid, '2026-11-26', 'FALTA_JUSTIFICADA', owner.token);
+    const ausId = reg.marcaManual.id;
+    await del(`/planillas/${pid}/marcas/${ausId}`, owner.token);
+    const { status } = await get(`/ausencias/${ausId}`, owner.token);
+    assertStatus(status, 404, 'la ausencia debe haberse borrado');
+  });
+  await scenario('D3 el supervisor NO puede quitar la marca del subordinado → 403', async () => {
     const pid = await nuevaPlanilla('2026-11-27');
-    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-27', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
-    await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
+    const { body: reg } = await marcar(pid, '2026-11-27', 'FALTA_JUSTIFICADA', owner.token);
+    const { status } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, sup.token);
+    assertStatus(status, 403, 'supervisor quitando marca ajena');
+  });
+  await scenario('D4 planilla ENVIADA: no se puede quitar → 400', async () => {
+    const pid = await nuevaPlanilla('2026-11-30', '2026-12-01');
+    const { body: reg } = await marcar(pid, '2026-11-30', 'FALTA_JUSTIFICADA', owner.token);
+    await completarDias(pid, ['2026-12-01']);
+    const env = await post(`/planillas/${pid}/enviar`, {}, owner.token);
+    assertStatus(env.status, 200, `enviar: ${JSON.stringify(env.body)}`);
     const { status } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, owner.token);
-    assertStatus(status, 400, 'owner reject aprobada');
+    assertStatus(status, 400, 'planilla congelada');
   });
-  await scenario('D3 supervisor rechaza marca APROBADA → 200 RECHAZADA, día desbloqueado', async () => {
-    const pid = await nuevaPlanilla('2026-11-28');
-    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-28', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
-    await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
-    const { status, body } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, sup.token);
-    assertStatus(status, 200, JSON.stringify(body));
-    assert(body.estado === 'RECHAZADA', `estado=${body.estado}`);
-  });
-  await scenario('D4 rechazar compensatorio PENDIENTE libera pendientes (-1)', async () => {
-    await put(`/vacacion-saldos/${saldoId}`, { compensatoriosAcumulados: 5, compensatoriosUsados: 0 }, ana.token);
-    const before = await getCompSaldo(owner.token);
-    const pid = await nuevaPlanilla('2026-11-29');
-    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-11-29', tipo: 'FRANCO_COMPENSATORIO' }, owner.token);
-    assert((await getCompSaldo(owner.token)).pend === before.pend + 1, 'reservó pendiente');
-    const { status } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, sup.token);
-    assertStatus(status, 200, 'rechazar comp');
-    assert((await getCompSaldo(owner.token)).pend === before.pend, 'liberó pendiente');
+  await scenario('D5 validar / validar-todo ya no existen → 404', async () => {
+    const pid = await nuevaPlanilla('2026-12-03');
+    const { body: reg } = await marcar(pid, '2026-12-03', 'FALTA_JUSTIFICADA', owner.token);
+    const v1 = await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
+    assertStatus(v1.status, 404, `validar: ${JSON.stringify(v1.body)}`);
+    const v2 = await post(`/planillas/${pid}/marcas/validar-todo`, {}, sup.token);
+    assertStatus(v2.status, 404, `validar-todo: ${JSON.stringify(v2.body)}`);
   });
 
-  // ═══ E. gating de aprobación ═══
-  await scenario('E1 avanzar con marca sin validar → 400; validar → avanzar 200', async () => {
-    const pid = await nuevaPlanilla('2026-12-02');
-    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-12-02', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
-    const enviar = await post(`/planillas/${pid}/enviar`, {}, owner.token);
-    assertStatus(enviar.status, 200, `enviar: ${JSON.stringify(enviar.body)}`);
-    assert(enviar.body.estado === 'ENVIADA', `estado=${enviar.body.estado}`);
-    const avA = await post(`/planillas/${pid}/avanzar`, {}, sup.token);
-    assertStatus(avA.status, 400, JSON.stringify(avA.body));
-    assert(avA.body.marcasPendientes === 1, `marcasPendientes=${avA.body.marcasPendientes}`);
-    await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
-    const avB = await post(`/planillas/${pid}/avanzar`, {}, sup.token);
-    assertStatus(avB.status, 200, JSON.stringify(avB.body));
-    assert(avB.body.estado === 'APROBADA', `estado=${avB.body.estado}`);
+  // ═══ E. Las marcas viajan con la planilla ═══
+  await scenario('E1 aprobar la planilla aprueba sus marcas, sin validación previa', async () => {
+    const pid = await nuevaPlanilla('2026-12-07', '2026-12-08');
+    const { body: reg } = await marcar(pid, '2026-12-07', 'FALTA_JUSTIFICADA', owner.token);
+    await completarDias(pid, ['2026-12-08']);
+    const env = await post(`/planillas/${pid}/enviar`, {}, owner.token);
+    assertStatus(env.status, 200, `enviar: ${JSON.stringify(env.body)}`);
+
+    // El gate viejo devolvía 400 acá por "marcas sin validar". Ya no existe.
+    const estado = await aprobarPlanilla(pid);
+    assert(estado === 'APROBADA', `la planilla quedó en ${estado}`);
+    const { body: aus } = await get(`/ausencias/${reg.marcaManual.id}`, owner.token);
+    assert(aus.estado === 'APROBADA', `la marca quedó en ${aus.estado}`);
+    assert(aus.aprobada === true, `aprobada=${aus.aprobada}`);
   });
-  await scenario('E2 GET /planillas/:id incluye marcaManual en el registro', async () => {
-    const pid = await nuevaPlanilla('2026-12-04');
-    await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-12-04', tipo: 'LICENCIA_ESPECIAL' }, owner.token);
+  await scenario('E2 al aprobar la planilla, el comp pasa de pendiente a usado', async () => {
+    await put(`/vacacion-saldos/${saldoId}`, { compensatoriosAcumulados: 5, compensatoriosUsados: 0 }, ana.token);
+    const before = await getCompSaldo(owner.token);
+    const pid = await nuevaPlanilla('2026-12-10', '2026-12-11');
+    await marcar(pid, '2026-12-10', 'FRANCO_COMPENSATORIO', owner.token);
+    const mid = await getCompSaldo(owner.token);
+    assert(mid.pend === before.pend + 1, `pend ${before.pend}→${mid.pend}`);
+    await completarDias(pid, ['2026-12-11']);
+    const env = await post(`/planillas/${pid}/enviar`, {}, owner.token);
+    assertStatus(env.status, 200, `enviar: ${JSON.stringify(env.body)}`);
+    const estado = await aprobarPlanilla(pid);
+    assert(estado === 'APROBADA', `la planilla quedó en ${estado}`);
+    const after = await getCompSaldo(owner.token);
+    assert(after.pend === before.pend && after.usados === before.usados + 1,
+      `pend ${mid.pend}→${after.pend} (esperado ${before.pend}), usados ${before.usados}→${after.usados}`);
+  });
+  await scenario('E3 GET /planillas/:id trae la marca en el registro', async () => {
+    const pid = await nuevaPlanilla('2026-12-14');
+    await marcar(pid, '2026-12-14', 'LICENCIA_ESPECIAL', owner.token);
     const { body } = await get(`/planillas/${pid}`, owner.token);
-    const dia = (body.registros as any[]).find(r => r.fecha.startsWith('2026-12-04'));
-    assert(dia && dia.marcaManual && dia.marcaManual.estado === 'PENDIENTE', `marcaManual=${JSON.stringify(dia?.marcaManual)}`);
+    const dia = (body.registros as any[]).find(r => String(r.fecha).startsWith('2026-12-14'));
+    assert(dia?.marcaManual?.estado === 'PENDIENTE', `marcaManual=${JSON.stringify(dia?.marcaManual)}`);
   });
 
-  // ═══ F. endurecimiento (guards de correctitud) ═══
-  await scenario('F1 marcar comp sobre un día con esFrancoCompensatorio ya declarado → 409', async () => {
-    const pid = await nuevaPlanilla('2026-12-06');
-    const r = await post(`/planillas/${pid}/registros`, { fecha: '2026-12-06', esFrancoCompensatorio: true }, owner.token);
-    assertStatus(r.status, 201, `crear registro comp: ${JSON.stringify(r.body)}`);
-    const { status } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-12-06', tipo: 'FRANCO_COMPENSATORIO' }, owner.token);
-    assertStatus(status, 409, 'esFrancoCompensatorio ya declarado');
+  // ═══ F. Certificado médico adjunto después de crear la marca ═══
+  await scenario('F1 el dueño adjunta el certificado a su marca ya creada', async () => {
+    const pid = await nuevaPlanilla('2026-12-16');
+    const { body: reg } = await marcar(pid, '2026-12-16', 'CERTIFICADO_MEDICO', owner.token, 'Gripe');
+    const up = await subirArchivo(`/ausencias/${reg.marcaManual.id}/archivo`, owner.token);
+    assertStatus(up.status, 200, JSON.stringify(up.body));
+    const { body: pl } = await get(`/planillas/${pid}`, owner.token);
+    const dia = (pl.registros as any[]).find(r => String(r.fecha).startsWith('2026-12-16'));
+    assert(!!dia?.marcaManual?.archivoUrl, `archivoUrl=${dia?.marcaManual?.archivoUrl}`);
   });
-  await scenario('F2 superior NO puede rechazar marca en planilla ya APROBADA → 400', async () => {
-    const pid = await nuevaPlanilla('2026-12-08');
-    const { body: reg } = await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-12-08', tipo: 'FALTA_JUSTIFICADA' }, owner.token);
-    await post(`/planillas/${pid}/marcas/${reg.marcaManual.id}/validar`, {}, sup.token);
-    const enviar = await post(`/planillas/${pid}/enviar`, {}, owner.token);
-    assertStatus(enviar.status, 200, `enviar: ${JSON.stringify(enviar.body)}`);
-    const av = await post(`/planillas/${pid}/avanzar`, {}, sup.token);
-    assertStatus(av.status, 200, `avanzar: ${JSON.stringify(av.body)}`);
-    assert(av.body.estado === 'APROBADA', `estado=${av.body.estado}`);
-    const { status } = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, sup.token);
-    assertStatus(status, 400, 'reject en planilla aprobada');
+  await scenario('F2 el supervisor NO puede adjuntar a la marca del subordinado → 403', async () => {
+    const pid = await nuevaPlanilla('2026-12-17');
+    const { body: reg } = await marcar(pid, '2026-12-17', 'CERTIFICADO_MEDICO', owner.token);
+    const up = await subirArchivo(`/ausencias/${reg.marcaManual.id}/archivo`, sup.token);
+    assertStatus(up.status, 403, JSON.stringify(up.body));
+  });
+  await scenario('F3 quitar la marca se lleva el certificado (no queda servible)', async () => {
+    const pid = await nuevaPlanilla('2026-12-18');
+    const { body: reg } = await marcar(pid, '2026-12-18', 'CERTIFICADO_MEDICO', owner.token);
+    const up = await subirArchivo(`/ausencias/${reg.marcaManual.id}/archivo`, owner.token);
+    assertStatus(up.status, 200, JSON.stringify(up.body));
+    const url: string = up.body.archivoUrl;
+    assert(!!url, `sin archivoUrl: ${JSON.stringify(up.body)}`);
+    const antes = await getUpload(url, owner);
+    assert(antes === 200, `el archivo debía servirse antes de borrar (got ${antes})`);
+    const d = await del(`/planillas/${pid}/marcas/${reg.marcaManual.id}`, owner.token);
+    assertStatus(d.status, 204, 'quitar marca con adjunto');
+    const despues = await getUpload(url, owner);
+    assert(despues !== 200, `el archivo sigue accesible tras borrar la marca (${despues})`);
   });
 
-  // ═══ G. limpieza al borrar planilla ═══
-  await scenario('G1 borrar planilla con marca comp libera el saldo reservado', async () => {
+  // ═══ G. Borrar la planilla limpia sus marcas ═══
+  await scenario('G1 borrar la planilla libera el saldo y no deja ausencias huérfanas', async () => {
     await put(`/vacacion-saldos/${saldoId}`, { compensatoriosAcumulados: 5, compensatoriosUsados: 0 }, ana.token);
     const before = await getCompSaldo(owner.token);
-    const pid = await nuevaPlanilla('2026-12-10');
-    await post(`/planillas/${pid}/marcar-dia`, { fecha: '2026-12-10', tipo: 'FRANCO_COMPENSATORIO' }, owner.token);
-    assert((await getCompSaldo(owner.token)).pend === before.pend + 1, 'reservó pendiente');
+    const pid = await nuevaPlanilla('2026-12-21');
+    const { body: reg } = await marcar(pid, '2026-12-21', 'FRANCO_COMPENSATORIO', owner.token);
+    assert((await getCompSaldo(owner.token)).pend === before.pend + 1, 'reservó el pendiente');
     const d = await del(`/planillas/${pid}`, owner.token);
     assertStatus(d.status, 204, `borrar planilla: ${JSON.stringify(d.body)}`);
     assert((await getCompSaldo(owner.token)).pend === before.pend, 'liberó el pendiente al borrar la planilla');
-    // la ausencia manual no debe quedar como fantasma
-    const { body: aus } = await get(`/ausencias?scope=mio`, owner.token);
-    const leftover = (aus as any[]).filter(a => a.fechaInicio && String(a.fechaInicio).startsWith('2026-12-10'));
-    assert(leftover.length === 0, `quedó marca huérfana: ${JSON.stringify(leftover)}`);
+    const { status } = await get(`/ausencias/${reg.marcaManual.id}`, owner.token);
+    assertStatus(status, 404, 'quedó una marca huérfana');
   });
 
   // ── Resumen ──

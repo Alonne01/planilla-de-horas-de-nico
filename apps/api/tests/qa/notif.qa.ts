@@ -101,7 +101,7 @@ async function main() {
   console.log(col('CYAN', `\n=== QA Notificaciones (KEY=${KEY}, ts=${TS}) ===\n`));
 
   const admin = await login('admin@wenlen.com');
-  const rrhh = await login('ana.martinez@demo.com');
+  const rrhh = await login('rrhh1@test.wenlen.com');
   assert(admin.user.rolNivel >= 100, `admin nivel ${admin.user.rolNivel}`);
   assert(rrhh.user.rolNivel >= 90, `rrhh nivel ${rrhh.user.rolNivel}`);
   const sameEmpresa = admin.user.empresaId === rrhh.user.empresaId;

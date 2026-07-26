@@ -212,17 +212,35 @@ async function main() {
     note(`CAMPO 12h shift → trabajadas=${ht} normales=${hn} extra50=${h50} extra100=${h100} viaje=${body.horasViajeCalc}`);
   });
 
-  await scenario('POST registro esFeriado → all hours to extra100', async () => {
-    const { status, body } = await post(`/planillas/${mainPlanillaId}/registros`, {
-      fecha: isoDay(Y_MAIN, 5, 12),
-      entradaTurno1: isoTime(Y_MAIN, 5, 12, 9),
-      salidaTurno1: isoTime(Y_MAIN, 5, 12, 13),
-      lugarTrabajo: 'BASE', esFeriado: true,
-    }, A.token);
-    assertStatus(status, 201, JSON.stringify(body));
-    const ht = num(body.horasTrabajadas), hn = num(body.horasNormales), h50 = num(body.horasExtra50), h100 = num(body.horasExtra100);
-    assert(hn === 0 && h50 === 0, `feriado normales/extra50 should be 0, got ${hn}/${h50}`);
-    assert(Math.abs(h100 - ht) < 0.01, `feriado extra100 should equal trabajadas: ${h100} != ${ht}`);
+  // `esFeriado` del payload se acepta pero se IGNORA: el feriado lo deriva
+  // calcularConContexto() de la tabla. Mandando el flag y nada más, un día común
+  // de un año sin feriados cargados (acá, 2310) se calcula como día normal — que
+  // es justamente lo que hacía fallar la aserción vieja. Se carga el feriado en la
+  // empresa y se restaura la lista original después.
+  await scenario('POST registro en un feriado real → todas las horas a extra100', async () => {
+    const fechaFeriado = (isoDay(Y_MAIN, 5, 12) as string).slice(0, 10);
+    const { body: antes } = await get('/admin/feriados', admin.token);
+    const propiosOriginales: string[] = (antes.feriados as any[])
+      .filter(f => f.origen === 'EMPRESA').map(f => f.fecha);
+    const restaurar = async () => {
+      await put('/admin/feriados/empresa', { fechas: propiosOriginales }, admin.token).catch(() => {});
+    };
+    const alta = await put('/admin/feriados/empresa', { fechas: [...propiosOriginales, fechaFeriado] }, admin.token);
+    assertStatus(alta.status, 200, `cargar feriado: ${JSON.stringify(alta.body)}`);
+    try {
+      const { status, body } = await post(`/planillas/${mainPlanillaId}/registros`, {
+        fecha: isoDay(Y_MAIN, 5, 12),
+        entradaTurno1: isoTime(Y_MAIN, 5, 12, 9),
+        salidaTurno1: isoTime(Y_MAIN, 5, 12, 13),
+        lugarTrabajo: 'BASE',
+      }, A.token);
+      assertStatus(status, 201, JSON.stringify(body));
+      const ht = num(body.horasTrabajadas), hn = num(body.horasNormales), h50 = num(body.horasExtra50), h100 = num(body.horasExtra100);
+      assert(hn === 0 && h50 === 0, `feriado normales/extra50 should be 0, got ${hn}/${h50}`);
+      assert(Math.abs(h100 - ht) < 0.01, `feriado extra100 should equal trabajadas: ${h100} != ${ht}`);
+    } finally {
+      await restaurar();
+    }
   });
 
   await scenario('PUT registro recomputes hours', async () => {
@@ -445,8 +463,14 @@ async function main() {
     const { status } = await post(`/planillas/${sendPlanillaId}/reabrir`, { motivo: 'x' }, A.token);
     assertStatus(status, 403);
   });
-  await scenario('OPERADOR PATCH compensatorio → 403 (level guard)', async () => {
+  // El compensatorio pasó a ser del dueño: ya no hay guard de nivel que rebote a A
+  // en su propia planilla. Lo que queda es que el registro `x` no existe.
+  await scenario('dueño PATCH compensatorio de un registro inexistente → 404', async () => {
     const { status } = await api('PATCH', `/planillas/${mainPlanillaId}/registros/x/compensatorio`, { token: A.token, body: { activar: true } });
+    assertStatus(status, 404);
+  });
+  await scenario('B PATCH compensatorio en la planilla de A → 403 (no es el dueño)', async () => {
+    const { status } = await api('PATCH', `/planillas/${mainPlanillaId}/registros/x/compensatorio`, { token: B.token, body: { activar: true } });
     assertStatus(status, 403);
   });
 

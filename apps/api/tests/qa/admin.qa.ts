@@ -69,8 +69,8 @@ async function main() {
 
   const admin = await login('admin@wenlen.com');
   assert(admin.user.rolNivel >= 100, `admin nivel ${admin.user.rolNivel} < 100`);
-  const rrhh = await login('ana.martinez@demo.com');   // nivel 90
-  const oper = await login('franco.alvarez@demo.com'); // nivel 10
+  const rrhh = await login('rrhh1@test.wenlen.com');   // nivel 90
+  const oper = await login('op1.almacen@test.wenlen.com'); // nivel 10
 
   // find a SUPERVISOR for extra below-admin authz coverage
   let supervisor: Session | null = null;

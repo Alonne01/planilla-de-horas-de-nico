@@ -369,9 +369,15 @@ async function main() {
     assertStatus(r.status, 200, JSON.stringify(r.body));
     assert(Array.isArray(r.body.empleados) && Array.isArray(r.body.sectores), 'gantt shape');
   });
-  await scenario('GET /vacaciones/gantt as SUPERVISOR (nivel 60 < 70) -> 403', async () => {
+  // El gantt dejó de tener guard duro de nivel 70: ahora el alcance sale de la
+  // cadena de aprobación, así que un supervisor entra pero ve solo lo suyo.
+  await scenario('GET /vacaciones/gantt as SUPERVISOR -> 200 con alcance acotado', async () => {
     const r = await get(`/vacaciones/gantt`, sup1.token);
-    assertStatus(r.status, 403, JSON.stringify(r.body));
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    assert(Array.isArray(r.body.empleados), 'gantt shape');
+    const rrhhRes = await get(`/vacaciones/gantt`, admin.token);
+    assert(r.body.empleados.length <= (rrhhRes.body.empleados?.length ?? 0),
+      `el supervisor ve ${r.body.empleados.length} empleados y el admin ${rrhhRes.body.empleados?.length}`);
   });
   await scenario('GET /vacaciones/gantt as OPERADOR -> 403', async () => {
     const r = await get(`/vacaciones/gantt`, owner.token);

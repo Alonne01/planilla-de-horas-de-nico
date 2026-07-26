@@ -1080,8 +1080,8 @@ async function main() {
   // ── Bootstrap: login all sessions ────────────────────────────────────────────
 
   const adminSession = await login('admin@wenlen.com');
-  const rrhhSession  = await login('ana.martinez@demo.com');
-  const francoSession = await login('franco.alvarez@demo.com');
+  const rrhhSession  = await login('rrhh1@test.wenlen.com');
+  const francoSession = await login('op1.almacen@test.wenlen.com');
 
   log(c('BLUE', '●'), `Admin:  ${adminSession.user.nombre} ${adminSession.user.apellido}`);
   log(c('BLUE', '●'), `RRHH:   ${rrhhSession.user.nombre} ${rrhhSession.user.apellido}`);

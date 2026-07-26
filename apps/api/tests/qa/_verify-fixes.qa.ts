@@ -41,8 +41,8 @@ async function login(email: string) {
 (async () => {
   console.log(col('CY', `\n=== VERIFY FIXES (ts=${TS}) ===\n`));
   const admin = await login('admin@wenlen.com');
-  const rrhh = await login('ana.martinez@demo.com');
-  const operador = await login('franco.alvarez@demo.com');
+  const rrhh = await login('rrhh1@test.wenlen.com');
+  const operador = await login('op1.almacen@test.wenlen.com');
   const createdUsers: string[] = [];
   const base = (extra: Record<string, unknown> = {}) => ({
     nombre: 'QaFix', apellido: `T${TS}`, email: `qa.fix.${TS}.${Math.random().toString(36).slice(2, 7)}@demo.com`,

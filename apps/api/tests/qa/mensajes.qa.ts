@@ -315,7 +315,7 @@ async function main() {
   }
 
   // ── NEGATIVE / AUTHZ ────────────────────────────────────────────────────────
-  const operador = await login('franco.alvarez@demo.com'); // seed OPERADOR (nivel 10)
+  const operador = await login('op1.almacen@test.wenlen.com'); // seed OPERADOR (nivel 10)
   assert(operador.user.rolNivel < 90, `franco nivel ${operador.user.rolNivel} expected <90`);
 
   await scenario('N1 OPERADOR POST /mensajes -> 403', async () => {

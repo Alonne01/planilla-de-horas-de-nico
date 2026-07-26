@@ -1251,7 +1251,7 @@ async function main() {
   let rrhhSession: Session;
   let adminSession: Session;
   try {
-    rrhhSession = await login('ana.martinez@demo.com');
+    rrhhSession = await login('rrhh1@test.wenlen.com');
     adminSession = await login('admin@wenlen.com');
     log(c('GREEN', '✅'), 'Core sessions OK (RRHH + ADMIN)');
   } catch (e) {

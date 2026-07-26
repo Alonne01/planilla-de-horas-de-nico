@@ -72,8 +72,8 @@ async function main() {
 
   // ── Bootstrap sessions ──────────────────────────────────────────────────
   const admin = await login('admin@wenlen.com');
-  const rrhh = await login('ana.martinez@demo.com');
-  const operador = await login('franco.alvarez@demo.com');
+  const rrhh = await login('rrhh1@test.wenlen.com');
+  const operador = await login('op1.almacen@test.wenlen.com');
 
   // discover a COORDINADOR and SUPERVISOR
   const { body: duBody } = await get('/auth/debug-users', admin.token);

@@ -55,8 +55,8 @@ const bug = (id: string, msg: string) => process.stdout.write(`  ${col('Y', 'BUG
   console.log(col('CY', `\n=== QA usuarios suite (ts=${TS}) ===\n`));
 
   const admin = await login('admin@wenlen.com');
-  const rrhh = await login('ana.martinez@demo.com');
-  const operador = await login('franco.alvarez@demo.com');
+  const rrhh = await login('rrhh1@test.wenlen.com');
+  const operador = await login('op1.almacen@test.wenlen.com');
   console.log(col('DIM', `  admin nivel=${admin.user.rolNivel} rrhh nivel=${rrhh.user.rolNivel} operador nivel=${operador.user.rolNivel} (oper sector=${operador.user.sectorId})`));
 
   // discover a real sectorId + supervisor + coordinador

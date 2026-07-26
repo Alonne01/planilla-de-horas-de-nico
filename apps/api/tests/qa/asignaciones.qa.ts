@@ -92,7 +92,7 @@ async function main() {
   // escenario se saltea en vez de dar un rojo que no dice nada.
   const CANDIDATOS: [string, string][] = [
     ['cmass1.administracion@test.wenlen.com', 'Prueba2026!'],
-    ['ana.martinez@demo.com', 'Test1234!'],
+    ['rrhh1@test.wenlen.com', 'Test1234!'],
   ];
   let noAdmin: string | null = null;
   for (const [email, password] of CANDIDATOS) {
