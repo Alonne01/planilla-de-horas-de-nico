@@ -98,13 +98,27 @@ export async function getFlowVisibleUserIds(
   // Global flow: own sector peers. Sector-specific: own sector only (if it has a matching flow).
   // Without this restriction, a coordinator in Sector A sees peers from Sectors B, C, etc.
   // just because those sectors also have COORDINADOR in their flow steps.
-  const sectorFilter = isGlobal
-    ? (me?.sectorId ? [me.sectorId] : [])
-    : (me?.sectorId && visibleSectorIds.includes(me.sectorId) ? [me.sectorId] : []);
+  //
+  // Un aprobador SIN sector es transversal (así crea el seed a RRHH y GERENTE):
+  // acotarlo a "su sector" lo deja viendo solo a sí mismo y su bandeja queda
+  // vacía para siempre. Para él el alcance son los sectores cuyo flujo incluye
+  // su rol, que es justamente lo que `visibleSectorIds` ya calculó; con flujo
+  // global, toda la empresa.
+  const esTransversal = !me?.sectorId;
+  const verTodaLaEmpresa = esTransversal && isGlobal;
+  const sectorFilter = esTransversal
+    ? visibleSectorIds
+    : isGlobal
+      ? [me!.sectorId!]
+      : (visibleSectorIds.includes(me!.sectorId!) ? [me!.sectorId!] : []);
 
-  if (sectorFilter.length > 0) {
+  if (verTodaLaEmpresa || sectorFilter.length > 0) {
     const sectorPeers = await prisma.usuario.findMany({
-      where: { sectorId: { in: sectorFilter }, empresaId, activo: true },
+      where: {
+        ...(verTodaLaEmpresa ? {} : { sectorId: { in: sectorFilter } }),
+        empresaId,
+        activo: true,
+      },
       select: { id: true },
     });
     for (const u of sectorPeers) ids.add(u.id);

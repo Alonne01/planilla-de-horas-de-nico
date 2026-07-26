@@ -146,14 +146,18 @@ async function main() {
 
   // ════════════════════ HAPPY PATH: create / list / detail ════════════════════
 
-  await scenario('POST /planillas creates BORRADOR with flujo assigned', async () => {
+  await scenario('POST /planillas creates BORRADOR without flujo', async () => {
     const { status, body } = await post('/planillas', {
       periodoInicio: isoDay(Y_MAIN, 5, 10), periodoFin: isoDay(Y_MAIN, 5, 12),
     }, A.token);
     assertStatus(status, 201, JSON.stringify(body));
     assert(body.estado === 'BORRADOR', `estado should be BORRADOR, got ${body.estado}`);
     assert(body.usuarioId === aId, 'usuarioId mismatch');
-    assert(body.flujoId === flujoId, `flujoId should be my flujo (got ${body.flujoId})`);
+    // El borrador ya NO ata flujo: se resuelve y se congela recién al enviar.
+    // Antes se resolvía al crear, a veces semanas antes, y la planilla circulaba
+    // por el flujo que existía entonces. Ver circuito.utils.ts.
+    assert(body.flujoId === null, `flujoId should be null on a draft (got ${body.flujoId})`);
+    assert(body.circuitoSnapshot == null, `circuitoSnapshot should be empty on a draft (got ${JSON.stringify(body.circuitoSnapshot)})`);
     assert(body.pasoActual === 0, `pasoActual should be 0, got ${body.pasoActual}`);
     mainPlanillaId = body.id;
   });
@@ -166,12 +170,14 @@ async function main() {
     assert(body.every((p: any) => p.usuarioId === aId), 'list leaked other users planillas to OPERADOR');
   });
 
-  await scenario('GET /planillas/:id (owner) detail has registros[] + flujo.pasos', async () => {
+  await scenario('GET /planillas/:id (owner) detail has registros[], sin flujo hasta enviarla', async () => {
     const { status, body } = await get(`/planillas/${mainPlanillaId}`, A.token);
     assertStatus(status, 200);
     assert(Array.isArray(body.registros), 'registros array missing');
-    assert(body.flujo && Array.isArray(body.flujo.pasos), 'flujo.pasos missing');
-    assert(body.flujo.pasos[0].rolAprobador === 'SUPERVISOR', 'paso rol mismatch');
+    // Un borrador no tiene flujo todavía: se resuelve al enviar. El recorrido
+    // sale de `circuitoSnapshot`, no de `flujo.pasos`, en cuanto se envía.
+    assert(body.flujo == null, `un borrador no deberia traer flujo (got ${JSON.stringify(body.flujo)})`);
+    assert(body.circuitoSnapshot == null, 'un borrador no deberia traer circuito congelado');
   });
 
   // ════════════════════ REGISTROS: compute / edit / delete ════════════════════
@@ -317,13 +323,19 @@ async function main() {
     assertStatus(status, 400);
   });
 
-  await scenario('POST /planillas with periodoFin < periodoInicio → accepted (validation gap)', async () => {
+  // Este escenario documentaba un hueco de validación. Se cerró en 4ecc71f, así
+  // que ahora verifica el arreglo en vez de dejar constancia del bug.
+  await scenario('POST /planillas with periodoFin < periodoInicio → 400', async () => {
     const { status, body } = await post('/planillas', {
       periodoInicio: isoDay(Y_INV, 7, 20), periodoFin: isoDay(Y_INV, 7, 10),
     }, A.token);
-    assertStatus(status, 201, JSON.stringify(body));
-    invPlanillaId = body.id;
-    bug(`POST /planillas accepts periodoFin<periodoInicio (201, no validation). inicio=${body.periodoInicio} fin=${body.periodoFin}`);
+    assertStatus(status, 400, JSON.stringify(body));
+    // Se crea una válida para los escenarios que siguen, que necesitan un id.
+    const ok = await post('/planillas', {
+      periodoInicio: isoDay(Y_INV, 7, 10), periodoFin: isoDay(Y_INV, 7, 20),
+    }, A.token);
+    assertStatus(ok.status, 201, JSON.stringify(ok.body));
+    invPlanillaId = ok.body.id;
   });
 
   await scenario('enviar inverted-period planilla → bypasses completeness (submits EMPTY planilla)', async () => {

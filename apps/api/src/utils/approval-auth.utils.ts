@@ -57,9 +57,15 @@ function _isResponsibleApprover(
   }
 
   if (rolAprobador === 'GERENTE') {
-    return approverRole === 'GERENTE'
-      && !!owner.sectorId
-      && owner.sectorId === approverSectorId;
+    if (approverRole !== 'GERENTE') return false;
+    // Un gerente SIN sector es transversal, igual que RRHH: así los crea el seed
+    // (`['ADMIN','RRHH','GERENTE']` en ADMINISTRACION van con `sectorId: null`).
+    // Exigirle que comparta sector con el dueño lo dejaba sin poder firmar NUNCA
+    // ningún paso GERENTE, porque nunca hay sector que comparar.
+    if (!approverSectorId) return true;
+    // Un gerente CON sector sí queda acotado al suyo, que es la lectura
+    // restrictiva y la que ya aplican supervisor y coordinador.
+    return !!owner.sectorId && owner.sectorId === approverSectorId;
   }
 
   // RRHH and ADMIN are equivalent for RRHH-step approvals
