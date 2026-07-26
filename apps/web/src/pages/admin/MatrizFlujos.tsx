@@ -48,10 +48,13 @@ export default function MatrizFlujos({ flujos, sectores, asignaciones, roles }: 
   const setAlcance = useMutation({
     mutationFn: (v: { tipoDocumento: string; sectorId: string | null; flujoId: string | null }) =>
       api.put('/admin/flujos/asignaciones/alcance', v),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-flujos-asignaciones'] });
-      queryClient.invalidateQueries({ queryKey: ['admin-flujos'] });
-    },
+    // Se devuelve la promesa a propósito: react-query espera lo que devuelva
+    // `onSuccess` antes de dar la mutación por terminada, y sin eso el spinner
+    // se apaga mientras el selector todavía muestra el valor viejo.
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin-flujos-asignaciones'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-flujos'] }),
+    ]),
     onError: (err) => {
       toast({
         title: 'No se pudo cambiar el flujo',

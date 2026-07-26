@@ -75,6 +75,19 @@ async function notifs(tok: string): Promise<any[]> {
 function hasNotif(list: any[], pred: (n: any) => boolean, within = 12): boolean {
   return list.slice(0, within).some(pred);
 }
+/**
+ * Los roles del circuito CONGELADO de un documento, en orden.
+ *
+ * Sale de `circuitoSnapshot` y no de `flujo.pasos`: desde que el circuito se
+ * arma según el nivel de quien envía, la cadena configurada tiene pasos que el
+ * documento puede no recorrer. Solo tiene valor después de enviar — un borrador
+ * todavía no congeló nada.
+ */
+function circuito(doc: any): string[] {
+  const pasos = Array.isArray(doc?.circuitoSnapshot) ? doc.circuitoSnapshot : [];
+  return [...pasos].sort((a: any, b: any) => a.orden - b.orden).map((p: any) => p.rolAprobador);
+}
+
 const isParaRevisar = (n: any) => n.tipo === 'PLANILLA' && typeof n.titulo === 'string' && n.titulo.toLowerCase().includes('para revisar');
 const ownerLink = (pid: string) => (n: any) => n.tipo === 'PLANILLA' && n.link === `/planillas/${pid}`;
 
@@ -134,8 +147,14 @@ async function main() {
   console.log(`\n=== QA flujos suite (ts=${TS}) ===\n`);
 
   const admin = await login('admin@wenlen.com');
-  const rrhh = await login('ana.martinez@demo.com');
   assert(admin.user.rolNivel >= 100, `admin nivel ${admin.user.rolNivel}`);
+
+  // El aprobador de RRHH se crea acá en vez de tomarse de la nómina: antes era
+  // un login fijo a ana.martinez@demo.com, y la suite entera moría con un 401 el
+  // día que ese usuario dejó de existir. Va SIN sector, como los RRHH del seed:
+  // así es transversal y ve los documentos de cualquier sector.
+  const rrhhUser = await createUser(admin.token, 'RRHH', 'rrhh', null);
+  const rrhh = await login(rrhhUser.email);
   assert(rrhh.user.rolNivel >= 90, `rrhh nivel ${rrhh.user.rolNivel}`);
 
   // pick a real sector
@@ -228,18 +247,24 @@ async function main() {
   await scenario('CHAIN A [RRHH]: enviar resolves flujo, notifies RRHH; RRHH avanzar -> APROBADA + owner notif', async () => {
     const pid = await createFilledPlanilla(ownerA, '2001-03-15T00:00:00.000Z');
 
-    // flujo correctly resolved + pasos match
+    // Un borrador NO tiene flujo: el circuito se resuelve y se congela al
+    // enviar, no al crear. Antes de ese cambio esto se verificaba acá y ahora
+    // sería un falso rojo.
     const det = await get(`/planillas/${pid}`, ownerA.token);
     assertStatus(det.status, 200, JSON.stringify(det.body));
-    assert(det.body.flujo != null, 'planilla has NO flujo (assignment not resolved at creation)');
-    const rolesA = det.body.flujo.pasos.map((p: any) => p.rolAprobador);
-    assert(JSON.stringify(rolesA) === JSON.stringify(['RRHH']), `chain A pasos=${JSON.stringify(rolesA)}`);
+    assert(det.body.flujoId == null, `un borrador no debería tener flujo (llegó ${det.body.flujoId})`);
 
     const rrhhBefore = await notifCount(rrhh.token);
     const sendRes = await post(`/planillas/${pid}/enviar`, {}, ownerA.token);
     assertStatus(sendRes.status, 200, JSON.stringify(sendRes.body));
     assert(sendRes.body.estado === 'ENVIADA', `estado=${sendRes.body.estado}`);
     assert(sendRes.body.pasoActual === 1, `pasoActual=${sendRes.body.pasoActual}`);
+
+    // El circuito congelado tiene que ser la cadena configurada: quien envía es
+    // un OPERADOR (nivel 10) y ningún aprobador de la cadena está a esa altura,
+    // así que no se saltea ningún paso.
+    assert(JSON.stringify(circuito(sendRes.body)) === JSON.stringify(['RRHH']),
+      `chain A circuito=${JSON.stringify(circuito(sendRes.body))}`);
 
     // RRHH (next approver) gets a "para revisar" notif
     const rrhhAfter = await notifCount(rrhh.token);
@@ -270,14 +295,13 @@ async function main() {
   let pidB = '';
   await scenario('CHAIN B [SUP->RRHH]: only APROBADA after 2nd step; per-step notifs', async () => {
     pidB = await createFilledPlanilla(ownerB, '2002-04-10T00:00:00.000Z');
-    const det = await get(`/planillas/${pidB}`, ownerB.token);
-    const rolesB = det.body.flujo?.pasos.map((p: any) => p.rolAprobador);
-    assert(JSON.stringify(rolesB) === JSON.stringify(['SUPERVISOR', 'RRHH']), `chain B pasos=${JSON.stringify(rolesB)}`);
 
     const supBefore = await notifCount(supSession.token);
     const send = await post(`/planillas/${pidB}/enviar`, {}, ownerB.token);
     assertStatus(send.status, 200, JSON.stringify(send.body));
     assert(send.body.pasoActual === 1, `pasoActual=${send.body.pasoActual}`);
+    assert(JSON.stringify(circuito(send.body)) === JSON.stringify(['SUPERVISOR', 'RRHH']),
+      `chain B circuito=${JSON.stringify(circuito(send.body))}`);
     // step-1 approver (dedicated supervisor) notified
     assert((await notifCount(supSession.token)) > supBefore, 'supervisor not notified on enviar');
     assert(hasNotif(await notifs(supSession.token), isParaRevisar), 'supervisor missing "para revisar"');
@@ -311,11 +335,11 @@ async function main() {
   let pidC = '';
   await scenario('CHAIN C [SUP->COORD->RRHH]: walks 3 steps, APROBADA only after step3', async () => {
     pidC = await createFilledPlanilla(ownerC, '2003-05-12T00:00:00.000Z');
-    const det = await get(`/planillas/${pidC}`, ownerC.token);
-    const rolesC = det.body.flujo?.pasos.map((p: any) => p.rolAprobador);
-    assert(JSON.stringify(rolesC) === JSON.stringify(['SUPERVISOR', 'COORDINADOR', 'RRHH']), `chain C pasos=${JSON.stringify(rolesC)}`);
 
-    await post(`/planillas/${pidC}/enviar`, {}, ownerC.token);
+    const envio = await post(`/planillas/${pidC}/enviar`, {}, ownerC.token);
+    assertStatus(envio.status, 200, JSON.stringify(envio.body));
+    assert(JSON.stringify(circuito(envio.body)) === JSON.stringify(['SUPERVISOR', 'COORDINADOR', 'RRHH']),
+      `chain C circuito=${JSON.stringify(circuito(envio.body))}`);
 
     // step 1 SUP -> EN_REVISION (paso 2), coordinador notified next
     const coordBefore = await notifCount(coordSession.token);
