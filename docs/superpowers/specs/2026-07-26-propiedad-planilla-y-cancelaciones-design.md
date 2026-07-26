@@ -47,11 +47,12 @@ la planilla que las contiene.
 | Endpoint | Cambio |
 |---|---|
 | `POST /planillas/:id/marcar-dia` | Solo el dueño (se elimina la rama `isManager` y el `autoValidada`). Estados permitidos: `BORRADOR`, `RECHAZADA`. La marca nace siempre `PENDIENTE`. |
-| `DELETE /planillas/:id/marcas/:ausenciaId` | Solo el dueño, en `BORRADOR`/`RECHAZADA`. **Deja de exigir que la marca esté `PENDIENTE`.** Elimina la fila `Ausencia` (y su historial), borra el `RegistroHoras` ligado y devuelve el saldo compensatorio según el estado que tenía la marca. |
+| `DELETE /planillas/:id/marcas/:ausenciaId` | Solo el dueño, en `BORRADOR`/`RECHAZADA`. **Deja de exigir que la marca esté `PENDIENTE`.** Elimina la fila `Ausencia` (y su historial), borra el `RegistroHoras` ligado, devuelve el saldo compensatorio según el estado que tenía la marca y **borra el archivo adjunto del disco** (`borrarUploadPorUrl`) — hoy no lo hace y quedaría un certificado huérfano que ya nadie puede ver ni eliminar. Ídem `limpiarMarcasManuales` al borrar la planilla entera. |
 | `POST /planillas/:id/marcas/:ausenciaId/validar` | Se elimina. |
 | `POST /planillas/:id/marcas/validar-todo` | Se elimina. |
 | `POST /planillas/:id/avanzar` | Se elimina el gate de "marcas sin validar". Cuando `nuevoEstado === 'APROBADA'`, dentro de la misma transacción todas las marcas `PENDIENTE` de la planilla pasan a `APROBADA` (`aprobada: true`, `aprobadaPorId`, `aprobadaAt`), con su fila de `AusenciaHistorial`, y las de tipo `FRANCO_COMPENSATORIO` mueven el saldo de `compensatoriosPendientes` a `compensatoriosUsados`. |
 | `PATCH /planillas/:id/registros/:rid/compensatorio` | Pasa a ser del dueño: se reemplaza `requireLevel(LEVEL_SUPERVISOR)` + `canManageUser` por "el actor es el dueño", y se acota a `BORRADOR`/`RECHAZADA`. |
+| `POST /ausencias/:id/archivo` | Se agrega una guarda para las marcas manuales: si `cargaManual=true`, solo el dueño y solo con la planilla asociada en `BORRADOR`/`RECHAZADA` (se cae la rama `canManageUser`, por el principio rector). Para las ausencias formales sigue como está: el dueño o quien lo gestiona. En ambos casos se rechaza si la solicitud está `CANCELADA`. Una `RECHAZADA` sí admite adjunto: el motivo del rechazo suele ser justamente que faltaba el certificado. |
 
 `POST/PUT/DELETE /planillas/:id/registros` ya filtran por `usuarioId: req.user.userId`:
 no cambian.
@@ -61,16 +62,57 @@ la planilla vuelve a `RECHAZADA`. No hace falta tocar `POST /:id/rechazar`.
 
 `limpiarMarcasManuales` (borrado de planilla) no cambia.
 
+### Confirmación al marcar
+
+Hoy los botones de `TIPOS_MARCA` disparan el `POST` en el acto; solo hay confirmación
+si el día ya tenía horas cargadas. Se reemplazan por un **diálogo de confirmación**
+que se abre al elegir el tipo y muestra:
+
+- La fecha y el tipo elegido, en texto claro ("Falta justificada — jueves 31/07").
+- Un campo de descripción opcional (el endpoint ya acepta `descripcion` y hoy el front
+  nunca la manda).
+- Para `CERTIFICADO_MEDICO`, un selector de archivo **opcional** para adjuntar el
+  certificado en el mismo paso.
+- La advertencia de reemplazo de horas, cuando corresponda, integrada acá en lugar de
+  ser un `confirm` previo.
+
+Al confirmar: `POST /planillas/:id/marcar-dia` y, si se eligió archivo, un
+`POST /ausencias/:ausenciaId/archivo` con el id que viene en `registro.marcaManual.id`
+de la respuesta. Si la subida falla, la marca queda creada y se avisa que el archivo no
+subió — se puede reintentar desde el detalle del día, sin perder la marca.
+
+### Adjunto después de creada
+
+El archivo deja de ser algo que solo se puede poner en el momento del alta.
+
+- **En la planilla** (`PlanillaDetailPage.tsx`): en el detalle de un día marcado como
+  `CERTIFICADO_MEDICO`, botón "Adjuntar certificado" (o "Reemplazar" si ya hay uno) y
+  link para verlo. Visible solo para el dueño con la planilla editable.
+- **En Ausencias** (`AusenciasPage.tsx`): mismo par de acciones en las solicitudes ya
+  creadas que admiten adjunto, que hoy solo lo aceptan durante el alta.
+
+No se agrega un endpoint para borrar el adjunto suelto: subir uno nuevo ya reemplaza al
+anterior y borra el viejo del disco (`borrarUploadPorUrl`), y el adjunto se va junto con
+la marca cuando se la borra.
+
+### Aviso de certificado faltante
+
+Al enviar la planilla, si hay marcas `CERTIFICADO_MEDICO` sin `archivoUrl`, el diálogo
+de envío lo advierte y **deja enviar igual**. Es una advertencia del front; el backend no
+gana ninguna guarda nueva. Quien todavía no tiene el papel en la mano no queda trabado, y
+el aprobador ve la falta al revisar.
+
 ### Cambios en el front
 
 En `PlanillaDetailPage.tsx`:
 
 - Se elimina `canMarkAsManager` y todo el bloque Validar / Rechazar / "Validar todo".
 - El botón "Quitar marca" se muestra con `isOwner && canEdit`, **sin** condicionar al
-  estado de la marca. Texto de confirmación: quitar el día también cancela la solicitud.
+  estado de la marca. El texto de confirmación aclara que se cancela la solicitud y que
+  se borra el certificado adjunto si lo había.
 - El badge "sin validar" pasa a decir **"a aprobar con la planilla"**: describe lo que
   realmente va a pasar en lugar de sugerir una acción pendiente de alguien.
-- El aprobador ve los días marcados al abrir la planilla, en modo lectura.
+- El aprobador ve los días marcados y sus certificados al abrir la planilla, en modo lectura.
 
 ### Saldo compensatorio
 
@@ -179,6 +221,18 @@ La rama de `GET /planillas/:id` que habilita al aprobador responsable del paso a
 (`isResponsibleApprover` sobre el circuito congelado) se conserva: ese acceso ya está
 justificado por el circuito del documento.
 
+### Los adjuntos siguen la misma regla
+
+`puedeVerUpload` resuelve el acceso a `/uploads` y para el tipo `ausencia` usa
+`canManageUser`, que es un criterio distinto del nuevo: habilita a cualquier nivel ≥ 70
+del mismo sector, sin exigir que sea aprobador ni que el dueño esté por debajo. Es decir,
+un coordinador podría abrir el certificado médico de otro coordinador de su sector aunque
+ya no pueda abrir su planilla.
+
+Se alinea la rama `ausencia` de `puedeVerUpload` con la regla de visibilidad: el titular
+siempre, y el resto solo si el dueño le queda visible por nivel (o es su jefe directo).
+Sin esto, el punto 3 tapa la puerta y deja la ventana abierta.
+
 ### Consecuencia asumida
 
 Un rol aprobador cuyo circuito lo mande a firmar documentos de su mismo nivel dejará de
@@ -195,6 +249,14 @@ Suites nuevas en `apps/api/tests/`:
 - Marcar o borrar con la planilla `ENVIADA`/`EN_REVISION`/`APROBADA` → 400.
 - Aprobar la planilla deja sus marcas `PENDIENTE` en `APROBADA` y mueve el saldo compensatorio una sola vez.
 - Rechazar la planilla deja las marcas editables de nuevo.
+
+**Adjuntos**
+- Adjuntar un certificado a una marca ya creada → queda el `archivoUrl` y el dueño lo ve.
+- Subir un segundo archivo reemplaza al primero y el viejo desaparece del disco.
+- Borrar la marca borra el archivo del disco.
+- Un supervisor no puede adjuntar en una marca ajena (403); RRHH tampoco.
+- Adjuntar con la planilla enviada → 400.
+- Un par del mismo nivel no puede abrir el certificado por URL directa (403 en `/uploads`).
 
 **Cancelación**
 - El dueño cancela su planilla `ENVIADA` → vuelve a `BORRADOR` con los registros intactos.
