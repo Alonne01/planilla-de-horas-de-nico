@@ -4,8 +4,12 @@ import { z } from 'zod';
 import { fechaFlexible } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
-import { crearNotificacion } from '../utils/notificacion.utils.js';
-import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
+import { crearNotificacion, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
+import {
+  isResponsibleApprover,
+  matchesCurrentStep,
+  type AprobadorContexto,
+} from '../utils/approval-auth.utils.js';
 import {
   construirCircuito,
   nivelesPorRol,
@@ -90,7 +94,16 @@ router.get('/pendientes', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReques
         estado: { in: ['PENDIENTE', 'EN_REVISION'] },
       },
       include: {
-        usuario: { select: { id: true, nombre: true, apellido: true, legajo: true, sector: { select: { nombre: true } } } },
+        // `sectorId`, `supervisorId` y `coordinadorId` los necesita
+        // `matchesCurrentStep` para decidir si el paso vigente le toca a quien
+        // consulta. Sin ellos la decisión se tomaría con datos incompletos.
+        usuario: {
+          select: {
+            id: true, nombre: true, apellido: true, legajo: true,
+            sectorId: true, supervisorId: true, coordinadorId: true,
+            sector: { select: { nombre: true } },
+          },
+        },
         solicitante: { select: { id: true, nombre: true, apellido: true } },
         diagramaActual: { select: { id: true, nombre: true, tipo: true, diasTrabajo: true, diasDescanso: true } },
         diagramaNuevo: { select: { id: true, nombre: true, tipo: true, diasTrabajo: true, diasDescanso: true } },
@@ -99,7 +112,18 @@ router.get('/pendientes', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReques
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json(solicitudes);
+    // Antes devolvía TODAS las solicitudes de la empresa a cualquier nivel ≥60,
+    // incluidas las de sectores ajenos y las de pasos que no le tocan. Se aplica
+    // el mismo criterio que la bandeja unificada, que es el mismo que la guarda
+    // de `/avanzar`: las tres vistas tienen que coincidir.
+    const aprobador: AprobadorContexto = {
+      userId: req.user!.userId,
+      rol: req.user!.rol,
+      nivel: req.user!.rolNivel ?? 0,
+      sectorId: (await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { sectorId: true } }))?.sectorId ?? null,
+    };
+
+    res.json(solicitudes.filter((s) => matchesCurrentStep(s, aprobador)));
   } catch (error) {
     console.error('Error listing pendientes cambios diagrama:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -222,6 +246,18 @@ router.post('/', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: 
       },
     });
 
+    // Aviso a los aprobadores del paso 1: en este tipo el alta ES el envío.
+    // El rol sale del `circuito` recién construido y no de `solicitud.flujoId`:
+    // el snapshot renumera los pasos desde 1, así que buscar el paso vivo por
+    // `orden` le avisaría al rol equivocado cuando el nivel del empleado acortó
+    // el circuito. El nombre es el del DUEÑO del cambio (no el de quien lo
+    // cargó): el aviso dice "X tiene una … pendiente de tu aprobación".
+    await notificarAprobadoresPaso(
+      usuarioId, req.user!.empresaId,
+      { rolAprobador: circuito[0]?.rolAprobador }, 'CAMBIO_DIAGRAMA',
+      `${targetUser.nombre} ${targetUser.apellido}`,
+    );
+
     res.status(201).json({
       ...solicitud,
       // Sin circuito la solicitud queda en la rama de escape del avance, que
@@ -247,7 +283,9 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       where: { id: solId },
       include: {
         flujo: { include: { pasos: { orderBy: { orden: 'asc' } } } },
-        usuario: { select: { id: true, empresaId: true, sectorId: true, supervisorId: true, coordinadorId: true } },
+        // `nombre`/`apellido` son para el aviso al aprobador del paso siguiente:
+        // el cuerpo nombra al DUEÑO del cambio, que acá casi nunca es quien lo pidió.
+        usuario: { select: { id: true, nombre: true, apellido: true, empresaId: true, sectorId: true, supervisorId: true, coordinadorId: true } },
         diagramaNuevo: { select: { nombre: true } },
       },
     });
@@ -406,14 +444,29 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
           link: '/cambios-diagrama',
         });
       }
-    } else if (nuevoEstado === 'EN_REVISION' && solicitud.solicitanteId !== req.user!.userId) {
-      await crearNotificacion({
-        usuarioId: solicitud.solicitanteId,
-        tipo: 'CAMBIO_DIAGRAMA',
-        titulo: 'Cambio de diagrama avanzó de paso',
-        cuerpo: 'La solicitud de cambio de diagrama avanzó al siguiente paso de aprobación.',
-        link: '/cambios-diagrama',
-      });
+    } else if (nuevoEstado === 'EN_REVISION') {
+      if (solicitud.solicitanteId !== req.user!.userId) {
+        await crearNotificacion({
+          usuarioId: solicitud.solicitanteId,
+          tipo: 'CAMBIO_DIAGRAMA',
+          titulo: 'Cambio de diagrama avanzó de paso',
+          cuerpo: 'La solicitud de cambio de diagrama avanzó al siguiente paso de aprobación.',
+          link: '/cambios-diagrama',
+        });
+      }
+      // Los avisos de arriba son para el SOLICITANTE ("lo tuyo avanzó"); éste es
+      // para quien tiene que firmar el paso DESTINO, que es otra cosa y no había
+      // nadie mandándolo. El rol sale de `pasos` —el circuito congelado de ESTA
+      // solicitud— porque `nuevoPaso` indexa el snapshot renumerado y no la
+      // cadena configurada. Acá `pasos` sirve aunque venga de la fila leída antes
+      // del update: el snapshot se congela al crear la solicitud y `/avanzar` no
+      // lo toca (a diferencia de `/enviar` en planillas, donde sí lo escribe).
+      await notificarAprobadoresPaso(
+        solicitud.usuarioId, req.user!.empresaId,
+        { rolAprobador: pasos.find((p) => p.orden === nuevoPaso)?.rolAprobador },
+        'CAMBIO_DIAGRAMA',
+        `${solicitud.usuario.nombre} ${solicitud.usuario.apellido}`,
+      );
     }
 
     res.json(updated);

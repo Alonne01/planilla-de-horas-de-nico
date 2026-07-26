@@ -2,8 +2,8 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { getFlowVisibleUserIds } from '../utils/visibility.utils.js';
-import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
-import { pasosDe, type PasoCircuito } from '../utils/circuito.utils.js';
+import { matchesCurrentStep, type AprobadorContexto } from '../utils/approval-auth.utils.js';
+import { pasosDe } from '../utils/circuito.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -27,7 +27,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     if (userNivel < 60 && scope !== 'mio') {
       // OPERADOR can't approve anything
-      res.json({ planillasPendientes: [], vacacionesPendientes: [], ausenciasPendientes: [], compensatoriosPendientes: [], faltantes: { actual: null, anterior: null }, historial: { planillas: [], vacaciones: [], ausencias: [] } });
+      res.json({ planillasPendientes: [], vacacionesPendientes: [], ausenciasPendientes: [], compensatoriosPendientes: [], cambiosDiagramaPendientes: [], faltantes: { actual: null, anterior: null }, historial: { planillas: [], vacaciones: [], ausencias: [] } });
       return;
     }
 
@@ -51,6 +51,23 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       : { usuario: { empresaId } };
 
     const userRol = req.user!.rol;
+
+    // Visibilidad propia de los cambios de diagrama. Se calcula aparte y NO se
+    // suma a `approvableUserIds`: ese conjunto sale de PLANILLA ∪ VACACION y lo
+    // comparten los otros cuatro tipos, así que ampliarlo les cambiaría lo que
+    // devuelven. Con el conjunto compartido, además, un aprobador que sólo
+    // figura en el flujo de CAMBIO_DIAGRAMA no vería ninguna solicitud.
+    let cambioDiagramaUserIds: string[] | null = null;
+    if (scope === 'mio') {
+      cambioDiagramaUserIds = [userId];
+    } else if (userNivel < 90) {
+      cambioDiagramaUserIds = await getFlowVisibleUserIds(prisma, userId, empresaId, userRol, userNivel, 'CAMBIO_DIAGRAMA');
+    }
+    // El filtro es sobre `usuarioId` (el DUEÑO del cambio) y no sobre
+    // `solicitanteId`: lo que se aprueba es el cambio del empleado.
+    const cambioDiagramaFilter = cambioDiagramaUserIds
+      ? { usuarioId: { in: cambioDiagramaUserIds } }
+      : { usuario: { empresaId } };
 
     // ── Period filter (optional) ──────────────────────────────────
     const qPeriodoInicio = req.query.periodoInicio as string | undefined;
@@ -76,38 +93,10 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     const approverSectorId = (await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } }))?.sectorId ?? null;
 
-    /**
-     * ¿Este documento le toca a quien está mirando la bandeja?
-     *
-     * Tiene que dar exactamente lo mismo que la guarda de `/avanzar` de cada
-     * ruta, o la bandeja miente en alguna de las dos direcciones: le ofrece a
-     * alguien algo que después no puede aprobar, o le esconde algo que sí.
-     *
-     * Por eso lee el circuito con `pasosDe`: el snapshot congelado renumera los
-     * pasos desde 1, así que `pasoActual` NO indexa la cadena configurada. Con
-     * un circuito acortado por nivel, buscar el paso vivo por `orden` se lo
-     * ofrecía al rol equivocado.
-     */
-    const matchesCurrentStep = (item: {
-      circuitoSnapshot?: unknown;
-      pasoActual: number;
-      flujo?: { pasos: { orden: number; rolAprobador: string }[] } | null;
-      usuario: { id?: string; sectorId?: string | null; supervisorId?: string | null; coordinadorId?: string | null };
-    }) => {
-      // Nadie aprueba lo suyo: la misma guarda que abre `/avanzar`.
-      if (item.usuario.id && item.usuario.id === userId) return false;
-
-      const pasos = pasosDe(item as { circuitoSnapshot: unknown; flujo?: { pasos: PasoCircuito[] } | null });
-
-      // Sin circuito el documento cae en la rama de escape del avance, que pide
-      // nivel RRHH o superior. Antes se devolvía `false` y quedaba invisible
-      // para todos, incluido justamente quien sí podía aprobarlo.
-      if (pasos.length === 0 || item.pasoActual > pasos.length) return userNivel >= 90;
-
-      const paso = pasos.find(p => p.orden === item.pasoActual);
-      if (!paso) return false;
-      return isResponsibleApprover(paso.rolAprobador, item.usuario as { supervisorId: string | null; coordinadorId: string | null; sectorId?: string | null }, userId, userRol, userNivel, approverSectorId);
-    };
+    // El criterio de "a quién le toca" vive en `approval-auth.utils`: lo comparte
+    // con `GET /cambios-diagrama/pendientes`, y duplicado divergen en el primer
+    // cambio.
+    const aprobador: AprobadorContexto = { userId, rol: userRol, nivel: userNivel, sectorId: approverSectorId };
 
     const flujoInclude = { flujo: { include: { pasos: { orderBy: { orden: 'asc' as const } } } } };
 
@@ -130,7 +119,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       },
       orderBy: { enviadaAt: 'asc' },
     });
-    const planillasPendientes = planillasRaw.filter(matchesCurrentStep);
+    const planillasPendientes = planillasRaw.filter((p) => matchesCurrentStep(p, aprobador));
 
     const DEBUG = process.env.DEBUG_APPROVALS === '1' || process.env.DEBUG_APPROVALS === 'true';
     if (DEBUG) {
@@ -138,7 +127,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       for (const p of planillasRaw) {
         const pasos = pasosDe(p);
         const paso = pasos.find(pp => pp.orden === p.pasoActual);
-        console.log(`  planilla=${p.id.slice(-6)} owner=${(p as any).usuario?.id?.slice(-6)} pasoActual=${p.pasoActual}/${pasos.length} rolPaso=${paso?.rolAprobador ?? 'N/A'} circuito=${Array.isArray(p.circuitoSnapshot) ? 'congelado' : 'vivo'} match=${matchesCurrentStep(p)}`);
+        console.log(`  planilla=${p.id.slice(-6)} owner=${(p as any).usuario?.id?.slice(-6)} pasoActual=${p.pasoActual}/${pasos.length} rolPaso=${paso?.rolAprobador ?? 'N/A'} circuito=${Array.isArray(p.circuitoSnapshot) ? 'congelado' : 'vivo'} match=${matchesCurrentStep(p, aprobador)}`);
       }
     }
 
@@ -161,7 +150,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       },
       orderBy: { createdAt: 'asc' },
     });
-    const vacacionesPendientes = vacacionesRaw.filter(matchesCurrentStep);
+    const vacacionesPendientes = vacacionesRaw.filter((v) => matchesCurrentStep(v, aprobador));
 
     // ── Pending ausencias ──────────────────────────────────────
     const ausenciasRaw = await prisma.ausencia.findMany({
@@ -183,7 +172,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       },
       orderBy: { createdAt: 'asc' },
     });
-    const ausenciasPendientes = ausenciasRaw.filter(matchesCurrentStep);
+    const ausenciasPendientes = ausenciasRaw.filter((a) => matchesCurrentStep(a, aprobador));
 
     // ── Pending compensatorios ──────────────────────────────────
     const planillaFilter = approvableUserIds
@@ -215,7 +204,33 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       },
       orderBy: { fecha: 'asc' },
     });
-    const compensatoriosPendientes = compensatoriosRaw.filter(c => matchesCurrentStep(c.planilla));
+    const compensatoriosPendientes = compensatoriosRaw.filter(c => matchesCurrentStep(c.planilla, aprobador));
+
+    // ── Pending cambios de diagrama ─────────────────────────────
+    // No lleva filtro de período: una solicitud de cambio de diagrama no
+    // pertenece a un período de liquidación, y `fechaEfectiva` es opcional, así
+    // que filtrar por ella escondería justamente las que todavía no la tienen.
+    const cambiosDiagramaRaw = await prisma.solicitudCambioDiagrama.findMany({
+      where: {
+        ...cambioDiagramaFilter,
+        estado: { in: ['PENDIENTE', 'EN_REVISION'] },
+      },
+      include: {
+        usuario: {
+          select: {
+            id: true, nombre: true, apellido: true, legajo: true, rol: true,
+            sectorId: true, supervisorId: true, coordinadorId: true,
+            sector: { select: { nombre: true } },
+          },
+        },
+        solicitante: { select: { id: true, nombre: true, apellido: true } },
+        diagramaActual: { select: { id: true, nombre: true, tipo: true, diasTrabajo: true, diasDescanso: true } },
+        diagramaNuevo: { select: { id: true, nombre: true, tipo: true, diasTrabajo: true, diasDescanso: true } },
+        ...flujoInclude,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    const cambiosDiagramaPendientes = cambiosDiagramaRaw.filter((c) => matchesCurrentStep(c, aprobador));
 
     // ── Recent history ────────────────────────────────────────────
     // Include items in final states AND items where the user personally
@@ -386,6 +401,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       vacacionesPendientes,
       ausenciasPendientes,
       compensatoriosPendientes,
+      cambiosDiagramaPendientes,
       faltantes: { actual: faltantesActual, anterior: faltantesAnterior },
       historial: {
         planillas: planillasHistory,

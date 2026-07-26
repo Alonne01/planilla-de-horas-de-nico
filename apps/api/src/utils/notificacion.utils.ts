@@ -137,14 +137,30 @@ export type OrigenPasoNotificacion =
   | { flujoId: string | null | undefined; orden: number };
 
 /**
+ * Los tipos de documento que avisan a los aprobadores de su paso.
+ *
+ * Es la unión de `TipoDocumentoFlujo` menos COMPENSATORIO, que no es un
+ * documento propio: viaja dentro de la planilla y avisa con el tipo PLANILLA.
+ *
+ * `Notificacion.tipo` es un String en el schema (no un enum de Prisma), así que
+ * agregar un valor acá no necesita migración; esta unión es lo único que impide
+ * escribir un tipo que el front no sepa interpretar.
+ */
+export type TipoNotificacionAprobacion = 'PLANILLA' | 'VACACION' | 'AUSENCIA' | 'CAMBIO_DIAGRAMA';
+
+/**
  * Notify the approvers for a specific flow step.
  * Finds users with the matching role who are responsible for the document owner.
+ *
+ * `solicitanteNombre` es el nombre del DUEÑO del documento, no el de quien lo
+ * cargó: el cuerpo dice "X tiene una … pendiente de tu aprobación". En cambios
+ * de diagrama los dos pueden ser personas distintas.
  */
 export async function notificarAprobadoresPaso(
   ownerUserId: string,
   empresaId: string,
   origen: OrigenPasoNotificacion,
-  tipo: 'PLANILLA' | 'VACACION' | 'AUSENCIA',
+  tipo: TipoNotificacionAprobacion,
   solicitanteNombre: string,
 ): Promise<void> {
   try {
@@ -188,10 +204,13 @@ export async function notificarAprobadoresPaso(
       approverIds = users.map(u => u.id);
     }
 
-    const labels: Record<string, string> = {
+    // Sin la entrada del tipo, `labels[tipo]` es undefined y el aviso queda con
+    // el texto "Nueva undefined para revisar".
+    const labels: Record<TipoNotificacionAprobacion, string> = {
       PLANILLA: 'planilla',
       VACACION: 'solicitud de vacaciones',
       AUSENCIA: 'ausencia',
+      CAMBIO_DIAGRAMA: 'solicitud de cambio de diagrama',
     };
 
     for (const approverId of approverIds) {
