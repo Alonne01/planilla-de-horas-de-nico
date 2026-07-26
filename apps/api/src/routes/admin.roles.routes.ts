@@ -105,11 +105,35 @@ router.put('/:id', requireLevel(LEVEL_ADMIN), async (req: AuthRequest, res: Resp
       }
     }
 
+    // Desactivar un rol lo vuelve huérfano igual que borrarlo: `nivelesPorRol`
+    // solo trae los activos, y un paso cuyo aprobador no tiene nivel no se
+    // saltea nunca ni lo puede firmar nadie más que un ADMIN.
+    //
+    // Aun así NO se bloquea, a diferencia del borrado: desactivar es reversible
+    // y es la salida natural para un rol que ya no se usa pero tiene histórico.
+    // Un 409 acá dejaría al admin sin ninguna forma de sacarlo de circulación
+    // mientras siga nombrado en un flujo viejo. Lo que sí corresponde es que no
+    // pase en silencio, así que la respuesta lo avisa.
+    let advertencia: string | undefined;
+    if (parsed.data.activo === false && existing.activo) {
+      const pasos = await prisma.flujoPaso.findMany({
+        where: {
+          flujo: { empresaId: existing.empresaId },
+          OR: [{ rolAprobador: existing.codigo }, { notificarRoles: { has: existing.codigo } }],
+        },
+        include: { flujo: { select: { nombre: true } } },
+      });
+      if (pasos.length > 0) {
+        const flujos = [...new Set(pasos.map((p) => p.flujo.nombre))].join(', ');
+        advertencia = `El rol se usa en pasos de los flujos ${flujos}. Desactivado, esos pasos quedan sin nivel: no se saltean nunca y solo los puede aprobar un ADMIN. Cambiá esos pasos.`;
+      }
+    }
+
     const rol = await prisma.rolConfig.update({
       where: { id: req.params.id },
       data: parsed.data,
     });
-    res.json(rol);
+    res.json(advertencia ? { ...rol, advertencia } : rol);
   } catch (error) {
     console.error('Error updating rol:', error);
     res.status(500).json({ error: 'Error interno' });
@@ -135,6 +159,26 @@ router.delete('/:id', requireLevel(LEVEL_ADMIN), async (req: AuthRequest, res: R
     const usersWithRole = await prisma.usuario.count({ where: { rol: rol.codigo, empresaId: rol.empresaId } });
     if (usersWithRole > 0) {
       res.status(409).json({ error: `No se puede eliminar: ${usersWithRole} usuario(s) tienen este rol asignado` });
+      return;
+    }
+
+    // Un rol borrado que seguía nombrado en un paso de flujo dejaba ese paso
+    // huérfano: `nivelesPorRol` no lo trae, el circuito no lo puede saltear por
+    // nivel y nadie salvo un ADMIN lo puede firmar. FlujoPaso no tiene empresa
+    // propia, así que el filtro va por el flujo (dos empresas pueden usar el
+    // mismo código de rol y el de la otra no tiene por qué bloquear este borrado).
+    const pasos = await prisma.flujoPaso.findMany({
+      where: {
+        flujo: { empresaId: rol.empresaId },
+        OR: [{ rolAprobador: rol.codigo }, { notificarRoles: { has: rol.codigo } }],
+      },
+      include: { flujo: { select: { nombre: true } } },
+    });
+    if (pasos.length > 0) {
+      const flujos = [...new Set(pasos.map((p) => p.flujo.nombre))].join(', ');
+      res.status(409).json({
+        error: `No se puede eliminar: el rol se usa en pasos de los flujos ${flujos}. Cambiá esos pasos antes de borrarlo.`,
+      });
       return;
     }
 
