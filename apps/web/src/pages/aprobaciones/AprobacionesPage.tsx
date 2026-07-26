@@ -9,30 +9,40 @@ import { toast } from '@/stores/toastStore';
 import { useCanApprove } from '@/hooks/useCanApprove';
 import {
   CheckCircle2, XCircle, Loader2, Clock, Palmtree, Calendar,
-  History, AlertCircle, ChevronRight, ChevronDown, X, Send, AlertTriangle, Filter
+  History, AlertCircle, ChevronRight, ChevronDown, X, Send, AlertTriangle, Filter,
+  ArrowLeftRight
 } from 'lucide-react';
 import PeriodSelector from '@/components/layout/PeriodSelector';
 import { usePeriodoActual, AVISO_PERIODO_POR_DEFECTO } from '@/hooks/usePeriodoConfig';
 import ScopeToggle from '@/components/layout/ScopeToggle';
 import ApprovalProgressBar, { type PasoAprobacion } from '@/components/ui/ApprovalProgressBar';
+import { pasoActualDe, pasosDe, type PasoDocumento } from '@/utils/circuito';
 
 // ─── Types ───────────────────────────────────────
-interface FlujoPaso { orden: number; nombrePaso: string; rolAprobador: string }
-interface FlujoInfo { pasos: FlujoPaso[] }
+interface FlujoInfo { pasos: PasoDocumento[] }
 
-interface PlanillaItem {
+/**
+ * Lo que los cinco tipos de la bandeja tienen en común para dibujar su recorrido.
+ * `circuitoSnapshot` es el circuito congelado al enviar el documento; el flujo
+ * vivo queda de fallback para lo que se envió antes de que existiera.
+ */
+interface DocumentoAprobable {
+  pasoActual: number;
+  circuitoSnapshot: unknown;
+  flujo?: FlujoInfo | null;
+}
+
+interface PlanillaItem extends DocumentoAprobable {
   id: string;
   periodoInicio: string;
   periodoFin: string;
   estado: string;
   enviadaAt: string | null;
-  pasoActual: number;
-  flujo?: FlujoInfo | null;
   obsRechazo?: string | null;
   usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
 }
 
-interface VacacionItem {
+interface VacacionItem extends DocumentoAprobable {
   id: string;
   fechaInicio: string;
   fechaFin: string;
@@ -40,14 +50,12 @@ interface VacacionItem {
   diasTotales: number;
   estado: string;
   motivo: string | null;
-  pasoActual: number;
-  flujo?: FlujoInfo | null;
   obsRechazo?: string | null;
   createdAt: string;
   usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
 }
 
-interface AusenciaItem {
+interface AusenciaItem extends DocumentoAprobable {
   id: string;
   tipo: string;
   fechaInicio: string;
@@ -56,12 +64,31 @@ interface AusenciaItem {
   estado: string;
   descripcion: string | null;
   numeroCertificado?: string | null;
-  pasoActual: number;
-  flujo?: FlujoInfo | null;
   obsRechazo?: string | null;
   createdAt: string;
   cargadaPor?: { nombre: string; apellido: string } | null;
   usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
+}
+
+interface DiagramaResumen {
+  id: string;
+  nombre: string;
+  tipo: string;
+  diasTrabajo: number | null;
+  diasDescanso: number | null;
+}
+
+interface CambioDiagramaItem extends DocumentoAprobable {
+  id: string;
+  estado: string;
+  motivo: string | null;
+  obsRechazo?: string | null;
+  fechaEfectiva: string | null;
+  createdAt: string;
+  usuario: { id: string; nombre: string; apellido: string; legajo: string | null; rol: string; sector?: { nombre: string } | null };
+  solicitante: { id: string; nombre: string; apellido: string };
+  diagramaActual: DiagramaResumen | null;
+  diagramaNuevo: DiagramaResumen;
 }
 
 interface CompensatorioItem {
@@ -95,6 +122,7 @@ interface AprobacionesData {
   vacacionesPendientes: VacacionItem[];
   ausenciasPendientes: AusenciaItem[];
   compensatoriosPendientes: CompensatorioItem[];
+  cambiosDiagramaPendientes: CambioDiagramaItem[];
   faltantes: { actual: FaltantesPeriodo | null; anterior: FaltantesPeriodo | null };
   historial: {
     planillas: PlanillaItem[];
@@ -113,6 +141,28 @@ const ESTADO_STYLES: Record<string, string> = {
   BORRADOR: 'bg-muted/30 text-muted-foreground',
 };
 
+/** "12×4" si el diagrama es cíclico; si no, el nombre solo. */
+function diagramaLabel(d: DiagramaResumen | null): string {
+  if (!d) return 'Sin diagrama';
+  if (d.diasTrabajo && d.diasDescanso) return `${d.nombre} (${d.diasTrabajo}×${d.diasDescanso})`;
+  return d.nombre;
+}
+
+/** Los tipos que se aprueban desde los modales de confirmación y rechazo. */
+type TipoDocumento = 'planilla' | 'vacacion' | 'ausencia' | 'cambio';
+
+/**
+ * Cómo se nombra cada tipo en los diálogos. `largo` es el que identifica el
+ * documento ("¿aprobar la solicitud de vacaciones de X?"), `corto` el que ya
+ * viene en contexto ("confirmo que revisé la solicitud").
+ */
+const TIPO_DOC_LABELS: Record<TipoDocumento, { largo: string; corto: string }> = {
+  planilla: { largo: 'la planilla', corto: 'la planilla' },
+  vacacion: { largo: 'la solicitud de vacaciones', corto: 'la solicitud' },
+  ausencia: { largo: 'la ausencia', corto: 'la ausencia' },
+  cambio: { largo: 'el cambio de diagrama', corto: 'el cambio' },
+};
+
 const TIPO_AUSENCIA_LABELS: Record<string, string> = {
   CERTIFICADO_MEDICO: 'Cert. Médico',
   FALTA_JUSTIFICADA: 'Falta Justificada',
@@ -121,25 +171,29 @@ const TIPO_AUSENCIA_LABELS: Record<string, string> = {
   FRANCO_COMPENSATORIO: 'Franco Comp.',
 };
 
-function getPasoActualLabel(item: { pasoActual: number; flujo?: FlujoInfo | null }): string | null {
-  if (!item.flujo?.pasos?.length) return null;
-  const paso = item.flujo.pasos.find(p => p.orden === item.pasoActual);
-  return paso?.nombrePaso ?? null;
-}
+// El recorrido de la bandeja sale del circuito CONGELADO del documento (`pasosDe`),
+// no de la cadena configurada hoy: el circuito se acorta según el nivel de quien
+// envía, así que la cadena viva tiene pasos que este documento no recorre y el
+// badge "Paso X/N" contaría un total que no es el suyo.
 
-function StepBadge({ item }: { item: { pasoActual: number; flujo?: FlujoInfo | null } }) {
-  const label = getPasoActualLabel(item);
+function StepBadge({ item }: { item: DocumentoAprobable }) {
+  const pasos = pasosDe(item);
+  const label = pasoActualDe(item)?.nombrePaso;
   if (!label) return null;
   return (
     <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/20">
-      Paso {item.pasoActual}/{item.flujo!.pasos.length}: {label}
+      Paso {item.pasoActual}/{pasos.length}: {label}
     </span>
   );
 }
 
-function buildPasosSimple(item: { pasoActual: number; flujo?: FlujoInfo | null }): PasoAprobacion[] {
-  if (!item.flujo?.pasos?.length) return [];
-  return item.flujo.pasos.map(p => ({
+/**
+ * La barra sin el cruce con el historial: `GET /aprobaciones` no lo trae, así que
+ * "completado" se deduce de la posición. Alcanza para un documento en curso; el
+ * recorrido con firmas y comentarios está en el detalle de cada pantalla.
+ */
+function buildPasosSimple(item: DocumentoAprobable): PasoAprobacion[] {
+  return pasosDe(item).map(p => ({
     orden: p.orden,
     nombrePaso: p.nombrePaso,
     rolAprobador: p.rolAprobador,
@@ -152,14 +206,14 @@ export default function AprobacionesPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
-  const [tab, setTab] = useState<'planillas' | 'vacaciones' | 'ausencias' | 'compensatorios'>('planillas');
+  const [tab, setTab] = useState<'planillas' | 'vacaciones' | 'ausencias' | 'compensatorios' | 'cambios'>('planillas');
   const [subTab, setSubTab] = useState<'pendientes' | 'historial' | 'faltantes'>('pendientes');
   const switchTab = (t: typeof tab) => { setTab(t); setSubTab('pendientes'); };
   const [rechazandoId, setRechazandoId] = useState<string | null>(null);
-  const [rechazandoTipo, setRechazandoTipo] = useState<'planilla' | 'vacacion' | 'ausencia'>('planilla');
+  const [rechazandoTipo, setRechazandoTipo] = useState<TipoDocumento>('planilla');
   const [motivoRechazo, setMotivoRechazo] = useState('');
   const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
-  const [confirmandoTipo, setConfirmandoTipo] = useState<'planilla' | 'vacacion' | 'ausencia'>('planilla');
+  const [confirmandoTipo, setConfirmandoTipo] = useState<TipoDocumento>('planilla');
   const [confirmandoNombre, setConfirmandoNombre] = useState('');
   const [confirmandoChecked, setConfirmandoChecked] = useState(false);
   const [filterSector, setFilterSector] = useState('');
@@ -199,6 +253,8 @@ export default function AprobacionesPage() {
   const filteredVacaciones = filterBySector(data?.vacacionesPendientes ?? []);
   const filteredAusencias = filterBySector(data?.ausenciasPendientes ?? []);
   const filteredCompensatorios = filterCompBySector(data?.compensatoriosPendientes ?? []);
+  // El cambio de diagrama trae el mismo `usuario.sector`, así que filtra igual.
+  const filteredCambios = filterBySector(data?.cambiosDiagramaPendientes ?? []);
   const filteredHistPlanillas = filterBySector(data?.historial.planillas ?? []);
   const filteredHistVacaciones = filterBySector(data?.historial.vacaciones ?? []);
   const filteredHistAusencias = filterBySector(data?.historial.ausencias ?? []);
@@ -256,11 +312,51 @@ export default function AprobacionesPage() {
     onError: () => { toast({ title: 'Error al rechazar ausencia', variant: 'destructive' }); },
   });
 
+  // Las dos claves se invalidan porque el cambio de diagrama también se ve desde
+  // /cambios-diagrama, que tiene su propia caché.
+  const invalidarCambios = () => {
+    qc.invalidateQueries({ queryKey: ['aprobaciones'] });
+    qc.invalidateQueries({ queryKey: ['cambios-diagrama'] });
+    qc.invalidateQueries({ queryKey: ['cambios-diagrama-pendientes'] });
+  };
+
+  const aprobarCambioMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/cambios-diagrama/${id}/avanzar`),
+    onSuccess: () => { invalidarCambios(); setConfirmandoId(null); toast({ title: 'Cambio de diagrama aprobado', variant: 'success' }); },
+    onError: () => { toast({ title: 'Error al aprobar el cambio de diagrama', variant: 'destructive' }); },
+  });
+
+  const rechazarCambioMutation = useMutation({
+    mutationFn: ({ id, motivo }: { id: string; motivo: string }) =>
+      api.post(`/cambios-diagrama/${id}/rechazar`, { motivo }),
+    onSuccess: () => { invalidarCambios(); setRechazandoId(null); setMotivoRechazo(''); toast({ title: 'Cambio de diagrama rechazado', variant: 'success' }); },
+    onError: () => { toast({ title: 'Error al rechazar el cambio de diagrama', variant: 'destructive' }); },
+  });
+
+  // Los modales despachan por tipo: con cuatro tipos, la cadena de if/else se
+  // equivoca sola en cuanto se agrega el quinto.
+  const aprobarMutations: Record<TipoDocumento, { mutate: (id: string) => void; isPending: boolean }> = {
+    planilla: aprobarPlanillaMutation,
+    vacacion: aprobarVacacionMutation,
+    ausencia: aprobarAusenciaMutation,
+    cambio: aprobarCambioMutation,
+  };
+  const rechazarMutations: Record<TipoDocumento, { mutate: (v: { id: string; motivo: string }) => void; isPending: boolean }> = {
+    planilla: rechazarPlanillaMutation,
+    vacacion: rechazarVacacionMutation,
+    ausencia: rechazarAusenciaMutation,
+    cambio: rechazarCambioMutation,
+  };
+  const aprobandoAlgo = Object.values(aprobarMutations).some(m => m.isPending);
+  const rechazandoAlgo = Object.values(rechazarMutations).some(m => m.isPending);
+
   const planillasPendienteCount = filteredPlanillas.length;
   const vacacionesPendienteCount = filteredVacaciones.length;
   const ausenciasPendienteCount = filteredAusencias.length;
   const compensatoriosPendienteCount = filteredCompensatorios.length;
-  const pendingTotal = planillasPendienteCount + vacacionesPendienteCount + ausenciasPendienteCount + compensatoriosPendienteCount;
+  const cambiosPendienteCount = filteredCambios.length;
+  const pendingTotal = planillasPendienteCount + vacacionesPendienteCount + ausenciasPendienteCount
+    + compensatoriosPendienteCount + cambiosPendienteCount;
 
   if ((user?.rolNivel ?? 0) < 60 || canApprove === false) {
     return (
@@ -382,6 +478,20 @@ export default function AprobacionesPage() {
             {compensatoriosPendienteCount > 0 && (
               <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
                 {compensatoriosPendienteCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => switchTab('cambios')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all whitespace-nowrap',
+              tab === 'cambios' ? 'bg-card shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <ArrowLeftRight className="h-4 w-4 hidden sm:block" /> Diagr.
+            {cambiosPendienteCount > 0 && (
+              <span className="bg-primary text-primary-foreground rounded-full text-xs px-1.5 min-w-[20px] text-center">
+                {cambiosPendienteCount}
               </span>
             )}
           </button>
@@ -924,6 +1034,84 @@ export default function AprobacionesPage() {
             </div>
           )}
         </div>
+      ) : tab === 'cambios' ? (
+        <div className="space-y-4">
+          {subTab === 'pendientes' && (
+            <>
+              {filteredCambios.length > 0 ? (
+                <div className="space-y-2">
+                  {filteredCambios.map((c) => (
+                    <div key={c.id}
+                      onClick={() => toggleExpand(c.id)}
+                      className="rounded-xl border border-border bg-card p-3 sm:p-4 cursor-pointer hover:bg-muted/10 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="font-medium text-sm">{c.usuario.apellido}, {c.usuario.nombre}</span>
+                            {c.usuario.legajo && <span className="text-[10px] text-muted-foreground">#{c.usuario.legajo}</span>}
+                            <span className="text-xs text-muted-foreground">{c.usuario.sector?.nombre ?? c.usuario.rol}</span>
+                            <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ESTADO_STYLES[c.estado])}>
+                              {c.estado === 'EN_REVISION' ? 'En revisión' : c.estado.charAt(0) + c.estado.slice(1).toLowerCase()}
+                            </span>
+                            <StepBadge item={c} />
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {diagramaLabel(c.diagramaActual)} <span className="text-muted-foreground/60">→</span>{' '}
+                            <span className="font-medium">{diagramaLabel(c.diagramaNuevo)}</span>
+                          </p>
+                        </div>
+                        {expandedIds.has(c.id)
+                          ? <ChevronDown className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+                          : <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />}
+                      </div>
+                      {expandedIds.has(c.id) && (
+                        <div className="mt-2 space-y-2">
+                          {c.motivo && <p className="text-xs text-muted-foreground">«{c.motivo}»</p>}
+                          {c.fechaEfectiva && (
+                            <p className="text-[10px] text-muted-foreground">
+                              Efectivo desde: {new Date(c.fechaEfectiva).toLocaleDateString('es-AR')}
+                            </p>
+                          )}
+                          <p className="text-[10px] text-muted-foreground">
+                            Solicitado por {c.solicitante.nombre} {c.solicitante.apellido} el {new Date(c.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                          <ApprovalProgressBar pasos={buildPasosSimple(c)} estado={c.estado} />
+                          <div className="flex items-center gap-2 shrink-0 pt-1" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={() => { setConfirmandoId(c.id); setConfirmandoTipo('cambio'); setConfirmandoNombre(`${c.usuario.apellido}, ${c.usuario.nombre}`); }}
+                              disabled={aprobarCambioMutation.isPending}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Aprobar
+                            </button>
+                            <button
+                              onClick={() => { setRechazandoId(c.id); setRechazandoTipo('cambio'); setMotivoRechazo(''); }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors"
+                            >
+                              <X className="h-3.5 w-3.5" /> Rechazar
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-16 text-muted-foreground">
+                  <ArrowLeftRight className="h-10 w-10 mx-auto mb-3 opacity-30 text-blue-400" />
+                  <p className="text-sm">No hay cambios de diagrama pendientes</p>
+                </div>
+              )}
+            </>
+          )}
+          {subTab === 'historial' && (
+            <div className="text-center py-16 text-muted-foreground">
+              <History className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">El historial de cambios de diagrama está en la pantalla de Cambios Diagrama</p>
+            </div>
+          )}
+        </div>
       ) : null}
 
       {/* Confirmación de aprobación */}
@@ -938,7 +1126,7 @@ export default function AprobacionesPage() {
               <button onClick={() => { setConfirmandoId(null); setConfirmandoChecked(false); }} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
             </div>
             <p className="text-sm text-muted-foreground">
-              ¿Estás seguro de que querés aprobar {confirmandoTipo === 'planilla' ? 'la planilla' : confirmandoTipo === 'vacacion' ? 'la solicitud de vacaciones' : 'la ausencia'} de <span className="font-medium text-foreground">{confirmandoNombre}</span>?
+              ¿Estás seguro de que querés aprobar {TIPO_DOC_LABELS[confirmandoTipo].largo} de <span className="font-medium text-foreground">{confirmandoNombre}</span>?
             </p>
             {confirmandoTipo === 'planilla' && (
               <p className="text-xs text-muted-foreground">
@@ -953,7 +1141,7 @@ export default function AprobacionesPage() {
                 className="mt-0.5 h-4 w-4 rounded border-border accent-emerald-500"
               />
               <span className="text-sm font-medium">
-                Confirmo que revisé {confirmandoTipo === 'planilla' ? 'la planilla' : confirmandoTipo === 'vacacion' ? 'la solicitud' : 'la ausencia'} y es correcta
+                Confirmo que revisé {TIPO_DOC_LABELS[confirmandoTipo].corto} y es correcta
               </span>
             </label>
             <div className="flex gap-2 justify-end">
@@ -962,19 +1150,11 @@ export default function AprobacionesPage() {
                 Cancelar
               </button>
               <button
-                onClick={() => {
-                  if (confirmandoTipo === 'planilla') {
-                    aprobarPlanillaMutation.mutate(confirmandoId);
-                  } else if (confirmandoTipo === 'vacacion') {
-                    aprobarVacacionMutation.mutate(confirmandoId);
-                  } else {
-                    aprobarAusenciaMutation.mutate(confirmandoId);
-                  }
-                }}
-                disabled={!confirmandoChecked || aprobarPlanillaMutation.isPending || aprobarVacacionMutation.isPending || aprobarAusenciaMutation.isPending}
+                onClick={() => aprobarMutations[confirmandoTipo].mutate(confirmandoId)}
+                disabled={!confirmandoChecked || aprobandoAlgo}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {(aprobarPlanillaMutation.isPending || aprobarVacacionMutation.isPending || aprobarAusenciaMutation.isPending)
+                {aprobandoAlgo
                   ? <Loader2 className="h-4 w-4 animate-spin" />
                   : <CheckCircle2 className="h-4 w-4" />}
                 Aprobar
@@ -1010,18 +1190,12 @@ export default function AprobacionesPage() {
               <button
                 onClick={() => {
                   if (!motivoRechazo.trim()) return;
-                  if (rechazandoTipo === 'planilla') {
-                    rechazarPlanillaMutation.mutate({ id: rechazandoId, motivo: motivoRechazo });
-                  } else if (rechazandoTipo === 'vacacion') {
-                    rechazarVacacionMutation.mutate({ id: rechazandoId, motivo: motivoRechazo });
-                  } else {
-                    rechazarAusenciaMutation.mutate({ id: rechazandoId, motivo: motivoRechazo });
-                  }
+                  rechazarMutations[rechazandoTipo].mutate({ id: rechazandoId, motivo: motivoRechazo });
                 }}
-                disabled={!motivoRechazo.trim() || rechazarPlanillaMutation.isPending || rechazarVacacionMutation.isPending || rechazarAusenciaMutation.isPending}
+                disabled={!motivoRechazo.trim() || rechazandoAlgo}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
               >
-                {(rechazarPlanillaMutation.isPending || rechazarVacacionMutation.isPending || rechazarAusenciaMutation.isPending)
+                {rechazandoAlgo
                   ? <Loader2 className="h-4 w-4 animate-spin" />
                   : <Send className="h-4 w-4" />}
                 Rechazar
