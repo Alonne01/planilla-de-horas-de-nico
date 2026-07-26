@@ -158,6 +158,24 @@ export default function AusenciasPage() {
     },
   });
 
+  // El certificado deja de ser algo que sólo se puede poner en el alta: acá se
+  // adjunta o se reemplaza sobre una solicitud ya creada.
+  const adjuntarMutation = useMutation({
+    mutationFn: async (vars: { ausenciaId: string; archivo: File }) => {
+      const fd = new FormData();
+      fd.append('archivo', vars.archivo);
+      return api.post(`/ausencias/${vars.ausenciaId}/archivo`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ausencias'] }),
+    onError: (err: unknown) => toast({
+      title: 'No se pudo adjuntar',
+      description: mensajeDeError(err).mensaje,
+      variant: 'destructive',
+    }),
+  });
+
   const filteredAusencias = filterSector
     ? ausencias.filter(a => a.usuario.sector?.id === filterSector)
     : ausencias;
@@ -360,6 +378,27 @@ export default function AusenciasPage() {
                       >
                         <FileText className="h-3 w-3" /> Ver archivo
                       </a>
+                    )}
+                    {a.usuarioId === user?.id && a.estado !== 'CANCELADA' && (
+                      <>
+                        <input
+                          id={`cert-${a.id}`}
+                          type="file"
+                          accept="image/*,.pdf"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) adjuntarMutation.mutate({ ausenciaId: a.id, archivo: f });
+                            e.target.value = '';
+                          }}
+                        />
+                        <label
+                          htmlFor={`cert-${a.id}`}
+                          className="text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <Upload className="h-3 w-3" /> {a.archivoUrl ? 'Reemplazar' : 'Adjuntar'}
+                        </label>
+                      </>
                     )}
                     {a.descripcion && <span>{a.descripcion}</span>}
                     {a.descuentaSueldo && (

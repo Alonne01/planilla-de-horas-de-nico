@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '@/services/api';
+import api, { getUploadUrl } from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/stores/toastStore';
@@ -9,7 +9,7 @@ import { mensajeDeError } from '@/lib/errores';
 import {
   ArrowLeft, Send, CheckCircle2, XCircle, Loader2,
   Clock, MapPin, Car, Moon, Sun, AlertCircle, AlertTriangle, X, Download, Lock, Printer, Trash2, Copy, Eraser,
-  CalendarDays, ChevronDown, Lightbulb, Check, Zap, ClipboardCopy
+  CalendarDays, ChevronDown, Lightbulb, Check, Zap, ClipboardCopy, Upload, FileText
 } from 'lucide-react';
 import { ESTADO_STYLES, ESTADO_LABELS } from '@/constants/planillaConstants';
 import {
@@ -55,6 +55,7 @@ interface Registro {
     tipo: string;
     cargadaPorId: string;
     aprobadaPorId: string | null;
+    archivoUrl: string | null;
   } | null;
 }
 
@@ -133,6 +134,12 @@ export default function PlanillaDetailPage() {
   const [showSuccess, setShowSuccess] = useState(false);
   const handleSuccessDone = useCallback(() => setShowSuccess(false), []);
   const [showPeriodPicker, setShowPeriodPicker] = useState(false);
+  // Confirmación de la marca manual: tipo elegido, descripción y certificado opcional.
+  const [marcaPendiente, setMarcaPendiente] = useState<{ tipo: string; label: string; reemplazaHoras: boolean } | null>(null);
+  const [marcaDescripcion, setMarcaDescripcion] = useState('');
+  const [marcaArchivo, setMarcaArchivo] = useState<File | null>(null);
+  const marcaFileRef = useRef<HTMLInputElement>(null);
+  const certFileRef = useRef<HTMLInputElement>(null);
   // Tip dismissable "mantené pulsado para copiar" (auto-oculto 5s; descarte persistido)
   const TIP_KEY = 'planilla-tip-copiar';
   const [tipHidden, setTipHidden] = useState(false);
@@ -191,6 +198,15 @@ export default function PlanillaDetailPage() {
     enabled: !!planilla?.usuario.id,
     staleTime: 60_000,
   });
+
+  // Flags de módulo de la empresa. El plan B nace apagado: sin esto el bloque de
+  // marcar días se renderiza y el backend responde 403 al confirmar.
+  const { data: modulos } = useQuery<{ marcaManualActiva: boolean }>({
+    queryKey: ['config-modulos'],
+    queryFn: async () => (await api.get('/config/modulos')).data,
+    staleTime: 5 * 60 * 1000,
+  });
+  const marcaManualActiva = modulos?.marcaManualActiva ?? false;
 
   // Lista de planillas (para el selector de período 3×4) — cacheada con PlanillasPage.
   const { data: todasLasPlanillas = [] } = useQuery<Array<PeriodoItem & { usuario: { id: string } }>>({
@@ -332,25 +348,52 @@ export default function PlanillaDetailPage() {
     return map;
   }, [planilla]);
 
+  // El alta de la marca crea la Ausencia y, si el usuario eligió certificado, lo sube
+  // en un segundo pedido: el endpoint de archivo necesita el id que recién existe acá.
   const marcarDiaMutation = useMutation({
-    mutationFn: (vars: { fecha: string; tipo: string }) => api.post(`/planillas/${id}/marcar-dia`, vars),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); setSelectedDate(null); },
+    mutationFn: async (vars: { fecha: string; tipo: string; descripcion?: string; archivo?: File | null }) => {
+      const { data } = await api.post(`/planillas/${id}/marcar-dia`, {
+        fecha: vars.fecha, tipo: vars.tipo, descripcion: vars.descripcion || undefined,
+      });
+      if (vars.archivo && data?.marcaManual?.id) {
+        const fd = new FormData();
+        fd.append('archivo', vars.archivo);
+        try {
+          await api.post(`/ausencias/${data.marcaManual.id}/archivo`, fd, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+        } catch {
+          // La marca ya quedó creada: se avisa y se puede reintentar desde el día.
+          toast({ title: 'La marca se creó, pero el certificado no subió', description: 'Probá adjuntarlo de nuevo desde el día marcado.', variant: 'destructive' });
+        }
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['planilla', id] });
+      setSelectedDate(null);
+      setMarcaPendiente(null);
+    },
     onError: (err: any) => toast({ title: 'No se pudo marcar', description: mensajeDeError(err).mensaje, variant: 'destructive' }),
-  });
-  const validarMarcaMutation = useMutation({
-    mutationFn: (ausenciaId: string) => api.post(`/planillas/${id}/marcas/${ausenciaId}/validar`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); setSelectedDate(null); },
-    onError: (err: any) => toast({ title: 'No se pudo validar', description: mensajeDeError(err).mensaje, variant: 'destructive' }),
-  });
-  const validarTodoMutation = useMutation({
-    mutationFn: () => api.post(`/planillas/${id}/marcas/validar-todo`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); },
-    onError: (err: any) => toast({ title: 'No se pudo validar', description: mensajeDeError(err).mensaje, variant: 'destructive' }),
   });
   const quitarMarcaMutation = useMutation({
     mutationFn: (ausenciaId: string) => api.delete(`/planillas/${id}/marcas/${ausenciaId}`),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['planilla', id] }); setSelectedDate(null); },
     onError: (err: any) => toast({ title: 'No se pudo quitar', description: mensajeDeError(err).mensaje, variant: 'destructive' }),
+  });
+  const adjuntarCertMutation = useMutation({
+    mutationFn: async (vars: { ausenciaId: string; archivo: File }) => {
+      const fd = new FormData();
+      fd.append('archivo', vars.archivo);
+      return api.post(`/ausencias/${vars.ausenciaId}/archivo`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['planilla', id] });
+      toast({ title: 'Certificado adjuntado' });
+    },
+    onError: (err: any) => toast({ title: 'No se pudo adjuntar', description: mensajeDeError(err).mensaje, variant: 'destructive' }),
   });
 
   const TIPOS_MARCA: { value: string; label: string }[] = [
@@ -361,14 +404,32 @@ export default function PlanillaDetailPage() {
     { value: 'LICENCIA_ESPECIAL', label: 'Licencia especial' },
   ];
 
-  const handleMarcar = async (tipo: string) => {
-    if (!selectedDate) return;
-    const existing = registroMap[selectedDate];
-    if (existing && !existing.bloqueado && existing.entradaTurno1) {
-      const ok = await dialog.confirm({ title: 'Reemplazar día', message: 'Este día tiene horas cargadas. Se reemplazarán por la marca. ¿Continuar?', variant: 'danger' });
+  // Avisa (no bloquea) si quedaron certificados médicos sin el archivo: quien
+  // todavía no tiene el papel en la mano no debería quedar trabado para enviar.
+  const handleEnviar = async () => {
+    if (certificadosSinArchivo > 0) {
+      const ok = await dialog.confirm({
+        title: 'Certificados sin adjuntar',
+        message: `Hay ${certificadosSinArchivo} día(s) marcados como certificado médico sin el archivo adjunto. Podés enviar igual y adjuntarlo después si te la rechazan. ¿Enviar?`,
+      });
       if (!ok) return;
     }
-    marcarDiaMutation.mutate({ fecha: selectedDate, tipo });
+    enviarMutation.mutate();
+  };
+
+  // Abre el diálogo de confirmación en vez de marcar en el acto: marcar un día
+  // crea una solicitud, y merece un paso donde revisar tipo, fecha y certificado.
+  const handleMarcar = (tipo: string) => {
+    if (!selectedDate) return;
+    const existing = registroMap[selectedDate];
+    const label = TIPOS_MARCA.find(t => t.value === tipo)?.label ?? tipo;
+    setMarcaDescripcion('');
+    setMarcaArchivo(null);
+    setMarcaPendiente({
+      tipo,
+      label,
+      reemplazaHoras: !!(existing && !existing.bloqueado && existing.entradaTurno1),
+    });
   };
 
   // Build calendar
@@ -433,10 +494,12 @@ export default function PlanillaDetailPage() {
       || user?.rol === 'ADMIN'
       || (userNivel >= 90 && currentStep.rolAprobador === 'RRHH')) &&
     (planilla.estado === 'ENVIADA' || planilla.estado === 'EN_REVISION');
-  // Marca manual (plan B): quién puede marcar/validar y cuántas quedan sin validar
-  const canMarkAsManager = !isOwner && userNivel >= 60 &&
-    ['BORRADOR', 'RECHAZADA', 'ENVIADA', 'EN_REVISION'].includes(planilla.estado);
-  const marcasPendientes = planilla.registros.filter(r => r.marcaManual?.estado === 'PENDIENTE').length;
+  // Marca manual (plan B): la pone y la saca solo el dueño, con la planilla editable.
+  // Se aprueban junto con la planilla, así que el aprobador solo las mira.
+  // Certificados médicos marcados sin el archivo: se avisa al enviar, no se bloquea.
+  const certificadosSinArchivo = planilla.registros.filter(
+    r => r.marcaManual?.tipo === 'CERTIFICADO_MEDICO' && !r.marcaManual.archivoUrl,
+  ).length;
   const totalHoras = Number(planilla.totalHorasNormales) + Number(planilla.totalHorasExtra50) + Number(planilla.totalHorasExtra100);
   // Planillas del MISMO usuario → alimentan el selector de período 3×4.
   const ownerPlanillas: PeriodoItem[] = todasLasPlanillas
@@ -909,23 +972,15 @@ export default function PlanillaDetailPage() {
       {/* ── Actions ── */}
       <div className="flex gap-2 flex-wrap">
         {canSend && (
-          <button onClick={() => enviarMutation.mutate()} disabled={enviarMutation.isPending}
+          <button onClick={handleEnviar} disabled={enviarMutation.isPending}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
             {enviarMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             Enviar
           </button>
         )}
-        {marcasPendientes > 0 && canApprove && (
-          <button onClick={() => validarTodoMutation.mutate()} disabled={validarTodoMutation.isPending}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cal-amber/90 text-white text-sm font-medium hover:bg-cal-amber disabled:opacity-50">
-            {validarTodoMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            Aprobar todas las marcas ({marcasPendientes})
-          </button>
-        )}
         {canApprove && (
           <>
-            <button onClick={() => setShowConfirmApproval(true)} disabled={avanzarMutation.isPending || marcasPendientes > 0}
-              title={marcasPendientes > 0 ? `Validá las ${marcasPendientes} marca(s) manual(es) primero` : undefined}
+            <button onClick={() => setShowConfirmApproval(true)} disabled={avanzarMutation.isPending}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors">
               {avanzarMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               Aprobar
@@ -1277,7 +1332,7 @@ export default function PlanillaDetailPage() {
                         </span>
                       </div>
                       {reg?.marcaManual?.estado === 'PENDIENTE' && (
-                        <span className="mt-0.5 block text-[9px] font-semibold text-cal-amber">sin validar</span>
+                        <span className="mt-0.5 block text-[9px] font-semibold text-cal-amber">con la planilla</span>
                       )}
                       {reg.observaciones && (
                         <p className="text-[8px] text-muted-foreground/70 leading-tight truncate max-w-full">
@@ -1364,7 +1419,7 @@ export default function PlanillaDetailPage() {
                     {registroMap[selectedDate].observaciones ?? registroMap[selectedDate].motivoBloqueo ?? 'Ausencia / Vacación'}
                   </p>
                   <p className="text-[10px] text-muted-foreground mt-2">Este día no se puede modificar.</p>
-                  {registroMap[selectedDate]?.motivoBloqueo === 'FRANCO_COMPENSATORIO' && !registroMap[selectedDate]?.marcaManual && user && (user.rolNivel ?? 0) >= 60 && (
+                  {registroMap[selectedDate]?.motivoBloqueo === 'FRANCO_COMPENSATORIO' && !registroMap[selectedDate]?.marcaManual && isOwner && canEdit && (
                     <button
                       onClick={async () => {
                         try {
@@ -1383,36 +1438,59 @@ export default function PlanillaDetailPage() {
                       {registroMap[selectedDate]!.marcaManual!.estado === 'PENDIENTE' ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-cal-amber border border-cal-amber/30">
                           <Clock className="h-3 w-3" />
-                          Sin validar
+                          A aprobar con la planilla
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-600 border border-emerald-500/30">
                           <Check className="h-3 w-3" />
-                          Validado
+                          Aprobada
                         </span>
                       )}
 
-                      {isOwner && canEdit && registroMap[selectedDate]!.marcaManual!.estado === 'PENDIENTE' && (
-                        <button onClick={() => quitarMarcaMutation.mutate(registroMap[selectedDate]!.marcaManual!.id)}
+                      {registroMap[selectedDate]!.marcaManual!.tipo === 'CERTIFICADO_MEDICO' && (
+                        <>
+                          {registroMap[selectedDate]!.marcaManual!.archivoUrl && (
+                            <a href={getUploadUrl(registroMap[selectedDate]!.marcaManual!.archivoUrl!)}
+                              target="_blank" rel="noopener noreferrer"
+                              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-border text-sm hover:bg-muted/30">
+                              <FileText className="h-4 w-4" /> Ver certificado
+                            </a>
+                          )}
+                          {isOwner && canEdit && (
+                            <>
+                              <input ref={certFileRef} type="file" accept="image/*,.pdf" className="hidden"
+                                onChange={e => {
+                                  const f = e.target.files?.[0];
+                                  if (f) adjuntarCertMutation.mutate({ ausenciaId: registroMap[selectedDate]!.marcaManual!.id, archivo: f });
+                                  e.target.value = '';
+                                }} />
+                              <button type="button" onClick={() => certFileRef.current?.click()}
+                                disabled={adjuntarCertMutation.isPending}
+                                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-border text-sm hover:bg-muted/30 disabled:opacity-50">
+                                <Upload className="h-4 w-4" />
+                                {registroMap[selectedDate]!.marcaManual!.archivoUrl ? 'Reemplazar certificado' : 'Adjuntar certificado'}
+                              </button>
+                            </>
+                          )}
+                        </>
+                      )}
+
+                      {/* Sin condicionar al estado de la marca: el dueño manda mientras
+                          la planilla sea editable, esté aprobada o no. */}
+                      {isOwner && canEdit && (
+                        <button
+                          onClick={async () => {
+                            const ok = await dialog.confirm({
+                              title: 'Quitar marca',
+                              message: 'Se va a liberar el día y se cancela la solicitud asociada. Si adjuntaste un certificado, también se borra. ¿Continuar?',
+                              variant: 'danger',
+                            });
+                            if (ok) quitarMarcaMutation.mutate(registroMap[selectedDate]!.marcaManual!.id);
+                          }}
                           disabled={quitarMarcaMutation.isPending}
                           className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted/30 disabled:opacity-50">
                           Quitar marca
                         </button>
-                      )}
-
-                      {canMarkAsManager && registroMap[selectedDate]!.marcaManual!.estado === 'PENDIENTE' && (
-                        <div className="flex gap-2">
-                          <button onClick={() => validarMarcaMutation.mutate(registroMap[selectedDate]!.marcaManual!.id)}
-                            disabled={validarMarcaMutation.isPending}
-                            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
-                            Validar
-                          </button>
-                          <button onClick={async () => { if (await dialog.confirm({ message: '¿Rechazar esta marca? El día quedará libre.', variant: 'danger' })) quitarMarcaMutation.mutate(registroMap[selectedDate]!.marcaManual!.id); }}
-                            disabled={quitarMarcaMutation.isPending}
-                            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50">
-                            Rechazar
-                          </button>
-                        </div>
                       )}
                     </div>
                   )}
@@ -1421,7 +1499,7 @@ export default function PlanillaDetailPage() {
 
               {/* Time pickers */}
               {!registroMap[selectedDate]?.bloqueado && (<>
-              {((canEdit) || canMarkAsManager) && (
+              {canEdit && marcaManualActiva && (
                 <details className="rounded-lg border border-border">
                   <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/30 rounded-lg">
                     Marcar día especial (ausencia / compensatorio)
@@ -1771,6 +1849,66 @@ export default function PlanillaDetailPage() {
           onPick={(pid) => { if (pid !== planilla.id) navigate(`/planillas/${pid}`); }}
           onClose={() => setShowPeriodPicker(false)}
         />
+      )}
+
+      {/* ── Confirmación de la marca manual (plan B) ── */}
+      {marcaPendiente && selectedDate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setMarcaPendiente(null)}>
+          <div className="w-full max-w-sm rounded-xl border border-border bg-card p-5 space-y-4" onClick={e => e.stopPropagation()}>
+            <div>
+              <h3 className="text-base font-semibold">Confirmar ausencia</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                {marcaPendiente.label} — {new Date(`${selectedDate}T00:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit' })}
+              </p>
+            </div>
+
+            {marcaPendiente.reemplazaHoras && (
+              <p className="text-xs rounded-lg border border-amber-500/30 bg-amber-500/10 text-cal-amber px-3 py-2">
+                Este día tiene horas cargadas. Se reemplazan por la marca.
+              </p>
+            )}
+
+            <div>
+              <label className="text-xs text-muted-foreground">Descripción (opcional)</label>
+              <input
+                value={marcaDescripcion}
+                onChange={e => setMarcaDescripcion(e.target.value)}
+                maxLength={500}
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                placeholder="Motivo o aclaración"
+              />
+            </div>
+
+            {marcaPendiente.tipo === 'CERTIFICADO_MEDICO' && (
+              <div>
+                <input ref={marcaFileRef} type="file" accept="image/*,.pdf" className="hidden"
+                  onChange={e => setMarcaArchivo(e.target.files?.[0] ?? null)} />
+                <button type="button" onClick={() => marcaFileRef.current?.click()}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border-2 border-dashed border-border text-sm text-muted-foreground hover:border-primary/30 hover:text-foreground">
+                  <Upload className="h-4 w-4" />
+                  {marcaArchivo ? marcaArchivo.name : 'Adjuntar certificado (opcional)'}
+                </button>
+                <p className="text-[10px] text-muted-foreground mt-1">Lo podés adjuntar después desde este mismo día.</p>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setMarcaPendiente(null)}
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm hover:bg-muted/30">
+                Cancelar
+              </button>
+              <button type="button" disabled={marcarDiaMutation.isPending}
+                onClick={() => marcarDiaMutation.mutate({
+                  fecha: selectedDate, tipo: marcaPendiente.tipo,
+                  descripcion: marcaDescripcion, archivo: marcaArchivo,
+                })}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50">
+                {marcarDiaMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Success animation overlay ── */}

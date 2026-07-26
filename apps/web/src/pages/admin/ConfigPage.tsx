@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { mensajeDeError } from '@/lib/errores';
 import { toast } from '@/stores/toastStore';
-import { Settings, Save, Loader2, Clock, Calendar, MapPin, UtensilsCrossed, Check } from 'lucide-react';
+import { Settings, Save, Loader2, Clock, Calendar, MapPin, UtensilsCrossed, Check, ToggleLeft } from 'lucide-react';
 
 interface EmpresaConfig {
   id: string;
@@ -24,6 +24,7 @@ interface EmpresaConfig {
   viandaCantidad2: number;
   zonaHoraria: string;
   moneda: string;
+  marcaManualActiva: boolean;
 }
 
 export default function ConfigPage() {
@@ -260,6 +261,26 @@ export default function ConfigPage() {
             />
           </Field>
         </div>
+      </Section>
+
+      {/* Módulos opcionales */}
+      <Section title="Módulos" icon={<ToggleLeft className="h-4 w-4" />}>
+        <Field label="Marca manual de días (plan B)">
+          <label className="flex items-center gap-2 h-9 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={currentConfig.marcaManualActiva ?? false}
+              onChange={(e) => handleChange('marcaManualActiva', e.target.checked)}
+              className="rounded border-input"
+            />
+            {currentConfig.marcaManualActiva ? 'Activa' : 'Apagada'}
+          </label>
+        </Field>
+        <p className="text-xs text-muted-foreground mt-2">
+          Permite cargar faltas, certificados y compensatorios directo sobre la planilla, sin pasar por el
+          circuito de solicitudes. Conviene dejarla apagada hasta que el equipo se acostumbre a solicitar y
+          aprobar por la vía formal. Las marcas que ya existan se pueden borrar aunque esté apagada.
+        </p>
       </Section>
     </div>
   );

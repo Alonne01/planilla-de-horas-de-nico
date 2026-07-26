@@ -1,8 +1,11 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
+import { toast } from '@/stores/toastStore';
+import { mensajeDeError } from '@/lib/errores';
+import { useDialogStore } from '@/stores/dialogStore';
 import ApprovalProgressBar from '@/components/ui/ApprovalProgressBar';
 import type { PasoAprobacion } from '@/components/ui/ApprovalProgressBar';
 import {
@@ -33,7 +36,16 @@ interface Solicitud {
   detalle: string;
   pasos: Paso[];
   obsRechazo?: string | null;
+  cancelable: boolean;
 }
+
+/** El segmento de URL del endpoint de cancelación para cada tipo. */
+const TIPO_PATH: Record<Solicitud['tipo'], string> = {
+  PLANILLA: 'planilla',
+  VACACION: 'vacacion',
+  AUSENCIA: 'ausencia',
+  CAMBIO_DIAGRAMA: 'cambio-diagrama',
+};
 
 const TIPO_ICON: Record<string, React.ElementType> = {
   PLANILLA: FileSpreadsheet,
@@ -63,6 +75,7 @@ const ESTADO_BADGE: Record<string, { bg: string; icon: React.ElementType }> = {
   APROBADA: { bg: 'bg-emerald-500/20 text-emerald-400', icon: CheckCircle2 },
   RECHAZADA: { bg: 'bg-red-500/20 text-red-400', icon: XCircle },
   CERRADA: { bg: 'bg-zinc-500/20 text-zinc-400', icon: CheckCircle2 },
+  CANCELADA: { bg: 'bg-zinc-500/20 text-zinc-400', icon: XCircle },
 };
 
 const FILTER_OPTIONS = [
@@ -73,7 +86,12 @@ const FILTER_OPTIONS = [
   { value: 'CAMBIO_DIAGRAMA', label: 'Cambios Diagrama' },
 ];
 
-function SolicitudCard({ solicitud, onNavigate }: { solicitud: Solicitud; onNavigate?: (id: string) => void }) {
+function SolicitudCard({ solicitud, onNavigate, onCancelar, cancelando }: {
+  solicitud: Solicitud;
+  onNavigate?: (id: string) => void;
+  onCancelar: (s: Solicitud) => void;
+  cancelando: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const Icon = TIPO_ICON[solicitud.tipo] ?? ClipboardList;
   const estadoBadge = ESTADO_BADGE[solicitud.estado] ?? ESTADO_BADGE.PENDIENTE;
@@ -182,6 +200,20 @@ function SolicitudCard({ solicitud, onNavigate }: { solicitud: Solicitud; onNavi
             ))}
         </div>
       )}
+
+      {/* Retirar la solicitud del circuito. El backend la deja cancelable sólo
+          mientras nadie la haya firmado, y manda `cancelable` ya calculado. */}
+      {solicitud.cancelable && (
+        <button
+          type="button"
+          onClick={() => onCancelar(solicitud)}
+          disabled={cancelando}
+          className="mt-1 w-full inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-muted/30 disabled:opacity-50"
+        >
+          {cancelando && <Loader2 className="h-3 w-3 animate-spin" />}
+          Cancelar solicitud
+        </button>
+      )}
     </div>
   );
 }
@@ -189,6 +221,8 @@ function SolicitudCard({ solicitud, onNavigate }: { solicitud: Solicitud; onNavi
 export default function MisSolicitudesPage() {
   const [tipoFilter, setTipoFilter] = useState('');
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const dialog = useDialogStore();
 
   const { data: solicitudes = [], isLoading, isError } = useQuery<Solicitud[]>({
     queryKey: ['mis-solicitudes'],
@@ -196,6 +230,36 @@ export default function MisSolicitudesPage() {
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
+
+  const cancelarMutation = useMutation({
+    mutationFn: (s: Solicitud) => api.post(`/mis-solicitudes/${TIPO_PATH[s.tipo]}/${s.id}/cancelar`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mis-solicitudes'] });
+      // La planilla vuelve a BORRADOR y los saldos cambian: los listados que los
+      // muestran quedarían con datos viejos hasta el próximo staleTime.
+      queryClient.invalidateQueries({ queryKey: ['planillas'] });
+      queryClient.invalidateQueries({ queryKey: ['ausencias'] });
+      queryClient.invalidateQueries({ queryKey: ['vacaciones'] });
+      toast({ title: 'Solicitud cancelada' });
+    },
+    onError: (err: unknown) => toast({
+      title: 'No se pudo cancelar',
+      description: mensajeDeError(err).mensaje,
+      variant: 'destructive',
+    }),
+  });
+
+  const handleCancelar = async (s: Solicitud) => {
+    const extra = s.tipo === 'PLANILLA'
+      ? ' La planilla vuelve a borrador y podés corregirla y reenviarla.'
+      : '';
+    const ok = await dialog.confirm({
+      title: 'Cancelar solicitud',
+      message: `Se va a retirar la solicitud del circuito de aprobación.${extra} ¿Continuar?`,
+      variant: 'danger',
+    });
+    if (ok) cancelarMutation.mutate(s);
+  };
 
   const filtered = tipoFilter
     ? solicitudes.filter((s) => s.tipo === tipoFilter)
@@ -205,7 +269,7 @@ export default function MisSolicitudesPage() {
     (s) => ['PENDIENTE', 'EN_REVISION', 'ENVIADA'].includes(s.estado),
   );
   const resueltas = filtered.filter(
-    (s) => ['APROBADA', 'RECHAZADA', 'CERRADA'].includes(s.estado),
+    (s) => ['APROBADA', 'RECHAZADA', 'CERRADA', 'CANCELADA'].includes(s.estado),
   );
 
   return (
@@ -266,7 +330,13 @@ export default function MisSolicitudesPage() {
                 En curso ({pendientes.length})
               </h2>
               {pendientes.map((s) => (
-                <SolicitudCard key={s.id} solicitud={s} onNavigate={(id) => navigate(`/planillas/${id}`)} />
+                <SolicitudCard
+                  key={s.id}
+                  solicitud={s}
+                  onNavigate={(id) => navigate(`/planillas/${id}`)}
+                  onCancelar={handleCancelar}
+                  cancelando={cancelarMutation.isPending && cancelarMutation.variables?.id === s.id}
+                />
               ))}
             </section>
           )}
@@ -278,7 +348,13 @@ export default function MisSolicitudesPage() {
                 Resueltas ({resueltas.length})
               </h2>
               {resueltas.map((s) => (
-                <SolicitudCard key={s.id} solicitud={s} onNavigate={(id) => navigate(`/planillas/${id}`)} />
+                <SolicitudCard
+                  key={s.id}
+                  solicitud={s}
+                  onNavigate={(id) => navigate(`/planillas/${id}`)}
+                  onCancelar={handleCancelar}
+                  cancelando={cancelarMutation.isPending && cancelarMutation.variables?.id === s.id}
+                />
               ))}
             </section>
           )}
