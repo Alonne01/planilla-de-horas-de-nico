@@ -615,10 +615,17 @@ async function main() {
     }[];
   };
 
+  // Los cinco tipos que pasan por un circuito. Es la misma lista que
+  // `TipoDocumentoFlujo` en src/utils/circuito.utils.ts: si un tipo falta acá,
+  // los documentos de ese tipo nacen SIN flujo y caen en la rama de escape que
+  // exige RRHH. Eso le pasaba a COMPENSATORIO, que no tenía ningún flujo.
+  const TIPOS_CON_FLUJO = ['PLANILLA', 'VACACION', 'AUSENCIA', 'COMPENSATORIO', 'CAMBIO_DIAGRAMA'] as const;
+
   const accionCierreRRHH: Record<string, string> = {
     PLANILLA: 'CERRAR',
     VACACION: 'CONFIRMAR',
     AUSENCIA: 'APROBAR',
+    COMPENSATORIO: 'APROBAR',
     CAMBIO_DIAGRAMA: 'AUTORIZAR',
   };
 
@@ -626,12 +633,13 @@ async function main() {
     PLANILLA: 'Planillas',
     VACACION: 'Vacaciones',
     AUSENCIA: 'Ausencias',
+    COMPENSATORIO: 'Compensatorios',
     CAMBIO_DIAGRAMA: 'Cambios de Diagrama',
   };
 
   const flujosConfig: FlujoConfig[] = [];
 
-  for (const tipo of ['PLANILLA', 'VACACION', 'AUSENCIA', 'CAMBIO_DIAGRAMA'] as const) {
+  for (const tipo of TIPOS_CON_FLUJO) {
     const label = tipoDocLabels[tipo];
     const accionRRHH = accionCierreRRHH[tipo];
 
@@ -813,13 +821,20 @@ async function main() {
   const asignar = async (flujoId: string, tipo: string, sectorId: string) => {
     const { creada } = await buscarOCrear(
       prisma.flujoAsignacion,
-      { flujoId, tipoDocumento: tipo, sectorId },
-      { flujoId, tipoDocumento: tipo, sectorId },
+      // El WHERE busca por (tipo, sector) y NO por flujoId: esa es la clave
+      // natural que impone el índice único `flujos_asignaciones_tipo_documento_sector_id_key`.
+      // Buscando también por flujoId, un sector que el admin hubiera reapuntado
+      // a otro flujo no se encontraría y el create moriría con un P2002.
+      { tipoDocumento: tipo, sectorId },
+      // `empresaId` está denormalizado del flujo y es obligatorio: existe para
+      // que el índice parcial único de la asignación GLOBAL se pueda acotar por
+      // empresa. Tiene que ser el del flujo, no otro.
+      { empresaId: empresa.id, flujoId, tipoDocumento: tipo, sectorId },
     );
     if (creada) asignacionesCreadas++;
   };
 
-  for (const tipo of ['PLANILLA', 'VACACION', 'AUSENCIA', 'CAMBIO_DIAGRAMA'] as const) {
+  for (const tipo of TIPOS_CON_FLUJO) {
     for (const sectorNombre of sectoresPatronA) await asignar(flujos[`${tipo}_A`], tipo, sectores[sectorNombre]);
     for (const sectorNombre of sectoresPatronB) await asignar(flujos[`${tipo}_B`], tipo, sectores[sectorNombre]);
     for (const sectorNombre of sectoresPatronC) await asignar(flujos[`${tipo}_C`], tipo, sectores[sectorNombre]);
@@ -834,7 +849,7 @@ async function main() {
   console.log(`  Roles: ${rolesCreados} creados, ${rolesData.length - rolesCreados} ya existían`);
   console.log(`  Sectores: ${sectoresCreados} creados, ${sectoresData.length - sectoresCreados} ya existían`);
   console.log(`  Diagramas: ${diagramasCreados} creados, ${diagramasData.length - diagramasCreados} ya existían`);
-  console.log(`  Flujos de aprobación: ${flujosCreados} creados, ${flujosConfig.length - flujosCreados} ya existían (3 patrones × 4 tipos documento)`);
+  console.log(`  Flujos de aprobación: ${flujosCreados} creados, ${flujosConfig.length - flujosCreados} ya existían (3 patrones × ${TIPOS_CON_FLUJO.length} tipos documento)`);
   console.log(`  Asignaciones de flujo: ${asignacionesCreadas} creadas`);
   console.log(`  Usuarios: ${userCount + (adminCreado ? 1 : 0)} creados (${adminCreado ? '1 admin sistema + ' : ''}${userCount} empleados), ${userSkipped} ya existían`);
   console.log('  Convenios: CCT 644/12 PP (22 cats) + CCT 637/11 PJ (1 cat SPJ)');
