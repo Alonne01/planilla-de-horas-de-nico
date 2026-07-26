@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { nivelesPorRol } from './circuito.utils.js';
 
 /**
  * Determines which user IDs a given user can see, based on approval flow configuration.
@@ -39,7 +40,7 @@ export async function getFlowVisibleUserIds(
   });
 
   if (!anyAssignment) {
-    return legacyVisibility(prisma, userId, empresaId);
+    return legacyVisibility(prisma, userId, empresaId, userNivel);
   }
 
   // Find flow assignments where the user's role is in any approval step
@@ -124,7 +125,7 @@ export async function getFlowVisibleUserIds(
     for (const u of sectorPeers) ids.add(u.id);
   }
 
-  return [...ids];
+  return filtrarPorNivel(prisma, [...ids], userId, userNivel, empresaId);
 }
 
 /** Legacy visibility: subordinates + same sector (for companies without configured flows) */
@@ -132,6 +133,7 @@ async function legacyVisibility(
   prisma: PrismaClient,
   userId: string,
   empresaId: string,
+  userNivel: number,
 ): Promise<string[]> {
   const ids = new Set<string>([userId]);
 
@@ -160,5 +162,50 @@ async function legacyVisibility(
     for (const u of sectorUsers) ids.add(u.id);
   }
 
-  return [...ids];
+  return filtrarPorNivel(prisma, [...ids], userId, userNivel, empresaId);
+}
+
+/**
+ * Deja solo a quienes el actor puede mirar: los de nivel estrictamente menor, más
+ * sus subordinados directos (que pueden compartir nivel — dos coordinadores donde
+ * uno manda al otro) y él mismo.
+ *
+ * Ser aprobador NO alcanza: sin este filtro, cualquiera cuyo rol figure en un paso
+ * del flujo se lleva el sector entero, pares y superiores incluidos.
+ *
+ * `Usuario.rol` es un string suelto; el nivel vive en `RolConfig` por empresa, así
+ * que se resuelve con `nivelesPorRol`. Un rol HUÉRFANO (borrado o desactivado) no
+ * tiene nivel con qué comparar y queda FUERA: acá el default seguro es no mostrar.
+ * Es el criterio opuesto al de `construirCircuito` a propósito — allá un huérfano
+ * que se saltea deja un documento sin aprobador y hay que verlo; acá un huérfano
+ * que se cuela filtra la planilla de otro.
+ */
+async function filtrarPorNivel(
+  prisma: PrismaClient,
+  ids: string[],
+  actorId: string,
+  actorNivel: number,
+  empresaId: string,
+): Promise<string[]> {
+  const candidatos = ids.filter((id) => id !== actorId);
+  if (candidatos.length === 0) return [actorId];
+
+  const [usuarios, niveles] = await Promise.all([
+    prisma.usuario.findMany({
+      where: { id: { in: candidatos } },
+      select: { id: true, rol: true, supervisorId: true, coordinadorId: true },
+    }),
+    nivelesPorRol(prisma, empresaId),
+  ]);
+
+  const visibles = usuarios
+    .filter((u) => {
+      if (u.supervisorId === actorId || u.coordinadorId === actorId) return true;
+      const nivel = niveles[u.rol];
+      if (nivel === undefined) return false; // rol huérfano: no se muestra
+      return nivel < actorNivel;
+    })
+    .map((u) => u.id);
+
+  return [actorId, ...visibles];
 }

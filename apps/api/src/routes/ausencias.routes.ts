@@ -1102,9 +1102,12 @@ router.post('/:id/revocar', async (req: AuthRequest, res: Response): Promise<voi
     const wasApproved = ausencia.estado === 'APROBADA';
     const anio = new Date(ausencia.fechaInicio).getFullYear();
 
+    // CANCELADA y no RECHAZADA: el dueño no debería ver su propia devolución como
+    // un rechazo. `revocar` conserva su semántica propia (compensatorio ya APROBADA
+    // con fecha futura), que es justo lo que la cancelación no permite.
     await prisma.ausencia.update({
       where: { id: ausId },
-      data: { estado: 'RECHAZADA', obsRechazo: 'Revocado por el usuario', aprobada: false },
+      data: { estado: 'CANCELADA', obsRechazo: 'Revocado por el usuario', aprobada: false },
     });
 
     await prisma.ausenciaHistorial.create({
@@ -1112,7 +1115,7 @@ router.post('/:id/revocar', async (req: AuthRequest, res: Response): Promise<voi
         ausenciaId: ausId,
         usuarioId: userId,
         estadoAnterior: ausencia.estado as AusenciaEstado,
-        estadoNuevo: 'RECHAZADA',
+        estadoNuevo: 'CANCELADA',
         comentario: req.body?.motivo || 'Revocado por el usuario',
       },
     });
@@ -1186,7 +1189,30 @@ router.post('/:id/archivo', uploadLimiter, upload.single('archivo'), async (req:
 
     const actorId = req.user!.userId;
     const actorNivel = req.user!.rolNivel ?? 0;
-    if (ausencia.usuarioId !== actorId && !(await canManageUser(actorId, actorNivel, ausencia.usuarioId, req.user!.empresaId))) {
+
+    if (ausencia.estado === 'CANCELADA') {
+      descartarArchivos([subido]);
+      res.status(400).json({ error: 'La solicitud está cancelada' });
+      return;
+    }
+
+    if (ausencia.cargaManual) {
+      // La marca vive dentro de la planilla y sigue sus reglas: solo el dueño, y
+      // solo mientras la planilla sea editable. Ni el supervisor ni RRHH.
+      if (ausencia.usuarioId !== actorId) {
+        descartarArchivos([subido]);
+        res.status(403).json({ error: 'Solo el dueño puede adjuntar en su marca' });
+        return;
+      }
+      const planilla = ausencia.planillaId
+        ? await prisma.planilla.findUnique({ where: { id: ausencia.planillaId }, select: { estado: true } })
+        : null;
+      if (planilla && planilla.estado !== 'BORRADOR' && planilla.estado !== 'RECHAZADA') {
+        descartarArchivos([subido]);
+        res.status(400).json({ error: `No se puede adjuntar con la planilla en estado ${planilla.estado}` });
+        return;
+      }
+    } else if (ausencia.usuarioId !== actorId && !(await canManageUser(actorId, actorNivel, ausencia.usuarioId, req.user!.empresaId))) {
       descartarArchivos([subido]);
       res.status(403).json({ error: 'No autorizado para modificar el archivo de esta ausencia' });
       return;

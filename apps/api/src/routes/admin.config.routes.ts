@@ -30,6 +30,7 @@ const updateConfigSchema = z.object({
   viandaUmbral2: z.number().int().min(0).max(24).optional(),
   viandaCantidad1: z.number().int().min(0).max(10).optional(),
   viandaCantidad2: z.number().int().min(0).max(10).optional(),
+  marcaManualActiva: z.boolean().optional(),
 });
 
 // ─── GET /admin/config ───────────────────────────

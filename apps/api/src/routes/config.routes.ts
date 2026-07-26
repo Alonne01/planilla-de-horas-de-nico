@@ -32,4 +32,31 @@ router.get('/periodo', async (req: AuthRequest, res: Response): Promise<void> =>
   }
 });
 
+/**
+ * GET /config/modulos — Flags de módulo que el front necesita para decidir qué
+ * renderizar. Separado de /admin/config, que es ADMIN-only: cualquier usuario
+ * autenticado necesita saber si el plan B está encendido para su empresa.
+ */
+router.get('/modulos', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const config = await prisma.empresaConfig.findUnique({
+      where: { empresaId: req.user!.empresaId },
+      select: {
+        marcaManualActiva: true,
+        moduloVacacionesActivo: true,
+        moduloAusenciasActivo: true,
+        moduloAnalyticsActivo: true,
+      },
+    });
+    if (!config) {
+      res.status(404).json({ error: 'Configuración no encontrada' });
+      return;
+    }
+    res.json(config);
+  } catch (error) {
+    console.error('Error getting modulos:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 export default router;

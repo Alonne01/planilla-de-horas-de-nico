@@ -16,7 +16,7 @@ import {
 } from '../utils/calculo.utils.js';
 import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { logAuditoria } from '../lib/auditoria.js';
-import { canManageUser } from '../utils/user-scope.utils.js';
+import { devolverSaldoDeMarca, borrarAdjuntosDeMarcas } from '../utils/marca-manual.utils.js';
 import { contextoDelDia, esDiaFrancoSegunDiagrama, feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
 import {
   construirCircuito,
@@ -346,7 +346,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
           orderBy: { fecha: 'asc' },
           include: {
             proyecto: { select: { codigo: true, nombre: true } },
-            marcaManual: { select: { id: true, estado: true, tipo: true, cargadaPorId: true, aprobadaPorId: true } },
+            marcaManual: { select: { id: true, estado: true, tipo: true, cargadaPorId: true, aprobadaPorId: true, archivoUrl: true } },
           },
         },
         flujo: { select: { nombre: true, pasos: { orderBy: { orden: 'asc' } } } },
@@ -612,15 +612,6 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       return;
     }
 
-    // Gating plan B: no se puede avanzar/aprobar con marcas manuales sin validar
-    const marcasPendientes = await prisma.ausencia.count({
-      where: { planillaId, cargaManual: true, estado: { notIn: ['APROBADA', 'RECHAZADA'] } },
-    });
-    if (marcasPendientes > 0) {
-      res.status(400).json({ error: `Hay ${marcasPendientes} marca(s) manual(es) sin validar. Validalas antes de aprobar.`, marcasPendientes });
-      return;
-    }
-
     // El circuito congelado al enviar; los pasos vivos del flujo son sólo el
     // fallback de las planillas anteriores a este cambio.
     const pasos = pasosDe(planilla);
@@ -721,6 +712,37 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
                 } : {}),
               },
             });
+          }
+
+          // Las marcas manuales viajan con la planilla: la firma que aprueba la
+          // planilla aprueba también los días que el dueño cargó a mano. No hay
+          // doble conteo con el upsert de arriba: ese cuenta por
+          // `registro.esFrancoCompensatorio`, y `inyectarDiasBloqueados` no setea
+          // esa columna en los días de marca manual.
+          const marcas = await tx.ausencia.findMany({
+            where: { planillaId: planilla.id, cargaManual: true, estado: 'PENDIENTE' },
+          });
+          for (const m of marcas) {
+            await tx.ausencia.update({
+              where: { id: m.id },
+              data: { estado: 'APROBADA', aprobada: true, aprobadaPorId: req.user!.userId, aprobadaAt: new Date() },
+            });
+            await tx.ausenciaHistorial.create({
+              data: {
+                ausenciaId: m.id,
+                usuarioId: req.user!.userId,
+                estadoAnterior: 'PENDIENTE',
+                estadoNuevo: 'APROBADA',
+                comentario: 'Aprobada junto con la planilla',
+              },
+            });
+            if (m.tipo === 'FRANCO_COMPENSATORIO') {
+              const anioMarca = new Date(m.fechaInicio).getFullYear();
+              await tx.vacacionSaldo.update({
+                where: { usuarioId_anio: { usuarioId: m.usuarioId, anio: anioMarca } },
+                data: { compensatoriosPendientes: { decrement: 1 }, compensatoriosUsados: { increment: 1 } },
+              });
+            }
           }
         }
 
@@ -1198,7 +1220,7 @@ router.delete('/:id/registros/:rid', async (req: AuthRequest, res: Response): Pr
 });
 
 // ─── PATCH toggle compensatorio (supervisor+) ─────────────────
-router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: Response): Promise<void> => {
+router.patch('/:id/registros/:rid/compensatorio', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const planillaId = req.params.id as string;
     const rid = req.params.rid as string;
@@ -1219,17 +1241,14 @@ router.patch('/:id/registros/:rid/compensatorio', requireLevel(LEVEL_SUPERVISOR)
       return;
     }
 
-    // Alcance: sólo quien gestiona al empleado (supervisor/coordinador directo,
-    // coordinador+ del sector, o RRHH+) puede tocar su franco compensatorio.
-    const puedeGestionar = await canManageUser(req.user!.userId, req.user!.rolNivel ?? 0, planilla.usuarioId, req.user!.empresaId);
-    if (!puedeGestionar) {
-      res.status(403).json({ error: 'No tenés alcance sobre este empleado' });
+    // La planilla es del dueño: el franco compensatorio lo declara él, no su jefe.
+    if (planilla.usuarioId !== req.user!.userId) {
+      res.status(403).json({ error: 'Solo el dueño puede declarar francos compensatorios en su planilla' });
       return;
     }
 
-    // Una planilla cerrada es inmutable.
-    if (planilla.estado === 'CERRADA') {
-      res.status(400).json({ error: 'La planilla está cerrada y no puede modificarse' });
+    if (!ESTADOS_OWNER.includes(planilla.estado)) {
+      res.status(400).json({ error: `No se puede modificar la planilla en estado ${planilla.estado}` });
       return;
     }
 
@@ -1339,16 +1358,19 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
 
     // Allow delete for BORRADOR or ENVIADA (before any approval step)
     if (planilla.estado === 'BORRADOR' || planilla.estado === 'RECHAZADA') {
+      let adjuntos: string[] = [];
       await prisma.$transaction(async (tx) => {
-        await limpiarMarcasManuales(tx, planillaId);
+        adjuntos = await limpiarMarcasManuales(tx, planillaId);
         await tx.planilla.delete({ where: { id: planillaId } });
       });
+      borrarAdjuntosDeMarcas(adjuntos);
       res.status(204).send();
       return;
     }
 
     if (planilla.estado === 'ENVIADA') {
       // Atomic check+delete: prevent race with concurrent approval
+      let adjuntos: string[] = [];
       const deleted = await prisma.$transaction(async (tx) => {
         const approvalEntry = await tx.planillaHistorial.findFirst({
           where: {
@@ -1362,10 +1384,11 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
         const current = await tx.planilla.findUnique({ where: { id: planillaId }, select: { estado: true } });
         if (!current || current.estado !== 'ENVIADA') return false;
 
-        await limpiarMarcasManuales(tx, planillaId);
+        adjuntos = await limpiarMarcasManuales(tx, planillaId);
         await tx.planilla.delete({ where: { id: planillaId } });
         return true;
       });
+      if (deleted) borrarAdjuntosDeMarcas(adjuntos);
 
       if (!deleted) {
         res.status(400).json({
@@ -1397,7 +1420,6 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
 // ═══════════════════════════════════════════════════
 
 const ESTADOS_OWNER = ['BORRADOR', 'RECHAZADA'];
-const ESTADOS_MANAGER = ['BORRADOR', 'RECHAZADA', 'ENVIADA', 'EN_REVISION'];
 
 const marcarDiaSchema = z.object({
   fecha: fechaFlexible,
@@ -1409,19 +1431,16 @@ function ymd(d: Date): string { return d.toISOString().split('T')[0]; }
 
 // Libera el saldo comp. reservado/usado por las marcas manuales de una planilla
 // y las elimina. Se usa al borrar la planilla (Ausencia.planillaId no tiene FK/cascade).
-async function limpiarMarcasManuales(tx: Prisma.TransactionClient, planillaId: string): Promise<void> {
+// Devuelve las URLs de los adjuntos para que el llamador los borre del disco DESPUÉS
+// del commit: el filesystem no hace rollback.
+async function limpiarMarcasManuales(tx: Prisma.TransactionClient, planillaId: string): Promise<string[]> {
   const marcas = await tx.ausencia.findMany({ where: { planillaId, cargaManual: true } });
   for (const m of marcas) {
-    if (m.tipo === 'FRANCO_COMPENSATORIO') {
-      const anio = new Date(m.fechaInicio).getFullYear();
-      if (m.estado === 'APROBADA') {
-        await tx.vacacionSaldo.updateMany({ where: { usuarioId: m.usuarioId, anio }, data: { compensatoriosUsados: { decrement: 1 } } });
-      } else if (m.estado === 'PENDIENTE') {
-        await tx.vacacionSaldo.updateMany({ where: { usuarioId: m.usuarioId, anio }, data: { compensatoriosPendientes: { decrement: 1 } } });
-      }
-    }
+    await devolverSaldoDeMarca(tx, m);
   }
+  await tx.ausenciaHistorial.deleteMany({ where: { ausenciaId: { in: marcas.map(m => m.id) } } });
   await tx.ausencia.deleteMany({ where: { planillaId, cargaManual: true } });
+  return marcas.map(m => m.archivoUrl).filter((u): u is string => u !== null);
 }
 
 // ─── POST /planillas/:id/marcar-dia ──────────────
@@ -1434,7 +1453,6 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
     }
     const planillaId = req.params.id as string;
     const actorId = req.user!.userId;
-    const actorNivel = req.user!.rolNivel ?? 0;
     const empresaId = req.user!.empresaId;
 
     const planilla = await prisma.planilla.findUnique({
@@ -1446,15 +1464,24 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
       return;
     }
 
-    const isOwner = planilla.usuarioId === actorId;
-    const isManager = !isOwner && await canManageUser(actorId, actorNivel, planilla.usuarioId, empresaId);
-    if (!isOwner && !isManager) {
-      res.status(403).json({ error: 'No autorizado para marcar días en esta planilla' });
+    // La planilla es del dueño: nadie más carga días en ella, ni RRHH ni ADMIN.
+    // Un aprobador que ve un error rechaza la planilla y la corrige el dueño.
+    if (planilla.usuarioId !== actorId) {
+      res.status(403).json({ error: 'Solo el dueño puede marcar días en su planilla' });
       return;
     }
 
-    const allowed = isOwner ? ESTADOS_OWNER : ESTADOS_MANAGER;
-    if (!allowed.includes(planilla.estado)) {
+    // El plan B nace apagado: esconder el botón en el front no es apagar la función.
+    const configMarca = await prisma.empresaConfig.findUnique({
+      where: { empresaId },
+      select: { marcaManualActiva: true },
+    });
+    if (!configMarca?.marcaManualActiva) {
+      res.status(403).json({ error: 'La marca manual de días no está habilitada' });
+      return;
+    }
+
+    if (!ESTADOS_OWNER.includes(planilla.estado)) {
       res.status(400).json({ error: `No se puede marcar días con la planilla en estado ${planilla.estado}` });
       return;
     }
@@ -1485,7 +1512,6 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
 
     const tipo = parsed.data.tipo;
     const anio = fecha.getFullYear();
-    const autoValidada = isManager;
 
     let ausencia;
     try {
@@ -1508,7 +1534,7 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
             planillaId,
             cargaManual: true,
             tipo,
-            estado: autoValidada ? 'APROBADA' : 'PENDIENTE',
+            estado: 'PENDIENTE',
             pasoActual: 0,
             fechaInicio: fecha,
             fechaFin: fecha,
@@ -1516,9 +1542,8 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
             descripcion: parsed.data.descripcion ?? null,
             descuentaSueldo: tipo === 'FALTA_INJUSTIFICADA',
             porcentajeDescuento: tipo === 'FALTA_INJUSTIFICADA' ? 100 : 0,
-            requiereAprobacion: !autoValidada,
-            aprobada: autoValidada,
-            ...(autoValidada ? { aprobadaPorId: actorId, aprobadaAt: new Date() } : {}),
+            requiereAprobacion: true,
+            aprobada: false,
             flujoId: null,
           },
         });
@@ -1527,17 +1552,10 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
           data: {
             ausenciaId: aus.id,
             usuarioId: actorId,
-            estadoNuevo: autoValidada ? 'APROBADA' : 'PENDIENTE',
-            comentario: autoValidada ? 'Marca manual (auto-validada por superior)' : 'Marca manual del empleado (sin validar)',
+            estadoNuevo: 'PENDIENTE',
+            comentario: 'Marca manual del empleado (se aprueba con la planilla)',
           },
         });
-
-        if (autoValidada && tipo === 'FRANCO_COMPENSATORIO') {
-          await tx.vacacionSaldo.update({
-            where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
-            data: { compensatoriosPendientes: { decrement: 1 }, compensatoriosUsados: { increment: 1 } },
-          });
-        }
 
         return aus;
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -1567,13 +1585,13 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
     await recalcularTotalesPlanilla(planillaId);
     await logAuditoria({
       entidad: 'Ausencia', entidadId: ausencia.id, accion: 'CREAR',
-      descripcion: `Marca manual ${tipo} ${ymd(fecha)}${autoValidada ? ' (validada)' : ' (sin validar)'}`,
+      descripcion: `Marca manual ${tipo} ${ymd(fecha)} (a aprobar con la planilla)`,
       usuarioId: actorId,
     });
 
     const registro = await prisma.registroHoras.findUnique({
       where: { planillaId_fecha: { planillaId, fecha } },
-      include: { marcaManual: { select: { id: true, estado: true, tipo: true, cargadaPorId: true, aprobadaPorId: true } } },
+      include: { marcaManual: { select: { id: true, estado: true, tipo: true, cargadaPorId: true, aprobadaPorId: true, archivoUrl: true } } },
     });
     res.status(201).json(registro);
   } catch (error) {
@@ -1582,141 +1600,16 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
   }
 });
 
-// ─── POST /planillas/:id/marcas/:ausenciaId/validar ──────
-router.post('/:id/marcas/:ausenciaId/validar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const planillaId = req.params.id as string;
-    const ausenciaId = req.params.ausenciaId as string;
-    const actorId = req.user!.userId;
-    const actorNivel = req.user!.rolNivel ?? 0;
-
-    const planilla = await prisma.planilla.findUnique({
-      where: { id: planillaId },
-      include: { usuario: { select: { id: true, empresaId: true } } },
-    });
-    if (!planilla || planilla.usuario.empresaId !== req.user!.empresaId) {
-      res.status(404).json({ error: 'Planilla no encontrada' });
-      return;
-    }
-    if (planilla.usuarioId === actorId) {
-      res.status(403).json({ error: 'No podés validar tus propias marcas' });
-      return;
-    }
-    if (!await canManageUser(actorId, actorNivel, planilla.usuarioId, req.user!.empresaId)) {
-      res.status(403).json({ error: 'No autorizado para validar marcas de este empleado' });
-      return;
-    }
-
-    const ausencia = await prisma.ausencia.findFirst({ where: { id: ausenciaId, planillaId, cargaManual: true } });
-    if (!ausencia) {
-      res.status(404).json({ error: 'Marca no encontrada' });
-      return;
-    }
-    if (ausencia.estado !== 'PENDIENTE') {
-      res.status(400).json({ error: 'La marca no está pendiente de validación' });
-      return;
-    }
-
-    try {
-      await prisma.$transaction(async (tx) => {
-        const { count } = await tx.ausencia.updateMany({
-          where: { id: ausenciaId, estado: 'PENDIENTE' },
-          data: { estado: 'APROBADA', aprobada: true, aprobadaPorId: actorId, aprobadaAt: new Date() },
-        });
-        if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
-        await tx.ausenciaHistorial.create({
-          data: { ausenciaId, usuarioId: actorId, estadoAnterior: 'PENDIENTE', estadoNuevo: 'APROBADA', comentario: 'Marca manual validada' },
-        });
-        if (ausencia.tipo === 'FRANCO_COMPENSATORIO') {
-          const anio = new Date(ausencia.fechaInicio).getFullYear();
-          await tx.vacacionSaldo.update({
-            where: { usuarioId_anio: { usuarioId: ausencia.usuarioId, anio } },
-            data: { compensatoriosPendientes: { decrement: 1 }, compensatoriosUsados: { increment: 1 } },
-          });
-        }
-      });
-    } catch (err: any) {
-      if (err?.message === 'CONCURRENT_MODIFICATION') {
-        res.status(409).json({ error: 'La marca fue modificada simultáneamente. Recargá la página.' });
-        return;
-      }
-      throw err;
-    }
-
-    await logAuditoria({ entidad: 'Ausencia', entidadId: ausenciaId, accion: 'EDITAR', campo: 'estado', valorAnterior: 'PENDIENTE', valorNuevo: 'APROBADA', descripcion: 'Marca manual validada', usuarioId: actorId });
-    const updated = await prisma.ausencia.findUnique({ where: { id: ausenciaId } });
-    res.json(updated);
-  } catch (error) {
-    console.error('Error validando marca:', error);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
-
-// ─── POST /planillas/:id/marcas/validar-todo ─────────────
-router.post('/:id/marcas/validar-todo', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const planillaId = req.params.id as string;
-    const actorId = req.user!.userId;
-    const actorNivel = req.user!.rolNivel ?? 0;
-
-    const planilla = await prisma.planilla.findUnique({
-      where: { id: planillaId },
-      include: { usuario: { select: { id: true, empresaId: true } } },
-    });
-    if (!planilla || planilla.usuario.empresaId !== req.user!.empresaId) {
-      res.status(404).json({ error: 'Planilla no encontrada' });
-      return;
-    }
-    if (planilla.usuarioId === actorId) {
-      res.status(403).json({ error: 'No podés validar tus propias marcas' });
-      return;
-    }
-    if (!await canManageUser(actorId, actorNivel, planilla.usuarioId, req.user!.empresaId)) {
-      res.status(403).json({ error: 'No autorizado para validar marcas de este empleado' });
-      return;
-    }
-
-    const pendientes = await prisma.ausencia.findMany({ where: { planillaId, cargaManual: true, estado: 'PENDIENTE' } });
-    if (pendientes.length === 0) { res.json({ validadas: 0 }); return; }
-
-    let validadas = 0;
-    await prisma.$transaction(async (tx) => {
-      for (const aus of pendientes) {
-        const { count } = await tx.ausencia.updateMany({
-          where: { id: aus.id, estado: 'PENDIENTE' },
-          data: { estado: 'APROBADA', aprobada: true, aprobadaPorId: actorId, aprobadaAt: new Date() },
-        });
-        if (count === 0) continue; // otra request ya la validó/cambió
-        validadas++;
-        await tx.ausenciaHistorial.create({
-          data: { ausenciaId: aus.id, usuarioId: actorId, estadoAnterior: 'PENDIENTE', estadoNuevo: 'APROBADA', comentario: 'Marca manual validada (lote)' },
-        });
-        if (aus.tipo === 'FRANCO_COMPENSATORIO') {
-          const anio = new Date(aus.fechaInicio).getFullYear();
-          await tx.vacacionSaldo.update({
-            where: { usuarioId_anio: { usuarioId: aus.usuarioId, anio } },
-            data: { compensatoriosPendientes: { decrement: 1 }, compensatoriosUsados: { increment: 1 } },
-          });
-        }
-      }
-    });
-
-    await logAuditoria({ entidad: 'Planilla', entidadId: planillaId, accion: 'EDITAR', descripcion: `Validó ${validadas} marca(s) manual(es) en lote`, usuarioId: actorId });
-    res.json({ validadas });
-  } catch (error) {
-    console.error('Error validando marcas en lote:', error);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
-
 // ─── DELETE /planillas/:id/marcas/:ausenciaId ────────────
-// Dueño: quita su marca PENDIENTE (elimina la fila). Superior: rechaza (RECHAZADA).
+// Solo el dueño, con la planilla editable. Borrar el día cancela la solicitud:
+// se va la Ausencia, su historial, el día bloqueado y el certificado adjunto.
+// A diferencia de marcar, esto NO depende del flag: si quedaron marcas de cuando
+// el plan B estuvo encendido, tienen que poder limpiarse.
 router.delete('/:id/marcas/:ausenciaId', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const planillaId = req.params.id as string;
     const ausenciaId = req.params.ausenciaId as string;
     const actorId = req.user!.userId;
-    const actorNivel = req.user!.rolNivel ?? 0;
 
     const planilla = await prisma.planilla.findUnique({
       where: { id: planillaId },
@@ -1727,85 +1620,51 @@ router.delete('/:id/marcas/:ausenciaId', async (req: AuthRequest, res: Response)
       return;
     }
 
+    if (planilla.usuarioId !== actorId) {
+      res.status(403).json({ error: 'Solo el dueño puede quitar marcas de su planilla' });
+      return;
+    }
+
+    if (!ESTADOS_OWNER.includes(planilla.estado)) {
+      res.status(400).json({ error: `No se puede quitar marcas con la planilla en estado ${planilla.estado}` });
+      return;
+    }
+
     const ausencia = await prisma.ausencia.findFirst({ where: { id: ausenciaId, planillaId, cargaManual: true } });
     if (!ausencia) {
       res.status(404).json({ error: 'Marca no encontrada' });
       return;
     }
 
-    const isOwner = planilla.usuarioId === actorId;
-    const isManager = !isOwner && actorNivel >= LEVEL_SUPERVISOR && await canManageUser(actorId, actorNivel, planilla.usuarioId, req.user!.empresaId);
-    if (!isOwner && !isManager) {
-      res.status(403).json({ error: 'No autorizado' });
-      return;
-    }
-
-    if (isOwner) {
-      if (!ESTADOS_OWNER.includes(planilla.estado)) {
-        res.status(400).json({ error: `No se puede quitar marcas con la planilla en estado ${planilla.estado}` });
-        return;
-      }
-      if (ausencia.estado !== 'PENDIENTE') {
-        res.status(400).json({ error: 'Solo podés quitar marcas sin validar' });
-        return;
-      }
-    }
-
-    if (isManager && !ESTADOS_MANAGER.includes(planilla.estado)) {
-      res.status(400).json({ error: `No se puede rechazar marcas con la planilla en estado ${planilla.estado}` });
-      return;
-    }
-
-    const anio = new Date(ausencia.fechaInicio).getFullYear();
-
     try {
       await prisma.$transaction(async (tx) => {
-        // Des-inyectar: eliminar el/los registro(s) del día ligados a la marca (mientras el link existe)
+        // Des-inyectar mientras el link todavía existe.
         await tx.registroHoras.deleteMany({ where: { planillaId, marcaManualId: ausenciaId } });
-        // Dueño: elimina la fila. Superior: la deja RECHAZADA para traza.
-        if (isOwner) {
-          const { count } = await tx.ausencia.deleteMany({ where: { id: ausenciaId, estado: 'PENDIENTE' } });
-          if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
-          if (ausencia.tipo === 'FRANCO_COMPENSATORIO') {
-            await tx.vacacionSaldo.update({ where: { usuarioId_anio: { usuarioId: ausencia.usuarioId, anio } }, data: { compensatoriosPendientes: { decrement: 1 } } });
-          }
-        } else {
-          const { count } = await tx.ausencia.updateMany({
-            where: { id: ausenciaId, estado: ausencia.estado },
-            data: { estado: 'RECHAZADA', aprobada: false, obsRechazo: (req.body?.motivo as string) ?? 'Marca rechazada' },
-          });
-          if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
-          if (ausencia.tipo === 'FRANCO_COMPENSATORIO') {
-            if (ausencia.estado === 'APROBADA') {
-              await tx.vacacionSaldo.update({ where: { usuarioId_anio: { usuarioId: ausencia.usuarioId, anio } }, data: { compensatoriosUsados: { decrement: 1 } } });
-            } else if (ausencia.estado === 'PENDIENTE') {
-              await tx.vacacionSaldo.update({ where: { usuarioId_anio: { usuarioId: ausencia.usuarioId, anio } }, data: { compensatoriosPendientes: { decrement: 1 } } });
-            }
-          }
-          await tx.ausenciaHistorial.create({
-            data: { ausenciaId, usuarioId: actorId, estadoAnterior: ausencia.estado, estadoNuevo: 'RECHAZADA', comentario: (req.body?.motivo as string) ?? 'Marca manual rechazada' },
-          });
-        }
+        await devolverSaldoDeMarca(tx, ausencia);
+        await tx.ausenciaHistorial.deleteMany({ where: { ausenciaId } });
+        const { count } = await tx.ausencia.deleteMany({ where: { id: ausenciaId } });
+        if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
       });
-    } catch (err: any) {
-      if (err?.message === 'CONCURRENT_MODIFICATION') {
+    } catch (err: unknown) {
+      if ((err as Error)?.message === 'CONCURRENT_MODIFICATION') {
         res.status(409).json({ error: 'La marca fue modificada simultáneamente. Recargá la página.' });
         return;
       }
       throw err;
     }
 
-    await recalcularTotalesPlanilla(planillaId);
-    await logAuditoria({ entidad: 'Ausencia', entidadId: ausenciaId, accion: isOwner ? 'ELIMINAR' : 'EDITAR', descripcion: isOwner ? 'Marca manual quitada por el dueño' : 'Marca manual rechazada', usuarioId: actorId });
+    // Recién ahora: el filesystem no participa del rollback.
+    borrarAdjuntosDeMarcas([ausencia.archivoUrl]);
 
-    if (isOwner) {
-      res.status(204).send();
-    } else {
-      const updated = await prisma.ausencia.findUnique({ where: { id: ausenciaId } });
-      res.json(updated);
-    }
+    await recalcularTotalesPlanilla(planillaId);
+    await logAuditoria({
+      entidad: 'Ausencia', entidadId: ausenciaId, accion: 'ELIMINAR',
+      descripcion: 'Marca manual quitada por el dueño (solicitud cancelada)', usuarioId: actorId,
+    });
+
+    res.status(204).send();
   } catch (error) {
-    console.error('Error quitando/rechazando marca:', error);
+    console.error('Error quitando marca:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });

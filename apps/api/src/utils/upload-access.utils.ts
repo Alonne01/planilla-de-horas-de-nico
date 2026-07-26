@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { canManageUser } from './user-scope.utils.js';
+import { getFlowVisibleUserIds } from './visibility.utils.js';
 import { LEVEL_COORDINADOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 
 const prisma = new PrismaClient();
@@ -158,12 +158,18 @@ export async function puedeVerUpload(url: string, actor: ActorUpload): Promise<b
     case 'publico-empresa':
       return true;
 
-    case 'ausencia':
-      // Igual que GET /ausencias/:id: el titular o quien lo gestiona.
-      return (
-        dueno.usuarioId === actor.userId ||
-        (await canManageUser(actor.userId, actor.rolNivel, dueno.usuarioId, actor.empresaId))
+    case 'ausencia': {
+      // El titular siempre. Para el resto rige lo mismo que para la planilla: hace
+      // falta que el dueño le quede visible por nivel. Con `canManageUser` alcanzaba
+      // con ser nivel >= 70 del mismo sector, así que un par podía abrir el
+      // certificado médico de otro par por URL directa aunque no viera su planilla.
+      if (dueno.usuarioId === actor.userId) return true;
+      if (actor.rolNivel >= LEVEL_RRHH) return true;
+      const visibles = await getFlowVisibleUserIds(
+        prisma, actor.userId, actor.empresaId, actor.rol, actor.rolNivel, 'AUSENCIA',
       );
+      return visibles.includes(dueno.usuarioId);
+    }
 
     case 'capacitacion':
       // GET /capacitaciones/registros pide COORDINADOR; el propio legajo siempre.
