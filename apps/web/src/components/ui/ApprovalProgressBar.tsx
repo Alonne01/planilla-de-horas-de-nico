@@ -1,15 +1,12 @@
 import { cn } from '@/lib/utils';
+import type { PasoRecorrido } from '@/utils/circuito';
 
-export interface PasoAprobacion {
-  orden: number;
-  nombrePaso: string;
-  rolAprobador: string;
-  completado: boolean;
-  actual: boolean;
-  aprobadoPor?: { nombre: string; apellido: string } | null;
-  fecha?: string | null;
-  comentario?: string | null;
-}
+/**
+ * La barra dibuja el recorrido reconstruido. El tipo vive en `utils/circuito.ts`,
+ * al lado de la función que lo arma y del criterio del back que replica: dos
+ * formas del mismo paso se separan en el primer campo que se agregue.
+ */
+export type PasoAprobacion = PasoRecorrido;
 
 export default function ApprovalProgressBar({
   pasos,
@@ -88,33 +85,4 @@ export default function ApprovalProgressBar({
       </div>
     </div>
   );
-}
-
-/** Client-side equivalent of the backend's enriquecerPasos */
-export function enriquecerPasos(
-  pasosFlujo: Array<{ orden: number; nombrePaso: string; rolAprobador: string }>,
-  pasoActual: number,
-  historial: Array<{
-    pasoFlujo: number | null;
-    estadoNuevo: string;
-    comentario: string | null;
-    createdAt: string;
-    usuario: { nombre: string; apellido: string };
-  }>,
-): PasoAprobacion[] {
-  return pasosFlujo.map((paso) => {
-    const entry = historial.find(
-      (h) => h.pasoFlujo === paso.orden + 1 && h.estadoNuevo !== 'RECHAZADA',
-    );
-    return {
-      orden: paso.orden,
-      nombrePaso: paso.nombrePaso,
-      rolAprobador: paso.rolAprobador,
-      completado: paso.orden < pasoActual,
-      actual: paso.orden === pasoActual,
-      aprobadoPor: entry ? { nombre: entry.usuario.nombre, apellido: entry.usuario.apellido } : null,
-      fecha: entry ? entry.createdAt : null,
-      comentario: entry?.comentario ?? null,
-    };
-  });
 }

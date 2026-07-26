@@ -1,10 +1,10 @@
 import assert from 'node:assert';
-import { circuitoPara, type PasoConNivel } from './circuito.js';
+import { circuitoPara, pasosDe, pasoActualDe, type PasoConNivel, type PasoDocumento } from './circuito.js';
 
 /**
  * Los mismos casos que `apps/api/tests/circuito.test.ts`. Si esta suite y la del
- * back dejan de coincidir, la vista previa del panel de flujos le está mintiendo
- * al admin sobre el circuito que va a quedar congelado en el documento.
+ * back dejan de coincidir, el front le está mintiendo al usuario sobre el
+ * circuito que quedó congelado en el documento.
  */
 
 /** La cadena del spec: Supervisor → Coordinador → Gerente → RRHH. */
@@ -106,7 +106,57 @@ async function run() {
       ['SUPERVISOR', 'COORDINADOR', 'GERENTE', 'RRHH'],
     );
   }
-  console.log('✓ circuito (vista previa): 14/14 OK');
+
+  // ── pasosDe / pasoActualDe: qué pasos rigen un documento ──
+
+  /** La cadena viva, con los datos que la pantalla necesita de cada paso. */
+  const VIVOS: PasoDocumento[] = [
+    { orden: 1, nombrePaso: 'Revisión Supervisor', rolAprobador: 'SUPERVISOR' },
+    { orden: 2, nombrePaso: 'Aprobación Coordinador', rolAprobador: 'COORDINADOR' },
+    { orden: 3, nombrePaso: 'Visto Gerente', rolAprobador: 'GERENTE' },
+    { orden: 4, nombrePaso: 'Cierre RRHH', rolAprobador: 'RRHH' },
+  ];
+
+  // 15. El snapshot manda sobre el flujo vivo
+  {
+    const doc = { circuitoSnapshot: [{ ...VIVOS[3], orden: 1 }], flujo: { pasos: VIVOS } };
+    assert.deepStrictEqual(pasosDe(doc).map((p) => p.rolAprobador), ['RRHH'], 'el snapshot manda');
+  }
+  // 16. Sin snapshot cae al flujo vivo (documentos anteriores al congelado)
+  {
+    const doc = { circuitoSnapshot: null, flujo: { pasos: VIVOS } };
+    assert.strictEqual(pasosDe(doc).length, 4);
+  }
+  // 17. Un snapshot VACÍO es un hecho del documento ("se envió sin circuito"),
+  //     no un documento viejo: no puede caer al flujo vivo
+  {
+    const doc = { circuitoSnapshot: [], flujo: { pasos: VIVOS } };
+    assert.deepStrictEqual(pasosDe(doc), [], 'el [] del snapshot no es un fallback');
+  }
+  // 18. Sin snapshot ni flujo devuelve vacío, no explota
+  {
+    assert.deepStrictEqual(pasosDe({ circuitoSnapshot: null, flujo: null }), []);
+    assert.deepStrictEqual(pasosDe({ circuitoSnapshot: undefined }), []);
+  }
+  // 19. Los pasos vivos llegan desordenados: `pasoActual` indexa por `orden`
+  {
+    const doc = { circuitoSnapshot: null, flujo: { pasos: [VIVOS[2], VIVOS[0], VIVOS[3], VIVOS[1]] } };
+    assert.deepStrictEqual(pasosDe(doc).map((p) => p.orden), [1, 2, 3, 4]);
+  }
+  // 20. pasoActualDe indexa el SNAPSHOT: con el circuito acortado, el paso 1 es
+  //     RRHH y no el supervisor de la cadena configurada. De esto depende que el
+  //     botón de aprobar aparezca o no.
+  {
+    const doc = { circuitoSnapshot: [{ ...VIVOS[3], orden: 1 }], flujo: { pasos: VIVOS }, pasoActual: 1 };
+    assert.strictEqual(pasoActualDe(doc)?.rolAprobador, 'RRHH');
+  }
+  // 21. pasoActualDe devuelve null si el paso quedó fuera de rango (p. ej. un
+  //     documento rechazado, que vuelve a pasoActual 0)
+  {
+    const doc = { circuitoSnapshot: [{ ...VIVOS[3], orden: 1 }], flujo: null, pasoActual: 0 };
+    assert.strictEqual(pasoActualDe(doc), null);
+  }
+  console.log('✓ circuito: 21/21 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

@@ -5,8 +5,10 @@ import { cn } from '@/lib/utils';
 import { mensajeDeError } from '@/lib/errores';
 import { useAuthStore } from '@/stores/authStore';
 import { useCanApprove } from '@/hooks/useCanApprove';
-import ApprovalProgressBar, { enriquecerPasos } from '@/components/ui/ApprovalProgressBar';
+import ApprovalProgressBar from '@/components/ui/ApprovalProgressBar';
 import type { PasoAprobacion } from '@/components/ui/ApprovalProgressBar';
+import { enriquecerPasos, pasosDe, type FirmaHistorial, type PasoDocumento } from '@/utils/circuito';
+import { avisarSinCircuito } from '@/lib/avisoCircuito';
 import {
   Palmtree, Plus, Send, XCircle,
   Loader2, X, Calendar, ChevronLeft, ChevronRight, Filter, UserCheck, Clock,
@@ -54,17 +56,13 @@ const ESTADO_STYLES: Record<string, string> = {
 
 interface VacacionDetail {
   pasoActual: number;
+  /** El circuito congelado al enviar; JSON crudo, lo interpreta `pasosDe`. */
+  circuitoSnapshot: unknown;
   flujo?: {
     nombre: string;
-    pasos: Array<{ orden: number; nombrePaso: string; rolAprobador: string }>;
+    pasos: PasoDocumento[];
   } | null;
-  historial: Array<{
-    pasoFlujo: number | null;
-    estadoNuevo: string;
-    comentario: string | null;
-    createdAt: string;
-    usuario: { nombre: string; apellido: string };
-  }>;
+  historial: FirmaHistorial[];
 }
 
 function VacacionCard({
@@ -85,10 +83,12 @@ function VacacionCard({
     staleTime: 60_000,
   });
 
-  const pasos: PasoAprobacion[] =
-    detail?.flujo?.pasos
-      ? enriquecerPasos(detail.flujo.pasos, detail.pasoActual, detail.historial)
-      : [];
+  // El recorrido sale del circuito congelado de ESTA solicitud, no de la cadena
+  // configurada hoy: con un circuito acortado por nivel, los pasos vivos muestran
+  // firmas que la solicitud nunca necesitó.
+  const pasos: PasoAprobacion[] = detail
+    ? enriquecerPasos(pasosDe(detail), detail.pasoActual, detail.historial)
+    : [];
 
   const hasBorrador = v.estado === 'BORRADOR';
   const hasFlow = v.estado !== 'BORRADOR';
@@ -248,7 +248,8 @@ export default function VacacionesPage({ embedded = false }: VacacionesPageProps
 
   const enviarMutation = useMutation({
     mutationFn: (id: string) => api.post(`/vacaciones/${id}/enviar`),
-    onSuccess: () => {
+    onSuccess: (res) => {
+      avisarSinCircuito(res.data);
       queryClient.invalidateQueries({ queryKey: ['vacaciones'] });
       queryClient.invalidateQueries({ queryKey: ['vacaciones-saldo'] });
     },
@@ -459,12 +460,14 @@ function VacacionFormModal({
     setLoading(true);
     setError('');
     try {
-      await api.post('/vacaciones', {
+      // En vacaciones el alta ES el envío: el aviso de "sin circuito" viene acá.
+      const res = await api.post('/vacaciones', {
         fechaInicio: startDate.toISOString(),
         fechaFin: endDate.toISOString(),
         diasHabiles: diasTotales, // backend field, but we send total calendar days
         motivo: motivo || undefined,
       });
+      avisarSinCircuito(res.data);
       onSuccess();
     } catch (err: unknown) {
       setError(mensajeDeError(err).mensaje);

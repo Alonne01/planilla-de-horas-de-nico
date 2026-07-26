@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import api, { getUploadUrl } from '@/services/api';
 import { cn } from '@/lib/utils';
 import { mensajeDeError } from '@/lib/errores';
+import { avisarSinCircuito } from '@/lib/avisoCircuito';
 import { useAuthStore } from '@/stores/authStore';
 import { useCanApprove } from '@/hooks/useCanApprove';
 import CalendarRangePicker from '@/components/layout/CalendarRangePicker';
@@ -143,7 +144,10 @@ export default function AusenciasPage() {
 
   const enviarMutation = useMutation({
     mutationFn: (id: string) => api.post(`/ausencias/${id}/enviar`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ausencias'] }),
+    onSuccess: (res) => {
+      avisarSinCircuito(res.data);
+      queryClient.invalidateQueries({ queryKey: ['ausencias'] });
+    },
   });
 
   const revocarMutation = useMutation({
@@ -698,12 +702,15 @@ function CompensatorioFormModal({
     setLoading(true);
     setError('');
     try {
-      await api.post('/ausencias/compensatorio', {
+      // El pedido de compensatorio nace enviado: si no hay circuito, el aviso
+      // llega en esta misma respuesta.
+      const res = await api.post('/ausencias/compensatorio', {
         fechaInicio: startDate.toISOString(),
         fechaFin: endDate.toISOString(),
         diasAusencia,
         descripcion: descripcion || undefined,
       });
+      avisarSinCircuito(res.data);
       onSuccess();
     } catch (err: unknown) {
       setError(mensajeDeError(err).mensaje);
@@ -835,6 +842,12 @@ function SolicitarAusenciaModal({ onClose, onSuccess }: { onClose: () => void; o
         descripcion: descripcion || undefined,
         numeroCertificado: numeroCertificado || undefined,
       });
+
+      // La solicitud del propio empleado nace enviada: el aviso de "sin circuito"
+      // llega en el alta y no en un /enviar posterior, que acá no existe. Va antes
+      // de subir el archivo porque la ausencia ya existe: si la subida falla, el
+      // aviso sigue siendo cierto.
+      avisarSinCircuito(res.data);
 
       if (archivo && res.data?.id) {
         const fd = new FormData();

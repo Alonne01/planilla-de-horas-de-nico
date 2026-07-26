@@ -17,6 +17,8 @@ import {
   esDiaFranco, buildCalendarDays, buildWeeks, cellStyle,
   type DiagramaInfo,
 } from '@/utils/planillaHelpers';
+import { pasoActualDe, type PasoDocumento } from '@/utils/circuito';
+import { avisarSinCircuito } from '@/lib/avisoCircuito';
 import SuccessOverlay from '@/components/planilla/SuccessOverlay';
 import DrumTimePicker from '@/components/planilla/DrumTimePicker';
 import MiniCard from '@/components/planilla/MiniCard';
@@ -78,9 +80,11 @@ interface PlanillaDetalle {
     sector: { nombre: string } | null;
     diagramas: { diagrama: { nombre: string } }[];
   };
+  /** El circuito congelado al enviar; JSON crudo, lo interpreta `pasoActualDe`. */
+  circuitoSnapshot: unknown;
   flujo?: {
     nombre: string;
-    pasos: { orden: number; rolAprobador: string; nombrePaso: string }[];
+    pasos: PasoDocumento[];
   } | null;
 }
 
@@ -218,7 +222,8 @@ export default function PlanillaDetailPage() {
 
   const enviarMutation = useMutation({
     mutationFn: () => api.post(`/planillas/${id}/enviar`),
-    onSuccess: () => {
+    onSuccess: (res) => {
+      avisarSinCircuito(res.data);
       setDiasFaltantes([]);
       setShowSuccess(true);
       queryClient.invalidateQueries({ queryKey: ['planilla', id] });
@@ -416,8 +421,11 @@ export default function PlanillaDetailPage() {
   const canSend = canEdit && planilla.registros.length > 0;
   const canDelete = isOwner && ['BORRADOR', 'RECHAZADA', 'ENVIADA'].includes(planilla.estado);
   // canApprove: true only if this user's role matches the current approval step,
-  // or RRHH/ADMIN (nivel >= 90) who can approve any step
-  const currentStep = planilla.flujo?.pasos.find(p => p.orden === planilla.pasoActual);
+  // or RRHH/ADMIN (nivel >= 90) who can approve any step.
+  // El paso sale del circuito CONGELADO de esta planilla: leer los pasos vivos
+  // hace aparecer (o desaparecer) el botón de aprobar según una cadena que esta
+  // planilla no recorre, porque el circuito se acorta con el nivel de quien envía.
+  const currentStep = pasoActualDe(planilla);
   const userNivel = user?.rolNivel ?? 0;
   const canApprove = !isOwner &&
     !!currentStep &&

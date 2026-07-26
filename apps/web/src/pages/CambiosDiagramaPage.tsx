@@ -4,6 +4,7 @@ import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/stores/toastStore';
+import { avisarSinCircuito } from '@/lib/avisoCircuito';
 import {
   ArrowLeftRight, Plus, Loader2, X, Check, XCircle,
   ChevronRight, CheckCircle2, AlertTriangle,
@@ -111,7 +112,10 @@ export default function CambiosDiagramaPage() {
   const createMutation = useMutation({
     mutationFn: (data: { usuarioId: string; diagramaNuevoId: string; motivo?: string }) =>
       api.post('/cambios-diagrama', data),
-    onSuccess: () => {
+    onSuccess: (res) => {
+      // El alta ES el envío: si el sector del empleado no tiene circuito, el
+      // servidor lo avisa acá y hay que decírselo a quien la creó.
+      avisarSinCircuito(res.data);
       qc.invalidateQueries({ queryKey: ['cambios-diagrama'] });
       qc.invalidateQueries({ queryKey: ['cambios-diagrama-pendientes'] });
       setShowForm(false);
