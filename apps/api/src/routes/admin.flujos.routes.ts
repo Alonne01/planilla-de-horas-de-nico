@@ -58,6 +58,18 @@ const createAsignacionSchema = z.object({
   usuarioId: z.string().uuid().optional().nullable(),
 });
 
+/**
+ * Fija de una sola vez qué flujo rige un alcance. `flujoId: null` significa que
+ * el alcance deja de tener flujo propio (pasa a heredar el global, o a quedarse
+ * sin circuito si tampoco hay global).
+ */
+const setAsignacionSchema = z.object({
+  tipoDocumento: z.enum(TIPOS_DOCUMENTO),
+  sectorId: z.string().uuid().optional().nullable(),
+  usuarioId: z.string().uuid().optional().nullable(),
+  flujoId: z.string().uuid().nullable(),
+});
+
 // ─── Helpers ─────────────────────────────────────
 
 /** Choque contra un índice único de Postgres (asignación repetida, orden repetido). */
@@ -135,6 +147,44 @@ function alcanceDe(a: {
   if (a.usuario) return `${a.usuario.nombre} ${a.usuario.apellido}`;
   if (a.sector) return a.sector.nombre;
   return 'global';
+}
+
+/**
+ * Comprueba que el alcance de una asignación sea de la empresa del admin.
+ *
+ * El flujo ya se validaba contra `empresaId`, pero el sector y el usuario no se
+ * miraban nunca: un admin podía asignarle su flujo a un sector de otra empresa y
+ * ocuparle el lugar, porque el índice único de la base solo mira
+ * (tipo_documento, sector_id) y no sabe de empresas.
+ *
+ * Devuelve el mensaje de error, o null si el alcance es válido.
+ */
+async function errorDeAlcance(
+  empresaId: string,
+  sectorId: string | null,
+  usuarioId: string | null,
+): Promise<string | null> {
+  if (sectorId) {
+    const sector = await prisma.sector.findFirst({ where: { id: sectorId, empresaId }, select: { id: true } });
+    if (!sector) return 'El sector indicado no existe en esta empresa.';
+  }
+  if (usuarioId) {
+    const usuario = await prisma.usuario.findFirst({ where: { id: usuarioId, empresaId }, select: { id: true } });
+    if (!usuario) return 'El usuario indicado no existe en esta empresa.';
+  }
+  return null;
+}
+
+/**
+ * El WHERE que identifica un alcance: tipo de documento + sector + usuario.
+ *
+ * Siempre acota por empresa. Para el alcance global (sector y usuario en NULL)
+ * es imprescindible — sin eso el filtro alcanzaría al global de todas las
+ * empresas —, y para los otros dos no molesta: la columna está denormalizada y
+ * siempre coincide con la del flujo.
+ */
+function whereAlcance(empresaId: string, tipoDocumento: string, sectorId: string | null, usuarioId: string | null) {
+  return { empresaId, tipoDocumento, sectorId, usuarioId };
 }
 
 // ─── GET /admin/flujos ───────────────────────────
@@ -566,6 +616,12 @@ router.post('/asignaciones', async (req: AuthRequest, res: Response): Promise<vo
     const sectorId = parsed.data.sectorId ?? null;
     const usuarioId = parsed.data.usuarioId ?? null;
 
+    const problema = await errorDeAlcance(empresaId, sectorId, usuarioId);
+    if (problema) {
+      res.status(400).json({ error: problema });
+      return;
+    }
+
     // Un alcance = un flujo por tipo de documento. El WHERE NO incluye flujoId
     // a propósito: lo que hay que impedir es que dos flujos distintos se peleen
     // el mismo alcance, no solo repetir el mismo flujo.
@@ -573,17 +629,8 @@ router.post('/asignaciones', async (req: AuthRequest, res: Response): Promise<vo
     // Tampoco filtra por `activo`: los índices únicos de la base no lo miran, y
     // una asignación desactivada ocupa el lugar igual. Si filtráramos, el insert
     // pasaría la guarda y explotaría con un P2002 crudo.
-    // La asignación global se acota por empresa (así lo hace su índice único);
-    // las de sector y usuario no hace falta, porque el sector y el usuario ya
-    // pertenecen a una sola empresa.
-    const esGlobal = sectorId === null && usuarioId === null;
     const ocupado = await prisma.flujoAsignacion.findFirst({
-      where: {
-        tipoDocumento: parsed.data.tipoDocumento,
-        sectorId,
-        usuarioId,
-        ...(esGlobal ? { empresaId } : {}),
-      },
+      where: whereAlcance(empresaId, parsed.data.tipoDocumento, sectorId, usuarioId),
       include: { flujo: { select: { nombre: true } } },
     });
     if (ocupado) {
@@ -629,6 +676,125 @@ router.post('/asignaciones', async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
     console.error('Error creating asignacion:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── PUT /admin/flujos/asignaciones/alcance ──────
+
+/**
+ * Fija en un solo paso qué flujo rige un alcance, sin pedirle a quien llama que
+ * borre primero la asignación anterior.
+ *
+ * La ruta lleva dos segmentos a propósito: `PUT /:id` (editar un flujo) está
+ * declarada antes y se comería un `PUT /asignaciones` de un solo segmento,
+ * tomando "asignaciones" como el id del flujo. Es el mismo motivo por el que
+ * listar asignaciones es `GET /asignaciones/list`.
+ */
+router.put('/asignaciones/alcance', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const parsed = setAsignacionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+
+    const empresaId = req.user!.empresaId;
+    const { tipoDocumento, flujoId } = parsed.data;
+    const sectorId = parsed.data.sectorId ?? null;
+    const usuarioId = parsed.data.usuarioId ?? null;
+
+    const problema = await errorDeAlcance(empresaId, sectorId, usuarioId);
+    if (problema) {
+      res.status(400).json({ error: problema });
+      return;
+    }
+
+    // Sin esta validación se podría dejar un alcance apuntando a un flujo de
+    // otra empresa, o a uno de otro tipo que `resolverFlujo` nunca elegiría.
+    let flujo: { id: string; nombre: string; tipoDocumento: string } | null = null;
+    if (flujoId) {
+      flujo = await prisma.flujoAprobacion.findFirst({
+        where: { id: flujoId, empresaId },
+        select: { id: true, nombre: true, tipoDocumento: true },
+      });
+      if (!flujo) {
+        res.status(404).json({ error: 'Flujo no encontrado' });
+        return;
+      }
+      if (flujo.tipoDocumento !== tipoDocumento) {
+        res.status(400).json({
+          error: `El flujo "${flujo.nombre}" es de tipo ${flujo.tipoDocumento} y lo estás asignando a ${tipoDocumento}. Tienen que coincidir.`,
+        });
+        return;
+      }
+    }
+
+    const where = whereAlcance(empresaId, tipoDocumento, sectorId, usuarioId);
+
+    // Quién ocupaba el lugar, para la auditoría: hay que leerlo antes de
+    // borrarlo. Trae sector y usuario porque, cuando el alcance se vacía, es lo
+    // único que queda para nombrarlo.
+    const anterior = await prisma.flujoAsignacion.findFirst({
+      where,
+      include: {
+        flujo: { select: { nombre: true } },
+        sector: { select: { nombre: true } },
+        usuario: { select: { nombre: true, apellido: true } },
+      },
+    });
+
+    // Borrar y crear van juntos: si quedaran en dos pedidos, entre uno y otro el
+    // alcance se queda sin flujo y todo documento enviado en esa ventana nace
+    // sin circuito.
+    const asignacion = await prisma.$transaction(async (tx) => {
+      await tx.flujoAsignacion.deleteMany({ where });
+      if (!flujo) return null;
+      return tx.flujoAsignacion.create({
+        data: {
+          // Denormalizado del flujo, igual que en el alta: la columna existe para
+          // acotar por empresa el índice único de la asignación global.
+          empresaId,
+          flujoId: flujo.id,
+          tipoDocumento,
+          sectorId,
+          usuarioId,
+        },
+        include: {
+          flujo: { select: { nombre: true, tipoDocumento: true } },
+          sector: { select: { id: true, nombre: true } },
+          usuario: { select: { id: true, nombre: true, apellido: true } },
+        },
+      });
+    });
+
+    // Quitarle el flujo a un alcance que no lo tenía no cambió nada: no hay
+    // nada que auditar y tampoco una entidad a la que colgar el registro.
+    const referencia = asignacion ?? anterior;
+    if (referencia) {
+      // El alcance se describe con lo que quedó; si se vació, con lo que había.
+      const etiqueta = alcanceDe(referencia);
+      const desde = anterior ? ` (antes: "${anterior.flujo.nombre}")` : '';
+      await logAuditoria({
+        entidad: 'FlujoAsignacion',
+        entidadId: referencia.id,
+        accion: asignacion ? (anterior ? 'EDITAR' : 'CREAR') : 'ELIMINAR',
+        descripcion: asignacion
+          ? `El flujo "${flujo!.nombre}" pasa a regir ${tipoDocumento} para: ${etiqueta}${desde}`
+          : `${tipoDocumento} deja de tener flujo propio para: ${etiqueta}${desde}`,
+        usuarioId: req.user!.userId,
+      }).catch(() => { /* la auditoría no puede tumbar la respuesta */ });
+    }
+
+    res.json({ asignacion });
+  } catch (error) {
+    if (esConflictoUnico(error)) {
+      res.status(409).json({
+        error: 'Otro cambio ocupó ese alcance al mismo tiempo. Recargá y volvé a intentar.',
+      });
+      return;
+    }
+    console.error('Error setting asignacion:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
