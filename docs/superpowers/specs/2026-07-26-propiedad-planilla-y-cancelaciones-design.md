@@ -33,6 +33,31 @@ está mal, lo rechazan y lo corrige el dueño.
 Una planilla enviada está congelada: no la toca ni el dueño. Vuelve a ser editable
 cuando la cadena la rechaza, o cuando el dueño la cancela antes de la primera firma.
 
+## Parte 0 — El plan B nace apagado
+
+El plan B se implementa completo pero **queda oculto**. La intención es que la gente se
+acostumbre primero a pedir y aprobar por el circuito formal; la marca manual es la vía de
+escape para cuando eso ya funciona y alguien igual se olvidó.
+
+Se apaga con un flag por empresa, no borrando código ni comentando la UI: así se enciende
+sin un deploy cuando decidan que es el momento.
+
+- Nueva columna `marcaManualActiva Boolean @default(false)` en `EmpresaConfig`. Sigue el
+  patrón de las `modulo*Activo` que ya están en el schema (hoy sin uso).
+- Nuevo `GET /config/modulos`, para cualquier usuario autenticado, que devuelve los flags
+  que el front necesita. `/admin/config` es ADMIN-only y no sirve para esto.
+- `POST /planillas/:id/marcar-dia` responde 403 si el flag está apagado. La guarda va en
+  el backend además de en el front: esconder el botón no es apagar la función.
+- En `PlanillaDetailPage.tsx`, el bloque "Marcar día especial" no se renderiza con el flag
+  apagado.
+- Toggle en `ConfigPage.tsx` y el campo en el schema de `PUT /admin/config`.
+
+**Lo que NO se apaga:** borrar marcas, verlas, y que se aprueben junto con la planilla.
+Si quedaran marcas de las pruebas, tienen que poder limpiarse y no deben trabar nada.
+
+El resto de este documento (cancelación de solicitudes, visibilidad por nivel, adjuntos en
+solicitudes formales) **no depende del flag** y entra activo.
+
 ## Parte 1 — Marcas manuales (plan B)
 
 ### Modelo
@@ -158,9 +183,18 @@ en el futuro aparece un circuito de un solo paso que no cambie a `EN_REVISION`.
 - **Planilla** → vuelve a `BORRADOR`: `pasoActual: 0`, `enviadaAt: null`, `circuitoSnapshot: null`,
   fila en `PlanillaHistorial`. Los registros y las marcas se conservan tal cual. El dueño
   corrige y reenvía.
-- **Ausencia** → `CANCELADA`. Se liberan los días bloqueados que había inyectado y se
-  devuelve el saldo compensatorio si era del tipo que reserva.
-- **Vacacion** → `CANCELADA`. Se liberan los días bloqueados y se devuelven los días al saldo.
+- **Ausencia** → `CANCELADA`, y se devuelve el saldo compensatorio reservado
+  (`compensatoriosPendientes--`) si era del tipo que reserva.
+- **Vacacion** → `CANCELADA`, y se devuelven los días reservados (`diasPendientes--`).
+
+No hace falta liberar días bloqueados en ningún caso: `inyectarDiasBloqueados` corre **al
+aprobar**, y acá solo se cancelan solicitudes que nadie firmó. La `Vacacion` toma el año
+del saldo de `createdAt`, igual que el `DELETE` que ya existe, para no descontar de un año
+distinto del que reservó.
+
+El `DELETE /vacaciones/:id` que ya existe **no se toca**: borra físicamente y es otra cosa
+(sacar el registro de la vista). Cancelar deja la traza en `CANCELADA`, que es lo que el
+dueño quiere ver en Mis Solicitudes.
 - **SolicitudCambioDiagrama** → se reusa la lógica del `DELETE` que ya existe en
   `cambios-diagrama.routes.ts` (borrado físico), llamada desde el nuevo endpoint. La ruta
   vieja queda como alias para no romper el front actual.
@@ -172,8 +206,9 @@ aprobar desde la bandeja. Pasan a mostrarse como parte de la planilla que las co
 
 ### Migración
 
-Se agrega `CANCELADA` a los enums `AusenciaEstado` y `VacacionEstado`. Sin backfill: las
-filas viejas de `revocar` quedan como `RECHAZADA` con su `obsRechazo`.
+Se agrega `CANCELADA` a los enums `AusenciaEstado` y `VacacionEstado`, y la columna
+`marcaManualActiva` a `EmpresaConfig`. Sin backfill: las filas viejas de `revocar` quedan
+como `RECHAZADA` con su `obsRechazo`.
 
 `POST /ausencias/:id/revocar` **se conserva con su semántica propia** y no se pliega
 sobre el nuevo endpoint: revocar actúa sobre un compensatorio ya `APROBADA` cuya fecha
@@ -243,7 +278,12 @@ Admin → Flujos, no abrirle la visibilidad a todo el sector.
 
 Suites nuevas en `apps/api/tests/`:
 
-**Marcas manuales**
+**Flag del plan B**
+- Con el flag apagado, `POST /marcar-dia` → 403 aunque sea el dueño con la planilla en borrador.
+- Con el flag apagado, borrar una marca preexistente sigue funcionando.
+- Con el flag encendido, marcar funciona normalmente.
+
+**Marcas manuales** (con el flag encendido)
 - El dueño borra una marca `APROBADA` → se va la `Ausencia`, se va el `RegistroHoras`, vuelve el saldo.
 - Un supervisor no puede marcar ni borrar en planilla ajena (403), tampoco RRHH ni ADMIN.
 - Marcar o borrar con la planilla `ENVIADA`/`EN_REVISION`/`APROBADA` → 400.
