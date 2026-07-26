@@ -1,14 +1,16 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { mensajeDeError } from '@/lib/errores';
+import { circuitoPara } from '@/utils/circuito';
 import {
   GitBranch, Plus, Trash2, Loader2, X,
   Users, FileText, Pencil, ChevronUp, ChevronDown,
-  Link2, MessageSquare, Clock,
+  Link2, MessageSquare, Clock, ArrowRight,
 } from 'lucide-react';
 import { useDialogStore } from '@/stores/dialogStore';
+import { toast } from '@/stores/toastStore';
 
 interface FlujoPaso {
   id: string;
@@ -53,6 +55,38 @@ interface Rol {
   nombre: string;
   color: string;
   activo: boolean;
+  /** Jerarquía del rol. Es lo que decide qué pasos se saltea quien envía. */
+  nivel: number;
+}
+
+// Los cinco tipos de documento que pasan por un circuito. Es la misma lista que
+// `TIPOS_DOCUMENTO` de apps/api/src/routes/admin.flujos.routes.ts: si acá falta
+// uno, el admin que borre ese flujo no tiene forma de recrearlo. CAMBIO_DIAGRAMA
+// faltaba, aunque el back ya lo aceptaba.
+const TIPOS_DOCUMENTO: { valor: string; label: string; color: string }[] = [
+  { valor: 'PLANILLA', label: 'Planilla', color: 'bg-blue-500/20 text-blue-400' },
+  { valor: 'VACACION', label: 'Vacación', color: 'bg-emerald-500/20 text-emerald-400' },
+  { valor: 'AUSENCIA', label: 'Ausencia', color: 'bg-amber-500/20 text-amber-400' },
+  { valor: 'COMPENSATORIO', label: 'Compensatorio', color: 'bg-purple-500/20 text-purple-400' },
+  { valor: 'CAMBIO_DIAGRAMA', label: 'Cambio de diagrama', color: 'bg-cyan-500/20 text-cyan-400' },
+];
+
+const COLOR_TIPO_DOC: Record<string, string> = Object.fromEntries(
+  TIPOS_DOCUMENTO.map((t) => [t.valor, t.color]),
+);
+
+/**
+ * El código HTTP de un error de axios, o undefined si nunca hubo respuesta.
+ * Se lee con un cast como en `mensajeDeError`, para no arrastrar axios hasta
+ * una pantalla que solo habla con el wrapper de `@/services/api`.
+ */
+function estadoHttp(err: unknown): number | undefined {
+  return (err as { response?: { status?: number } })?.response?.status;
+}
+
+/** Texto de una opción del selector de alcance, avisando si ya está tomado. */
+function etiquetaAlcance(nombre: string, flujoQueLoOcupa: string | undefined): string {
+  return flujoQueLoOcupa ? `${nombre} — ocupado por «${flujoQueLoOcupa}»` : nombre;
 }
 
 // Respaldo de presentación: solo se usa si un paso ya guardado referencia un
@@ -316,10 +350,9 @@ function CreateFlujoModal({ roles, onClose, onSuccess }: { roles: Rol[]; onClose
             <div>
               <label className="text-xs font-medium text-muted-foreground">Tipo documento *</label>
               <select className={inputClass} value={tipoDocumento} onChange={(e) => setTipoDocumento(e.target.value)}>
-                <option value="PLANILLA">Planilla</option>
-                <option value="VACACION">Vacación</option>
-                <option value="AUSENCIA">Ausencia</option>
-                <option value="COMPENSATORIO">Compensatorio</option>
+                {TIPOS_DOCUMENTO.map((t) => (
+                  <option key={t.valor} value={t.valor}>{t.label}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -555,11 +588,60 @@ export default function FlujosPage() {
     queryFn: async () => (await api.get('/admin/flujos/asignaciones/list')).data,
   });
 
+  // Los niveles con los que el back arma el circuito. `nivelesPorRol` del
+  // servidor SOLO manda roles activos: un rol desactivado no tiene nivel con el
+  // que comparar y `circuitoPara` lo trata como huérfano. Si acá incluyéramos
+  // los inactivos, la vista previa mostraría un circuito que el back no arma.
+  const nivelPorRol = useMemo(
+    () => Object.fromEntries(roles.filter((r) => r.activo).map((r) => [r.codigo, r.nivel])),
+    [roles],
+  );
+
+  // Una fila de vista previa por rol activo, de menor a mayor nivel: así se lee
+  // de arriba hacia abajo cómo se va acortando el circuito.
+  const rolesPorNivel = useMemo(
+    () => [...roles.filter((r) => r.activo)].sort((a, b) => a.nivel - b.nivel),
+    [roles],
+  );
+
+  const trasBorrarFlujo = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['admin-flujos'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-flujos-asignaciones'] });
+    selectFlujo(null);
+  }, [queryClient, selectFlujo]);
+
+  // Segundo intento del borrado, con el flag que el back ya soportaba y la UI
+  // no tenía forma de mandar. Va como mutación aparte y no como un parámetro de
+  // `deleteMutation` porque el reintento se dispara desde el `onError` de esa
+  // misma mutación, y referenciarla dentro de su propia definición deja el tipo
+  // inferido en un ciclo.
+  const forzarBorradoMut = useMutation({
+    mutationFn: (id: string) =>
+      api.delete(`/admin/flujos/${id}`, { params: { forzarDesasignacion: 'true' } }),
+    onSuccess: trasBorrarFlujo,
+    onError: (err) => {
+      toast({ title: 'No se pudo borrar el flujo', description: mensajeDeError(err).mensaje, variant: 'destructive' });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/admin/flujos/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-flujos'] });
-      selectFlujo(null);
+    onSuccess: trasBorrarFlujo,
+    onError: async (err, id) => {
+      // El 409 del borrado no es un fallo: es una pregunta. El back enumera los
+      // alcances asignados y los documentos en curso que quedarían trabados, y
+      // acepta repetir la operación con forzarDesasignacion=true.
+      if (estadoHttp(err) === 409) {
+        const ok = await dialog.confirm({
+          title: 'El flujo está en uso',
+          message: `${mensajeDeError(err).mensaje}\n\n¿Desasignarlo y borrarlo igual?`,
+          confirmLabel: 'Borrar igual',
+          variant: 'danger',
+        });
+        if (ok) forzarBorradoMut.mutate(id);
+        return;
+      }
+      toast({ title: 'No se pudo borrar el flujo', description: mensajeDeError(err).mensaje, variant: 'destructive' });
     },
   });
 
@@ -572,6 +654,11 @@ export default function FlujosPage() {
       setShowAsignForm(false);
       setAsignSectorId('');
     },
+    // Sin esto el 409 ("Ese alcance ya usa el flujo X…") no se veía en ningún
+    // lado: el botón simplemente no hacía nada.
+    onError: (err) => {
+      toast({ title: 'No se pudo asignar el flujo', description: mensajeDeError(err).mensaje, variant: 'destructive' });
+    },
   });
 
   const deleteAsignMut = useMutation({
@@ -580,9 +667,25 @@ export default function FlujosPage() {
       queryClient.invalidateQueries({ queryKey: ['admin-flujos-asignaciones'] });
       queryClient.invalidateQueries({ queryKey: ['admin-flujos'] });
     },
+    onError: (err) => {
+      toast({ title: 'No se pudo quitar la asignación', description: mensajeDeError(err).mensaje, variant: 'destructive' });
+    },
   });
 
   const selected = flujos.find((f) => f.id === selectedId);
+
+  // Qué flujo ocupa ya cada alcance para el tipo del flujo seleccionado. La
+  // clave '' es el alcance global. Solo mira las asignaciones SIN usuario: una
+  // asignación por usuario no bloquea al sector, tiene su propio índice único.
+  const flujoPorAlcance = useMemo(() => {
+    const mapa = new Map<string, string>();
+    if (!selected) return mapa;
+    for (const a of asignaciones) {
+      if (a.tipoDocumento !== selected.tipoDocumento || a.usuarioId) continue;
+      mapa.set(a.sectorId ?? '', a.flujo.nombre);
+    }
+    return mapa;
+  }, [asignaciones, selected]);
 
   return (
     <div className="space-y-6">
@@ -629,15 +732,12 @@ export default function FlujosPage() {
                       <GitBranch className="h-4 w-4 text-primary" />
                       <span className="font-medium text-sm">{f.nombre}</span>
                     </div>
+                    {/* El color sale del mismo mapa que arma el selector: antes era
+                        una cadena de ternarios donde VACACION y CAMBIO_DIAGRAMA
+                        caían en el mismo color y no se distinguían. */}
                     <span className={cn(
                       'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
-                      f.tipoDocumento === 'PLANILLA'
-                        ? 'bg-blue-500/20 text-blue-400'
-                        : f.tipoDocumento === 'AUSENCIA'
-                        ? 'bg-amber-500/20 text-amber-400'
-                        : f.tipoDocumento === 'COMPENSATORIO'
-                        ? 'bg-purple-500/20 text-purple-400'
-                        : 'bg-emerald-500/20 text-emerald-400'
+                      COLOR_TIPO_DOC[f.tipoDocumento] ?? 'bg-muted text-muted-foreground',
                     )}>
                       {f.tipoDocumento}
                     </span>
@@ -722,6 +822,72 @@ export default function FlujosPage() {
                   </div>
                 </div>
 
+                {/* Vista previa del circuito según quién envía */}
+                <div>
+                  <h3 className="text-sm font-medium text-muted-foreground mb-1">
+                    Recorrido real según quién envía
+                  </h3>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Al enviar el documento se saltea todo paso cuyo aprobador tenga un nivel
+                    menor o igual al de quien lo envía, y el circuito queda congelado ahí.
+                    Si no sobrevive ningún paso se conserva el último, para que nunca se
+                    apruebe solo.
+                  </p>
+                  {rolesPorNivel.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic py-2">
+                      No se pudieron cargar los roles: sin sus niveles no se puede calcular el recorrido.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border border-border">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border text-xs text-muted-foreground">
+                            <th className="text-left font-medium px-3 py-2">Si lo envía…</th>
+                            <th className="text-left font-medium px-3 py-2">Nivel</th>
+                            <th className="text-left font-medium px-3 py-2">Tiene que aprobarlo</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rolesPorNivel.map((rol) => {
+                            const recorrido = circuitoPara(selected.pasos, rol.nivel, nivelPorRol);
+                            const salteados = selected.pasos.length - recorrido.length;
+                            return (
+                              <tr key={rol.codigo} className="border-b border-border/50 last:border-0">
+                                <td className="px-3 py-2">
+                                  <span className={cn('text-xs px-2 py-0.5 rounded-full', ROL_COLORS[rol.codigo] ?? 'bg-muted text-muted-foreground')}>
+                                    {rol.nombre}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-xs text-muted-foreground">{rol.nivel}</td>
+                                <td className="px-3 py-2">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {recorrido.map((paso, i) => (
+                                      <span key={paso.id} className="flex items-center gap-1.5">
+                                        {i > 0 && <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />}
+                                        <span
+                                          className={cn('text-xs px-2 py-0.5 rounded-full', ROL_COLORS[paso.rolAprobador] ?? 'bg-muted text-muted-foreground')}
+                                          title={paso.nombrePaso}
+                                        >
+                                          {nombreDeRol(paso.rolAprobador)}
+                                        </span>
+                                      </span>
+                                    ))}
+                                    {salteados > 0 && (
+                                      <span className="text-[10px] text-muted-foreground">
+                                        ({salteados} paso{salteados !== 1 ? 's' : ''} salteado{salteados !== 1 ? 's' : ''})
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-3">
                   <div className="rounded-lg border border-border p-3 text-center">
@@ -767,16 +933,25 @@ export default function FlujosPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="text-xs font-medium text-muted-foreground mb-1 block">Sector</label>
+                          {/* Cada alcance admite un solo flujo por tipo de documento
+                              (índice único en la base). Los que ya están tomados se
+                              marcan acá para que el 409 no sea una sorpresa. */}
                           <select
                             value={asignSectorId}
                             onChange={(e) => setAsignSectorId(e.target.value)}
                             className="w-full h-9 px-3 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                           >
-                            <option value="">Global (todos los sectores)</option>
+                            <option value="">{etiquetaAlcance('Global (todos los sectores)', flujoPorAlcance.get(''))}</option>
                             {sectores.filter(s => s.activo).map(s => (
-                              <option key={s.id} value={s.id}>{s.nombre}</option>
+                              <option key={s.id} value={s.id}>{etiquetaAlcance(s.nombre, flujoPorAlcance.get(s.id))}</option>
                             ))}
                           </select>
+                          {flujoPorAlcance.has(asignSectorId) && (
+                            <p className="text-xs text-amber-500 mt-1">
+                              Ese alcance ya usa «{flujoPorAlcance.get(asignSectorId)}» para {selected.tipoDocumento}.
+                              Quitá esa asignación antes de crear otra.
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-end gap-2">
                           <button

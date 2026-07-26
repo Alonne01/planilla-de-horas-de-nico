@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:unit": "tsx src/utils/periodos.test.ts && tsx src/lib/errores.test.ts"
+    "test:unit": "tsx src/utils/periodos.test.ts && tsx src/lib/errores.test.ts && tsx src/utils/circuito.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
