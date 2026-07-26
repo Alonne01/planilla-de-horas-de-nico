@@ -516,17 +516,21 @@ En `model FlujoPaso`, antes del `@@map`:
   @@unique([flujoId, orden])
 ```
 
-- [ ] **Step 3: Generar la migración**
+- [ ] **Step 3: Generar la migración SIN aplicarla**
 
 ```
-cd apps/api && npx prisma migrate dev --name circuitos_aprobacion
+cd apps/api && npx prisma migrate dev --create-only --name circuitos_aprobacion
 ```
 
-Si falla por datos duplicados, volvé a la Task 3.
+`--create-only` es obligatorio: el Step 4 tiene que editar el `.sql` ANTES de que
+se aplique. Si se aplicara primero, Prisma la deja registrada en
+`_prisma_migrations` y editar el archivo después no vuelve a correr nada —
+los índices parciales nunca llegarían a la base y `migrate dev` encima
+detectaría el archivo modificado como drift.
 
 - [ ] **Step 4: Agregar los índices parciales a mano**
 
-Prisma no expresa índices únicos parciales. Editá el `.sql` que acaba de generar y agregá al final:
+Prisma no expresa índices únicos parciales. Editá el `.sql` recién generado (`prisma/migrations/<timestamp>_circuitos_aprobacion/migration.sql`) y agregá al final:
 
 ```sql
 -- Un solo flujo global por tipo: la restriccion de arriba no lo cubre porque
@@ -541,11 +545,15 @@ CREATE UNIQUE INDEX "flujos_asignaciones_usuario_unico"
   WHERE "usuario_id" IS NOT NULL;
 ```
 
-Y aplicala:
+Y recién ahora aplicala:
 
 ```
 cd apps/api && npx prisma migrate dev
 ```
+
+Si Prisma pide resetear la base, **frená y reportá**: hay datos de prueba
+cargados a mano que no se pueden perder. Un reset no está autorizado.
+Si falla por datos duplicados, volvé a la Task 3.
 
 - [ ] **Step 5: Verificar que la base rechaza un duplicado**
 
@@ -911,10 +919,25 @@ La página ya consulta `/admin/roles` (agregado en un cambio anterior) y tiene `
 Replicar la regla en el front. **No la reimplementes de memoria**: es la misma de `construirCircuito` — saltear los pasos de nivel ≤ al del solicitante, conservar el último si no queda ninguno.
 
 ```tsx
+// Tiene que dar EXACTAMENTE lo mismo que `construirCircuito` del back
+// (apps/api/src/utils/circuito.utils.ts). Ojo con el rol huérfano: un rol sin
+// entrada en `nivelPorRol` NO participa del filtro por nivel y sobrevive
+// siempre. Resolverlo con `?? 0` lo saltearía en cuanto el solicitante tuviera
+// nivel > 0, que es lo contrario de lo que hace el back.
 function circuitoPara(pasos: Paso[], nivelSolicitante: number, nivelPorRol: Record<string, number>) {
   if (pasos.length === 0) return [];
-  const sobreviven = pasos.filter((p) => (nivelPorRol[p.rolAprobador] ?? 0) > nivelSolicitante);
-  return sobreviven.length > 0 ? sobreviven : [pasos[pasos.length - 1]];
+  const enOrden = [...pasos].sort((a, b) => a.orden - b.orden);
+  const conocido = (rol: string) => Object.prototype.hasOwnProperty.call(nivelPorRol, rol);
+
+  const sobrevivenConocidos = enOrden.filter(
+    (p) => conocido(p.rolAprobador) && nivelPorRol[p.rolAprobador] > nivelSolicitante,
+  );
+  const huerfanos = enOrden.filter((p) => !conocido(p.rolAprobador));
+  const garantia = sobrevivenConocidos.length === 0 ? [enOrden[enOrden.length - 1]] : [];
+
+  const porOrden = new Map<number, Paso>();
+  for (const p of [...sobrevivenConocidos, ...huerfanos, ...garantia]) porOrden.set(p.orden, p);
+  return [...porOrden.values()].sort((a, b) => a.orden - b.orden);
 }
 ```
 
