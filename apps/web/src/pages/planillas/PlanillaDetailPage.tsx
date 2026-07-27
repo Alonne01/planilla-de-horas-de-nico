@@ -153,6 +153,9 @@ export default function PlanillaDetailPage() {
   const [showConfirmApproval, setShowConfirmApproval] = useState(false);
   const [approvalChecked, setApprovalChecked] = useState(false);
   const [diasFaltantes, setDiasFaltantes] = useState<string[]>([]);
+  // Cuáles de esos faltantes ya tienen un pedido sin firmar: siguen siendo huecos,
+  // pero el cartel explica por qué se los sigue reclamando.
+  const [diasConPedido, setDiasConPedido] = useState<string[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
   const handleSuccessDone = useCallback(() => setShowSuccess(false), []);
   const [showPeriodPicker, setShowPeriodPicker] = useState(false);
@@ -255,6 +258,7 @@ export default function PlanillaDetailPage() {
     onSuccess: (res) => {
       avisarSinCircuito(res.data);
       setDiasFaltantes([]);
+      setDiasConPedido([]);
       setShowSuccess(true);
       queryClient.invalidateQueries({ queryKey: ['planilla', id] });
       queryClient.invalidateQueries({ queryKey: ['planillas'] });
@@ -263,6 +267,7 @@ export default function PlanillaDetailPage() {
     onError: (err: any) => {
       if (err.response?.status === 400 && err.response?.data?.diasFaltantes) {
         setDiasFaltantes(err.response.data.diasFaltantes);
+        setDiasConPedido(err.response.data.diasConPedidoPendiente ?? []);
       } else {
         toast({ title: 'Error', description: mensajeDeError(err).mensaje, variant: 'destructive' });
       }
@@ -1005,6 +1010,11 @@ export default function PlanillaDetailPage() {
             <p className="text-xs text-muted-foreground mt-1">
               Los días incompletos están marcados en rojo. Completá todos los días del período antes de enviar.
             </p>
+            {diasConPedido.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                {diasConPedido.length} de esos días tienen un pedido en revisión. Hasta que se apruebe, hay que cargarlos igual.
+              </p>
+            )}
           </div>
         </div>
       )}

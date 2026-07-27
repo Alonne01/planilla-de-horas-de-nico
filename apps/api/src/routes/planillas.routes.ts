@@ -494,9 +494,25 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
     }
 
     if (diasFaltantes.length > 0) {
+      // Un día pedido y todavía sin firmar sigue siendo un hueco (la planilla no
+      // sale con huecos), pero conviene decir por qué se lo sigue pidiendo.
+      const pendientes = await prisma.ausencia.findMany({
+        where: {
+          usuarioId: planilla.usuarioId,
+          cargaManual: false,
+          estado: { in: ['PENDIENTE', 'EN_REVISION'] },
+          fechaInicio: { lte: planilla.periodoFin },
+          fechaFin: { gte: planilla.periodoInicio },
+        },
+        select: { fechaInicio: true, fechaFin: true },
+      });
+      const conPedido = diasFaltantes.filter((dia) =>
+        pendientes.some((p) => dia >= claveFecha(p.fechaInicio) && dia <= claveFecha(p.fechaFin))
+      );
       res.status(400).json({
         error: `Faltan completar ${diasFaltantes.length} día(s) en la planilla`,
         diasFaltantes,
+        diasConPedidoPendiente: conPedido,
       });
       return;
     }

@@ -106,6 +106,15 @@ async function run() {
   check(estados.every((e: string) => e === 'PENDIENTE' || e === 'EN_REVISION'),
     'solicitudesPendientes sólo trae PENDIENTE / EN_REVISION');
 
+  // 4. Un día pedido y sin cargar SIGUE contando como faltante al enviar: la
+  //    planilla no sale con huecos. Lo único que cambia es que el error dice
+  //    cuáles de esos huecos ya tienen un pedido en curso.
+  const envio = await fetch(`${BASE}/planillas/${planilla.id}/enviar`, { method: 'POST', headers: auth(op) });
+  const errEnvio = await envio.json();
+  check(envio.status === 400, 'la planilla con huecos no se envía');
+  check((errEnvio.diasFaltantes ?? []).includes(fecha), 'el día con pedido en revisión sigue siendo faltante');
+  check((errEnvio.diasConPedidoPendiente ?? []).includes(fecha), 'el error marca que ese día tiene pedido en revisión');
+
   // limpieza: el retiro del dueño (DELETE /ausencias/:id exige nivel RRHH y le
   // devolvería un 403 al operador, dejando la solicitud viva para la próxima corrida)
   const cancel = await fetch(`${BASE}/mis-solicitudes/ausencia/${solicitud.id}/cancelar`, {
@@ -113,7 +122,7 @@ async function run() {
   });
   check(cancel.ok, 'el operador puede cancelar su propia solicitud');
 
-  // 4. Cancelada, deja de figurar: la marca del calendario se recalcula sola
+  // 5. Cancelada, deja de figurar: la marca del calendario se recalcula sola
   const tras = await (await fetch(`${BASE}/planillas/${planilla.id}`, { headers: auth(op) })).json();
   check(!(tras.solicitudesPendientes ?? []).some((s: any) => s.id === solicitud.id),
     'la solicitud cancelada sale de solicitudesPendientes');
