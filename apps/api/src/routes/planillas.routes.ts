@@ -9,7 +9,7 @@ import { notificarPlanilla, notificarAprobadoresPaso } from '../utils/notificaci
 import { getFlowVisibleUserIds } from '../utils/visibility.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import {
-  calcularHorasRegistro,
+  calcularConContexto,
   getEmpresaConfig,
   recalcularTotalesPlanilla,
   getPeriodoActual,
@@ -17,7 +17,7 @@ import {
 import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { logAuditoria } from '../lib/auditoria.js';
 import { devolverSaldoDeMarca, borrarAdjuntosDeMarcas } from '../utils/marca-manual.utils.js';
-import { contextoDelDia, feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
+import { feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
 import { tramosDeUsuario, esFrancoEnFecha } from '../utils/diagrama-vigencia.utils.js';
 import {
   construirCircuito,
@@ -32,61 +32,6 @@ const prisma = new PrismaClient();
 const router = Router();
 
 router.use(authMiddleware);
-
-/** Campos horarios que comparten el POST y el PUT de un registro. */
-type DatosRegistro = {
-  entradaTurno1?: string | null;
-  salidaTurno1?: string | null;
-  entradaTurno2?: string | null;
-  salidaTurno2?: string | null;
-  lugarTrabajo?: LugarTrabajo | null;
-  esFrancoCompensatorio?: boolean;
-  horasViajeInput?: number;
-  maneja?: boolean;
-};
-
-/**
- * Calcula las horas de un día derivando el contexto en el servidor.
- *
- * `esFeriado` y `esFrancoTrabajado` deciden si la jornada entera se paga al 100%,
- * y antes los mandaba el navegador desde un calendario en localStorage. Ahora
- * salen de la configuración de la empresa y del diagrama del usuario: lo que
- * llegue en el body se ignora.
- *
- * Se calcula dos veces porque `hayTrabajo` depende de las horas y los flags no
- * afectan el total, sólo cómo se reparte entre normales y al 100%.
- */
-async function calcularConContexto(
-  datos: DatosRegistro,
-  fecha: Date,
-  usuarioId: string,
-  empresaId: string,
-  config: Awaited<ReturnType<typeof getEmpresaConfig>>,
-) {
-  const horarios = {
-    entradaTurno1: datos.entradaTurno1 ? new Date(datos.entradaTurno1) : null,
-    salidaTurno1: datos.salidaTurno1 ? new Date(datos.salidaTurno1) : null,
-    entradaTurno2: datos.entradaTurno2 ? new Date(datos.entradaTurno2) : null,
-    salidaTurno2: datos.salidaTurno2 ? new Date(datos.salidaTurno2) : null,
-    lugarTrabajo: datos.lugarTrabajo ?? null,
-    horasViajeInput: datos.horasViajeInput ?? 2,
-    maneja: datos.maneja ?? false,
-  };
-
-  const sinRecargo = calcularHorasRegistro(
-    { ...horarios, esFeriado: false, esFrancoTrabajado: false },
-    config,
-  );
-  // Un compensatorio no es jornada trabajada: no convierte el franco en trabajado.
-  const hayTrabajo = sinRecargo.horasTrabajadas > 0 && !datos.esFrancoCompensatorio;
-
-  const { esFeriado, esFrancoTrabajado } = await contextoDelDia(
-    usuarioId, empresaId, fecha, hayTrabajo,
-  );
-
-  const calculo = calcularHorasRegistro({ ...horarios, esFeriado, esFrancoTrabajado }, config);
-  return { calculo, esFeriado, esFrancoTrabajado };
-}
 
 /** Check if the current user can access a planilla (by fetching the planilla's owner info) */
 async function assertPlanillaAccess(req: AuthRequest, planillaId: string): Promise<boolean> {

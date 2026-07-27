@@ -1,5 +1,6 @@
 import { PrismaClient, LugarTrabajo } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { contextoDelDia } from './contexto-dia.utils.js';
 
 const prisma = new PrismaClient();
 
@@ -199,4 +200,59 @@ export function getPeriodoActual(
   }
 
   return { inicio, fin };
+}
+
+/** Campos horarios que comparten el POST y el PUT de un registro. */
+export type DatosRegistro = {
+  entradaTurno1?: string | null;
+  salidaTurno1?: string | null;
+  entradaTurno2?: string | null;
+  salidaTurno2?: string | null;
+  lugarTrabajo?: LugarTrabajo | null;
+  esFrancoCompensatorio?: boolean;
+  horasViajeInput?: number;
+  maneja?: boolean;
+};
+
+/**
+ * Calcula las horas de un día derivando el contexto en el servidor.
+ *
+ * `esFeriado` y `esFrancoTrabajado` deciden si la jornada entera se paga al 100%,
+ * y antes los mandaba el navegador desde un calendario en localStorage. Ahora
+ * salen de la configuración de la empresa y del diagrama del usuario: lo que
+ * llegue en el body se ignora.
+ *
+ * Se calcula dos veces porque `hayTrabajo` depende de las horas y los flags no
+ * afectan el total, sólo cómo se reparte entre normales y al 100%.
+ */
+export async function calcularConContexto(
+  datos: DatosRegistro,
+  fecha: Date,
+  usuarioId: string,
+  empresaId: string,
+  config: Awaited<ReturnType<typeof getEmpresaConfig>>,
+) {
+  const horarios = {
+    entradaTurno1: datos.entradaTurno1 ? new Date(datos.entradaTurno1) : null,
+    salidaTurno1: datos.salidaTurno1 ? new Date(datos.salidaTurno1) : null,
+    entradaTurno2: datos.entradaTurno2 ? new Date(datos.entradaTurno2) : null,
+    salidaTurno2: datos.salidaTurno2 ? new Date(datos.salidaTurno2) : null,
+    lugarTrabajo: datos.lugarTrabajo ?? null,
+    horasViajeInput: datos.horasViajeInput ?? 2,
+    maneja: datos.maneja ?? false,
+  };
+
+  const sinRecargo = calcularHorasRegistro(
+    { ...horarios, esFeriado: false, esFrancoTrabajado: false },
+    config,
+  );
+  // Un compensatorio no es jornada trabajada: no convierte el franco en trabajado.
+  const hayTrabajo = sinRecargo.horasTrabajadas > 0 && !datos.esFrancoCompensatorio;
+
+  const { esFeriado, esFrancoTrabajado } = await contextoDelDia(
+    usuarioId, empresaId, fecha, hayTrabajo,
+  );
+
+  const calculo = calcularHorasRegistro({ ...horarios, esFeriado, esFrancoTrabajado }, config);
+  return { calculo, esFeriado, esFrancoTrabajado };
 }
