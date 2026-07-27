@@ -4,7 +4,8 @@
  * created to back-fill any previously-approved absences/vacations.
  */
 import { PrismaClient, Prisma } from '@prisma/client';
-import { diaDesdeEntrada, dentroDelRango, rangoConsultaDia } from './fecha-dia.utils.js';
+import { claveFecha, diaDesdeEntrada, dentroDelRango, rangoConsultaDia } from './fecha-dia.utils.js';
+import { recalcularTotalesPlanilla } from './calculo.utils.js';
 
 const { Decimal } = Prisma;
 
@@ -21,13 +22,38 @@ interface AusenciaRange {
   marcaManualId?: string;
 }
 
+/** Estados en los que la planilla todavía se puede tocar. */
+const ESTADOS_EDITABLES = ['BORRADOR', 'RECHAZADA'];
+
+export interface ResultadoInyeccion {
+  /** Claves 'YYYY-MM-DD' que quedaron bloqueadas. */
+  aplicados: string[];
+  /** Días que tenían horas cargadas y fueron reemplazados. */
+  pisados: string[];
+  /** Días que NO se aplicaron porque la planilla ya salió del borrador. */
+  omitidos: Array<{ dia: string; planillaId: string; estado: string }>;
+}
+
+/** Un resultado vacío, para los llamadores que no llegaron a inyectar nada. */
+export function resultadoInyeccionVacio(): ResultadoInyeccion {
+  return { aplicados: [], pisados: [], omitidos: [] };
+}
+
 /**
- * For each day in the range, find the planilla that covers it and upsert
- * a locked RegistroHoras entry. If no planilla exists for a day, that day
- * is silently skipped (it will be back-filled when the planilla is created).
+ * Materializa un rango de ausencia/vacación como días bloqueados.
+ *
+ * Si la planilla del día es editable (BORRADOR/RECHAZADA), el bloqueo **pisa** lo
+ * que hubiera cargado. Si ya está ENVIADA/EN_REVISION/APROBADA no se toca nada:
+ * un documento firmado no se modifica por atrás. El llamador avisa con la lista
+ * de `omitidos` para que se rechace y reenvíe.
+ *
+ * Los días sin planilla se saltean: los repone `backfillAusenciasEnPlanilla`
+ * cuando la planilla se cree. Es también lo que hace que el escenario de "borro
+ * la planilla y la creo de nuevo" reponga los días ya aprobados.
  */
-export async function inyectarDiasBloqueados(range: AusenciaRange): Promise<void> {
+export async function inyectarDiasBloqueados(range: AusenciaRange): Promise<ResultadoInyeccion> {
   const days = buildDaysBetween(range.fechaInicio, range.fechaFin);
+  const resultado = resultadoInyeccionVacio();
 
   // Find all planillas that overlap the range for this user
   const { desde: desdeDia, hasta: hastaDia } = rangoConsultaDia(range.fechaInicio, range.fechaFin);
@@ -37,14 +63,31 @@ export async function inyectarDiasBloqueados(range: AusenciaRange): Promise<void
       periodoInicio: { lte: hastaDia },
       periodoFin: { gte: desdeDia },
     },
-    select: { id: true, periodoInicio: true, periodoFin: true },
+    select: { id: true, periodoInicio: true, periodoFin: true, estado: true },
   });
+
+  const planillasTocadas = new Set<string>();
 
   for (const day of days) {
     const planilla = planillas.find(
       (p) => dentroDelRango(day, p.periodoInicio, p.periodoFin)
     );
     if (!planilla) continue;
+
+    if (!ESTADOS_EDITABLES.includes(planilla.estado)) {
+      resultado.omitidos.push({ dia: claveFecha(day), planillaId: planilla.id, estado: planilla.estado });
+      continue;
+    }
+
+    // Se lee ANTES del upsert: después ya está en cero y no hay forma de saber si
+    // había algo que reemplazar. Un día ya bloqueado no cuenta como pisado —
+    // reescribir un bloqueo con otro no le borra horas a nadie.
+    const previo = await prisma.registroHoras.findUnique({
+      where: { planillaId_fecha: { planillaId: planilla.id, fecha: day } },
+      select: { entradaTurno1: true, horasTrabajadas: true, bloqueado: true },
+    });
+    const teniaHoras = !!previo && !previo.bloqueado
+      && (!!previo.entradaTurno1 || Number(previo.horasTrabajadas) > 0);
 
     await prisma.registroHoras.upsert({
       where: {
@@ -82,7 +125,20 @@ export async function inyectarDiasBloqueados(range: AusenciaRange): Promise<void
         horasViajeInput: ZERO,
       },
     });
+
+    resultado.aplicados.push(claveFecha(day));
+    if (teniaHoras) resultado.pisados.push(claveFecha(day));
+    planillasTocadas.add(planilla.id);
   }
+
+  // Los totales de la cabecera se recalculan una vez por planilla tocada: pisar
+  // horas cargadas las cambia, y sin esto la planilla sigue sumando horas que ya
+  // no están en ningún registro.
+  for (const planillaId of planillasTocadas) {
+    await recalcularTotalesPlanilla(planillaId);
+  }
+
+  return resultado;
 }
 
 /**

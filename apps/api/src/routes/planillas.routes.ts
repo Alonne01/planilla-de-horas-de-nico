@@ -1585,7 +1585,9 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
       throw err;
     }
 
-    // Inyectar/reemplazar el día bloqueado, ligado a la marca
+    // Inyectar/reemplazar el día bloqueado, ligado a la marca. Los totales de la
+    // cabecera los recalcula `inyectarDiasBloqueados` para cada planilla que toca,
+    // así que acá no hace falta volver a pedirlo.
     const tipoLabel = formatTipoAusencia(tipo);
     await inyectarDiasBloqueados({
       usuarioId: planilla.usuarioId,
@@ -1596,7 +1598,6 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
       marcaManualId: ausencia.id,
     });
 
-    await recalcularTotalesPlanilla(planillaId);
     await logAuditoria({
       entidad: 'Ausencia', entidadId: ausencia.id, accion: 'CREAR',
       descripcion: `Marca manual ${tipo} ${claveFecha(fecha)} (a aprobar con la planilla)`,
