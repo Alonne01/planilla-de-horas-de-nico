@@ -3,8 +3,9 @@ import { PrismaClient } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
-import { claveFecha } from '../utils/contexto-dia.utils.js';
-import { fmtFechaDia, fmtFechaDiaCorta } from '../utils/fecha-dia.utils.js';
+// Todo de fecha-dia.utils.js, la autoridad de la convención: `claveFecha` venía
+// de contexto-dia.utils.js, que sólo la re-exporta por compatibilidad.
+import { claveFecha, fmtFechaDia, fmtFechaDiaCorta } from '../utils/fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -131,8 +132,8 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
     sheet.getCell('J5').font = { size: 10 };
 
     // ─── Row 7: Period + Diagram ───
-    const inicio = new Date(planilla.periodoInicio);
-    const fin = new Date(planilla.periodoFin);
+    const inicio = planilla.periodoInicio;
+    const fin = planilla.periodoFin;
     const meses = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
     const mesInicio = meses[inicio.getUTCMonth()];
     const mesFin = meses[fin.getUTCMonth()];
@@ -553,7 +554,12 @@ router.post('/cierre', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
 
     const userIds = usuarios.map(u => u.id);
 
-    // Find planillas for current period (APROBADA or CERRADA)
+    // Todas las planillas APROBADA/CERRADA de esos usuarios, SIN filtro de
+    // período: el body de este endpoint (`sectorIds`, `exportarTodos`,
+    // `forzar`) no trae ninguno, y la pantalla de Cierre tampoco lo manda. El
+    // comentario que había acá decía "for current period" y era falso: el Excel
+    // arrastra todo lo aprobado histórico, no el ciclo vigente. Acotarlo al
+    // período es un cambio de contrato (front + back) que va aparte.
     const planillas = await prisma.planilla.findMany({
       where: {
         usuarioId: { in: userIds },

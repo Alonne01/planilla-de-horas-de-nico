@@ -18,7 +18,7 @@ import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, formatTipoAusencia
 import { logAuditoria } from '../lib/auditoria.js';
 import { devolverSaldoDeMarca, borrarAdjuntosDeMarcas } from '../utils/marca-manual.utils.js';
 import { feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
-import { claveFecha, dentroDelRango } from '../utils/fecha-dia.utils.js';
+import { claveFecha, dentroDelRango, diaDesdeEntrada } from '../utils/fecha-dia.utils.js';
 import { periodoQuerySchema, filtroPeriodoPlanilla } from '../utils/periodo-query.utils.js';
 import { tramosDeUsuario, esFrancoEnFecha } from '../utils/diagrama-vigencia.utils.js';
 import {
@@ -358,22 +358,35 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
+    // Amplitud del período, medida por DÍA calendario (spanDiasCalendario
+    // normaliza las dos puntas). Antes el orden se controlaba con un `<` entre
+    // los dos `Date` crudos: con una punta en `00:00Z` y la otra en `03:00Z`
+    // —lo que hay en la base mientras no corra la migración— un período de un
+    // solo día se leía como "fin anterior al inicio".
+    const diasPeriodo = spanDiasCalendario(planilla.periodoInicio, planilla.periodoFin);
+
     // Defensive guard: an inverted period would make the completeness loop run zero
     // times, letting an empty planilla slip into the approval pipeline.
-    if (new Date(planilla.periodoFin) < new Date(planilla.periodoInicio)) {
+    // `!(x >= 1)` y no `x < 1` para que un span NaN caiga también acá.
+    if (!(diasPeriodo >= 1)) {
       res.status(400).json({ error: 'El período de la planilla es inválido (fin anterior al inicio)' });
       return;
     }
 
     // Cota dura antes del recorrido día-por-día: cubre las planillas creadas antes
     // de que el schema validara la amplitud del período.
-    const diasPeriodo = spanDiasCalendario(planilla.periodoInicio, planilla.periodoFin);
     if (diasPeriodo > MAX_DIAS_PERIODO) {
       res.status(400).json({
         error: `El período de la planilla es inválido (${diasPeriodo} días, máximo ${MAX_DIAS_PERIODO})`,
       });
       return;
     }
+
+    // Puntas del período ya normalizadas a fecha-día: el recorrido de más abajo
+    // y el corte del bucle comparan timestamps, así que una punta con hora
+    // (`03:00Z`, de antes de la migración) dejaría el último día afuera.
+    const inicio = diaDesdeEntrada(planilla.periodoInicio);
+    const fin = diaDesdeEntrada(planilla.periodoFin);
 
     // Validate completeness: days must have a registro UNLESS they are franco (rest) days or feriados
     const registros = await prisma.registroHoras.findMany({
@@ -392,11 +405,7 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
     // Tramos que cubren el período: un cambio de diagrama aprobado a mitad de
     // ciclo parte el período, y con una sola asignación la validación reclama
     // días que eran franco (o deja pasar días laborables sin cargar).
-    const tramos = await tramosDeUsuario(
-      req.user!.userId,
-      new Date(planilla.periodoInicio),
-      new Date(planilla.periodoFin),
-    );
+    const tramos = await tramosDeUsuario(req.user!.userId, inicio, fin);
 
     // Feriados vigentes: los mismos que usa el cálculo del recargo (nacionales ∪
     // los de la empresa), para que la planilla no exija cargar un día que el
@@ -410,8 +419,6 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       return esFrancoEnFecha(tramos, fecha);
     }
 
-    const inicio = new Date(planilla.periodoInicio);
-    const fin = new Date(planilla.periodoFin);
     const diasFaltantes: string[] = [];
 
     // Índice por fecha: evita recorrer todos los registros en cada día del período

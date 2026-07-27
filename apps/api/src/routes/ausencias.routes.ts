@@ -1269,10 +1269,6 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
     if (tocaRango) {
       const nuevoInicio = parsed.data.fechaInicio ?? existing.fechaInicio;
       const nuevoFin = parsed.data.fechaFin ?? existing.fechaFin;
-      if (nuevoFin < nuevoInicio) {
-        res.status(400).json({ error: 'fechaFin debe ser mayor o igual a fechaInicio' });
-        return;
-      }
       const span = spanDiasCalendario(nuevoInicio, nuevoFin);
       // Guard explícito: `span > MAX_SPAN_DIAS` y `nuevosDias > span` son ambos
       // `false` con `NaN`, así que un span inválido colaría sin este chequeo.
@@ -1282,6 +1278,15 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
       // que sí lo atrapan; acá no hay ningún `.refine()` que lo haga.
       if (Number.isNaN(span)) {
         res.status(400).json({ error: 'Rango de fechas inválido' });
+        return;
+      }
+      // El orden se controla por DÍA (el span ya normalizó las dos puntas), no
+      // con un `<` entre los dos `Date`: acá se mezcla un valor recién validado
+      // por `fechaDia` (`00:00Z`) con uno de la base que puede seguir en
+      // `03:00Z`, y mover la fecha de fin al MISMO día del inicio guardado se
+      // rechazaba con "fechaFin debe ser mayor o igual a fechaInicio".
+      if (span < 1) {
+        res.status(400).json({ error: 'fechaFin debe ser mayor o igual a fechaInicio' });
         return;
       }
       if (span > MAX_SPAN_DIAS) {
