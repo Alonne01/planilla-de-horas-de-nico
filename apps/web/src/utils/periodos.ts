@@ -22,14 +22,24 @@ export interface Cycle {
 }
 
 /**
- * Construye una fecha sin desbordar al mes siguiente. `new Date(2026, 1, 31)`
+ * Construye una FECHA-DÍA sin desbordar al mes siguiente. `new Date(2026, 1, 31)`
  * devuelve el 3 de marzo; esto devuelve el 28 de febrero. Hace falta porque el
  * día de inicio del período lo elige el usuario y el backend acepta hasta 31.
+ *
+ * Se arma con `Date.UTC` y se lee con getters UTC porque el resultado sale de
+ * acá hacia el API por `toISOString()`, y el sistema guarda una fecha que
+ * representa un DÍA como medianoche UTC del día calendario argentino (misma
+ * convención que `fechaEnMes` en apps/api/src/utils/calculo.utils.ts: hay que
+ * mantenerlas iguales). Con el constructor local pedía el período a las 03:00Z.
+ *
+ * Consecuencia: TODO lo que lea estas fechas tiene que usar getters UTC
+ * (`getUTCDate`, `getUTCMonth`, `getUTCFullYear`). Con getters locales, un
+ * navegador al oeste de Greenwich muestra el día anterior.
  */
 function fechaEnMes(anio: number, mes: number, dia: number): Date {
-  const base = new Date(anio, mes, 1); // normaliza meses fuera de rango (negativos o >11)
-  const ultimoDia = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
-  return new Date(base.getFullYear(), base.getMonth(), Math.min(dia, ultimoDia));
+  const base = new Date(Date.UTC(anio, mes, 1)); // normaliza meses fuera de rango (negativos o >11)
+  const ultimoDia = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), Math.min(dia, ultimoDia)));
 }
 
 export function generateCycles(
@@ -39,6 +49,10 @@ export function generateCycles(
   hoy: Date = new Date(),
 ): Cycle[] {
   const cycles: Cycle[] = [];
+  // `hoy` es un INSTANTE real, no una fecha-día: se lee con getters LOCALES a
+  // propósito, porque el "hoy" que importa es el del calendario de quien está
+  // mirando la pantalla. Sólo las fechas que salen de `fechaEnMes` son fechas-día
+  // y se leen en UTC.
   let startYear = hoy.getFullYear();
   let startMonth = hoy.getMonth();
 
@@ -55,14 +69,17 @@ export function generateCycles(
     const inicioDate = fechaEnMes(startYear, startMonth - i, diaInicio);
     const finDate = fechaEnMes(startYear, startMonth - i + 1, diaFin);
 
-    const fYear = finDate.getFullYear();
+    // Getters UTC: `fechaEnMes` devuelve medianoche UTC del día argentino, y
+    // leerla con getters locales desde cualquier huso negativo (el de Argentina,
+    // sin ir más lejos) mostraría el día anterior en el label.
+    const fYear = finDate.getUTCFullYear();
     // El año en el inicio solo se muestra si difiere del año del fin.
-    const iYearStr = inicioDate.getFullYear() !== fYear ? ` ${inicioDate.getFullYear()}` : '';
+    const iYearStr = inicioDate.getUTCFullYear() !== fYear ? ` ${inicioDate.getUTCFullYear()}` : '';
 
     cycles.push({
       inicio: inicioDate.toISOString(),
       fin: finDate.toISOString(),
-      label: `${inicioDate.getDate()} ${MESES_ES[inicioDate.getMonth()]}${iYearStr} - ${finDate.getDate()} ${MESES_ES[finDate.getMonth()]} ${fYear}`,
+      label: `${inicioDate.getUTCDate()} ${MESES_ES[inicioDate.getUTCMonth()]}${iYearStr} - ${finDate.getUTCDate()} ${MESES_ES[finDate.getUTCMonth()]} ${fYear}`,
     });
   }
 

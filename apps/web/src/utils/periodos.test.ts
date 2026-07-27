@@ -1,6 +1,14 @@
 import assert from 'node:assert';
 import { generateCycles, getCurrentPeriod } from './periodos.js';
 
+/** Toda fecha-día tiene que ser medianoche UTC exacta, no 03:00Z ni 00:00 local. */
+function assertMedianoche(iso: string, que: string) {
+  assert.ok(
+    iso.endsWith('T00:00:00.000Z'),
+    `${que} debe ser medianoche UTC exacta, fue ${iso}`,
+  );
+}
+
 async function run() {
   // 1. EL BUG REPORTADO: con 16/15 el ciclo actual debe ser 16 Jul - 15 Ago
   {
@@ -33,12 +41,38 @@ async function run() {
     assert.strictEqual(cs.length, 12, 'deben ser 12 ciclos');
     assert.ok(new Date(cs[0].inicio) > new Date(cs[1].inicio), 'el más reciente va primero');
   }
-  // 7. getCurrentPeriod respeta los días que recibe
+  // 7. getCurrentPeriod respeta los días que recibe.
+  //    Getters UTC: las fechas de ciclo son FECHAS-DÍA (medianoche UTC del día
+  //    calendario argentino, ver apps/api/src/utils/fecha-dia.utils.ts). Con
+  //    `getDate()` esto daría 15 bajo TZ=AR.
   {
     const p = getCurrentPeriod(16, 15, new Date(2026, 6, 25));
-    assert.strictEqual(new Date(p.inicio).getDate(), 16, 'el período actual debe empezar el 16');
+    assert.strictEqual(new Date(p.inicio).getUTCDate(), 16, 'el período actual debe empezar el 16');
   }
-  console.log('✓ periodos: 7/7 OK');
+  // 8. LA HORA, que es lo que se rompía: `fechaEnMes` armaba las fechas con el
+  //    constructor LOCAL de `Date`, así que `inicio`/`fin` salían a las 03:00Z
+  //    desde un navegador argentino y el front pedía períodos fuera de la
+  //    convención. El DÍA sale bien con las dos implementaciones — sin esta
+  //    aserción el bug vuelve sin que nadie se entere.
+  {
+    const cs = generateCycles(3, 16, 15, new Date(2026, 6, 25));
+    for (const c of cs) {
+      assertMedianoche(c.inicio, `inicio de "${c.label}"`);
+      assertMedianoche(c.fin, `fin de "${c.label}"`);
+    }
+    const p = getCurrentPeriod(21, 20, new Date(2026, 1, 5));
+    assertMedianoche(p.inicio, 'inicio de getCurrentPeriod');
+    assertMedianoche(p.fin, 'fin de getCurrentPeriod');
+  }
+  // 9. El label y el ISO tienen que hablar del MISMO día: si uno se lee en UTC y
+  //    el otro en local, se desincronizan en un día y nadie lo nota hasta que
+  //    alguien compara la pantalla con el Excel.
+  {
+    const [c] = generateCycles(1, 16, 15, new Date(2026, 6, 25));
+    assert.strictEqual(c.inicio.slice(0, 10), '2026-07-16', `el ISO de inicio debe coincidir con el label "${c.label}"`);
+    assert.strictEqual(c.fin.slice(0, 10), '2026-08-15', `el ISO de fin debe coincidir con el label "${c.label}"`);
+  }
+  console.log('✓ periodos: 9/9 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
