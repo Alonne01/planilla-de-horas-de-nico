@@ -7,6 +7,7 @@ import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
 import { notificarVacacion, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import { puedeVerCalendario } from '../utils/calendario-access.utils.js';
+import { fechaDia } from '../utils/zod.utils.js';
 import {
   construirCircuito,
   nivelesPorRol,
@@ -24,16 +25,12 @@ router.use(authMiddleware);
 // ─── Schemas ─────────────────────────────────────
 
 const createVacacionSchema = z.object({
-  fechaInicio: z.string(),
-  fechaFin: z.string(),
+  fechaInicio: fechaDia,
+  fechaFin: fechaDia,
   diasHabiles: z.number().int().min(1),
   motivo: z.string().max(500).optional(),
 }).refine(
-  (d) => {
-    const ini = new Date(d.fechaInicio);
-    const fin = new Date(d.fechaFin);
-    return !isNaN(ini.getTime()) && !isNaN(fin.getTime()) && fin >= ini;
-  },
+  (d) => d.fechaFin >= d.fechaInicio,
   { message: 'La fecha de fin no puede ser anterior a la de inicio', path: ['fechaFin'] },
 );
 
@@ -434,8 +431,8 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     });
     if (!usuario) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
-    const fechaInicio = new Date(parsed.data.fechaInicio);
-    const fechaFin = new Date(parsed.data.fechaFin);
+    const fechaInicio = parsed.data.fechaInicio;
+    const fechaFin = parsed.data.fechaFin;
     const diasTotales = Math.ceil((fechaFin.getTime() - fechaInicio.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
     // El circuito se resuelve y se CONGELA acá, y no en /enviar, porque en
