@@ -3,7 +3,7 @@ import { PrismaClient, Prisma, VacacionEstado } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
-import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
+import { inyectarDiasBloqueados, avisarResultadoInyeccion } from '../utils/ausencia-calendar.utils.js';
 import { notificarVacacion, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import { puedeVerCalendario } from '../utils/calendario-access.utils.js';
@@ -936,12 +936,18 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
 
     // Inject locked days outside transaction (idempotent)
     if (nuevoEstado === 'APROBADA') {
-      await inyectarDiasBloqueados({
+      const resultadoInyeccion = await inyectarDiasBloqueados({
         usuarioId: vacacion.usuario.id,
         fechaInicio: vacacion.fechaInicio,
         fechaFin: vacacion.fechaFin,
         motivoBloqueo: 'VACACION',
         observaciones: `Vacaciones${vacacion.motivo ? ` — ${vacacion.motivo}` : ''}`,
+      });
+      await avisarResultadoInyeccion({
+        resultado: resultadoInyeccion,
+        usuarioId: vacacion.usuarioId,
+        aprobadorId: req.user!.userId,
+        etiqueta: 'Vacaciones',
       });
     }
 

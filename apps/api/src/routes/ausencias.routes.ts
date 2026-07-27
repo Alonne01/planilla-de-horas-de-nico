@@ -9,7 +9,7 @@ import {
   descartarArchivos,
   borrarUploadPorUrl,
 } from '../middleware/upload.middleware.js';
-import { inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
+import { inyectarDiasBloqueados, avisarResultadoInyeccion, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { notificarAusencia, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import { fechaDia, spanDiasCalendario } from '../utils/zod.utils.js';
@@ -527,15 +527,23 @@ router.post('/', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: R
       },
     });
 
-    // Auto-approved cert médico → inject locked days into planilla
+    // Auto-approved cert médico → inject locked days into planilla.
+    // El "aprobador" acá es el superior que la cargó: el certificado médico no
+    // pasa por circuito, así que su firma es el alta misma.
     if (isCertMedico) {
       const tipoLabel = formatTipoAusencia(parsed.data.tipo);
-      await inyectarDiasBloqueados({
+      const resultadoInyeccion = await inyectarDiasBloqueados({
         usuarioId: targetUserId,
         fechaInicio: parsed.data.fechaInicio,
         fechaFin: parsed.data.fechaFin,
         motivoBloqueo: parsed.data.tipo,
         observaciones: `${tipoLabel}${parsed.data.descripcion ? ` — ${parsed.data.descripcion}` : ''}`,
+      });
+      await avisarResultadoInyeccion({
+        resultado: resultadoInyeccion,
+        usuarioId: targetUserId,
+        aprobadorId: actorId,
+        etiqueta: tipoLabel,
       });
     }
 
@@ -910,12 +918,18 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
     // Approved → inject locked days into employee planilla (outside tx, idempotent)
     if (nuevoEstado === 'APROBADA') {
       const tipoLabel = formatTipoAusencia(ausencia.tipo);
-      await inyectarDiasBloqueados({
+      const resultadoInyeccion = await inyectarDiasBloqueados({
         usuarioId: ausencia.usuario.id,
         fechaInicio: ausencia.fechaInicio,
         fechaFin: ausencia.fechaFin,
         motivoBloqueo: ausencia.tipo,
         observaciones: `${tipoLabel}${ausencia.descripcion ? ` — ${ausencia.descripcion}` : ''}`,
+      });
+      await avisarResultadoInyeccion({
+        resultado: resultadoInyeccion,
+        usuarioId: ausencia.usuarioId,
+        aprobadorId: req.user!.userId,
+        etiqueta: tipoLabel,
       });
     }
 

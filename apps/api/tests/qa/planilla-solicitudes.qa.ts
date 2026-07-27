@@ -83,6 +83,30 @@ function diaKey(iso: string): string {
   return iso.slice(0, 10);
 }
 
+/**
+ * La clave 'YYYY-MM-DD' como la escribe `fmtFechaDia` en el cuerpo de las
+ * notificaciones (D/M/YYYY). Se arma desde el STRING para no depender del huso
+ * del proceso que corre la suite.
+ */
+function fmtDia(clave: string): string {
+  const [anio, mes, dia] = clave.split('-');
+  return `${Number(dia)}/${Number(mes)}/${anio}`;
+}
+
+/**
+ * ¿Hay una notificación con este título cuyo cuerpo menciona este día?
+ *
+ * Se busca por el DÍA y no por fecha de creación: las notificaciones se acumulan
+ * entre corridas, y los días de los escenarios son nuevos en cada una, así que un
+ * match prueba que la notificación es de esta corrida.
+ */
+async function hayNotificacion(token: string, titulo: string, dia: string): Promise<boolean> {
+  const notifs = await (await fetch(`${BASE}/notificaciones`, { headers: auth(token) })).json();
+  return (Array.isArray(notifs) ? notifs : []).some(
+    (n: any) => n.titulo === titulo && (n.cuerpo ?? '').includes(fmtDia(dia)),
+  );
+}
+
 async function run() {
   const op = await login('op2.testing@test.wenlen.com');
 
@@ -192,7 +216,7 @@ async function run() {
    * hasta que uno firma. Si la ausencia no llegara a APROBADA los checks de
    * pisado darían falso-negativo, así que el estado final se verifica acá.
    */
-  async function solicitarYAprobar(dia: string, descripcion: string): Promise<boolean> {
+  async function solicitarYAprobar(dia: string, descripcion: string): Promise<string | null> {
     const alta = await fetch(`${BASE}/ausencias/solicitar`, {
       method: 'POST',
       headers: auth(op),
@@ -204,29 +228,30 @@ async function run() {
     const aus = await alta.json();
     if (!aus.id) {
       check(false, `se creó la ausencia de ${dia} (status ${alta.status}: ${JSON.stringify(aus).slice(0, 200)})`);
-      return false;
+      return null;
     }
 
     // Sin circuito la ausencia la aprueba de una quien tenga nivel RRHH o
     // superior: una vuelta alcanza.
     const pasos = Array.isArray(aus.circuitoSnapshot) ? aus.circuitoSnapshot.length : 0;
+    let ultimoFirmante: string | null = null;
     for (let i = 0; i < Math.max(pasos, 1); i++) {
-      let firmado = false;
+      ultimoFirmante = null;
       for (const email of CANDIDATOS_APROBADORES) {
         const r = await fetch(`${BASE}/ausencias/${aus.id}/avanzar`, {
           method: 'POST', headers: auth(await tokenDe(email)), body: JSON.stringify({}),
         });
-        if (r.ok) { firmado = true; break; }
+        if (r.ok) { ultimoFirmante = email; break; }
       }
-      if (!firmado) {
+      if (!ultimoFirmante) {
         check(false, `alguien pudo firmar el paso ${i + 1} de la ausencia de ${dia}`);
-        return false;
+        return null;
       }
     }
 
     const final = await (await fetch(`${BASE}/ausencias/${aus.id}`, { headers: auth(op) })).json();
     check(final.estado === 'APROBADA', `la ausencia de ${dia} llegó a APROBADA (quedó ${final.estado})`);
-    return final.estado === 'APROBADA';
+    return final.estado === 'APROBADA' ? ultimoFirmante : null;
   }
 
   /**
@@ -324,6 +349,8 @@ async function run() {
   );
   check(Number(detalle2.totalDiasBase) === Number(conHoras.totalDiasBase) - 1,
     'el día pisado dejó de contar como día en base');
+  check(await hayNotificacion(op, 'Se reemplazaron horas cargadas', diaPisar),
+    'al dueño le avisan que le reemplazaron las horas cargadas');
 
   // 7. Los bordes del período: el último día también se inyecta (antes se perdía
   //    porque 00:00Z quedaba fuera del filtro contra un período guardado a 03:00Z)
@@ -343,7 +370,7 @@ async function run() {
   const diaViejo = await conPlanillaEnviadaDeUnDia();
   if (diaViejo) {
     const { planillaId: plViejaId, dia: diaEnviado, registroPrevio } = diaViejo;
-    await solicitarYAprobar(diaEnviado, 'QA planilla ya enviada');
+    const firmante = await solicitarYAprobar(diaEnviado, 'QA planilla ya enviada');
 
     const detalleVieja = await (await fetch(`${BASE}/planillas/${plViejaId}`, { headers: auth(op) })).json();
     const regVieja = (detalleVieja.registros ?? []).find((r: any) => diaKey(r.fecha) === diaEnviado);
@@ -353,6 +380,15 @@ async function run() {
       'las horas cargadas en la planilla enviada quedaron intactas');
     check(regVieja?.entradaTurno1 === registroPrevio.entradaTurno1,
       'el horario cargado en la planilla enviada quedó intacto');
+
+    // El aviso es lo único que convierte el salteo en algo accionable: sin él,
+    // la ausencia queda aprobada y la planilla nunca la refleja, en silencio.
+    check(await hayNotificacion(op, 'La ausencia aprobada no se aplicó a la planilla', diaEnviado),
+      'al dueño le avisan que la ausencia aprobada no se aplicó');
+    if (firmante) {
+      check(await hayNotificacion(await tokenDe(firmante), 'Ausencia aprobada sin aplicar a la planilla', diaEnviado),
+        'a quien aprobó también le avisan que no se aplicó');
+    }
 
     await fetch(`${BASE}/planillas/${plViejaId}`, { method: 'DELETE', headers: auth(op) });
   }

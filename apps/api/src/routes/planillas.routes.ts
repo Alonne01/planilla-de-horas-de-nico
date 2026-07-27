@@ -14,7 +14,7 @@ import {
   recalcularTotalesPlanilla,
   getPeriodoActual,
 } from '../utils/calculo.utils.js';
-import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
+import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, avisarResultadoInyeccion, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { logAuditoria } from '../lib/auditoria.js';
 import { devolverSaldoDeMarca, borrarAdjuntosDeMarcas } from '../utils/marca-manual.utils.js';
 import { feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
@@ -1589,13 +1589,23 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
     // cabecera los recalcula `inyectarDiasBloqueados` para cada planilla que toca,
     // así que acá no hace falta volver a pedirlo.
     const tipoLabel = formatTipoAusencia(tipo);
-    await inyectarDiasBloqueados({
+    const resultadoInyeccion = await inyectarDiasBloqueados({
       usuarioId: planilla.usuarioId,
       fechaInicio: fecha,
       fechaFin: fecha,
       motivoBloqueo: tipo,
       observaciones: `${tipoLabel} (marca manual)${parsed.data.descripcion ? ` — ${parsed.data.descripcion}` : ''}`,
       marcaManualId: ausencia.id,
+    });
+    // El actor ES el dueño y la planilla llegó acá editable (el guard de
+    // ESTADOS_OWNER de más arriba), así que `omitidos` no puede ocurrir y la copia
+    // para el aprobador la descarta el propio helper. Queda por uniformidad: los
+    // cinco llamadores de `inyectarDiasBloqueados` avisan con la misma regla.
+    await avisarResultadoInyeccion({
+      resultado: resultadoInyeccion,
+      usuarioId: planilla.usuarioId,
+      aprobadorId: actorId,
+      etiqueta: `${tipoLabel} (marca manual)`,
     });
 
     await logAuditoria({
@@ -1608,7 +1618,10 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
       where: { planillaId_fecha: { planillaId, fecha } },
       include: { marcaManual: { select: { id: true, estado: true, tipo: true, cargadaPorId: true, aprobadaPorId: true, archivoUrl: true } } },
     });
-    res.status(201).json(registro);
+    // `horasReemplazadas` viaja en la respuesta además de la notificación: acá el
+    // actor es el dueño y la acción es sincrónica, así que el lugar donde lo va a
+    // ver es la pantalla que acaba de usar, no la campanita.
+    res.status(201).json({ ...registro, horasReemplazadas: resultadoInyeccion.pisados.length > 0 });
   } catch (error) {
     console.error('Error marcando día:', error);
     res.status(500).json({ error: 'Error interno' });

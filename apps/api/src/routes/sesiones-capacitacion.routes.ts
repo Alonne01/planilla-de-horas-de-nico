@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_COORDINADOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { crearNotificacion } from '../utils/notificacion.utils.js';
-import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
+import { inyectarDiasBloqueados, avisarResultadoInyeccion } from '../utils/ausencia-calendar.utils.js';
 import { fechaDia } from '../utils/zod.utils.js';
 import { fmtFechaDia } from '../utils/fecha-dia.utils.js';
 
@@ -565,6 +565,13 @@ router.post('/:id/finalizar', requireLevel(LEVEL_COORDINADOR), async (req: AuthR
     }
     const asistieronIds: string[] = (asistieron as string[] | undefined) ?? sesion.invitaciones.map(i => i.usuarioId);
 
+    // Los asistentes cuya planilla ya salió del borrador, para avisarle al
+    // organizador UNA sola vez al final. Avisarle dentro del bucle le mandaría
+    // una notificación por asistente: en una sesión de veinte personas eso es una
+    // lluvia que nadie lee. Cada asistente sí recibe la suya, individual, porque
+    // es su planilla la que hay que rechazar y reenviar.
+    const asistentesSinAplicar: string[] = [];
+
     for (const inv of sesion.invitaciones) {
       const didAttend = asistieronIds.includes(inv.usuarioId);
 
@@ -594,13 +601,24 @@ router.post('/:id/finalizar', requireLevel(LEVEL_COORDINADOR), async (req: AuthR
         });
 
         // Lock the day in the employee's planilla as "CAPACITACION"
-        await inyectarDiasBloqueados({
+        const resultadoInyeccion = await inyectarDiasBloqueados({
           usuarioId: inv.usuarioId,
           fechaInicio: sesion.fecha,
           fechaFin: sesion.fecha,
           motivoBloqueo: 'CAPACITACION',
           observaciones: `Capacitación: ${sesion.titulo}${sesion.horaInicio ? ` (${sesion.horaInicio}–${sesion.horaFin ?? ''})` : ''}`,
         });
+        // `aprobadorId: null`: el aviso al organizador se agrega y sale una sola
+        // vez después del bucle (ver `asistentesSinAplicar`).
+        await avisarResultadoInyeccion({
+          resultado: resultadoInyeccion,
+          usuarioId: inv.usuarioId,
+          aprobadorId: null,
+          etiqueta: `Capacitación "${sesion.titulo}"`,
+        });
+        if (resultadoInyeccion.omitidos.length > 0) {
+          asistentesSinAplicar.push(`${inv.usuario.nombre} ${inv.usuario.apellido}`);
+        }
 
         // Notify attendee
         await crearNotificacion({
@@ -613,12 +631,24 @@ router.post('/:id/finalizar', requireLevel(LEVEL_COORDINADOR), async (req: AuthR
       }
     }
 
+    // Un solo aviso al organizador con todos los asistentes cuya planilla no se
+    // pudo tocar, en vez de uno por cabeza.
+    if (asistentesSinAplicar.length > 0) {
+      await crearNotificacion({
+        usuarioId: req.user!.userId,
+        tipo: 'CAPACITACION',
+        titulo: 'La capacitación no se aplicó a algunas planillas',
+        cuerpo: `El día ${fmtFechaDia(sesion.fecha)} no se pudo bloquear en la planilla de ${asistentesSinAplicar.join(', ')}: ya está enviada. Para que quede registrado hay que rechazarla y reenviarla.`,
+        link: '/capacitaciones',
+      });
+    }
+
     await prisma.sesionCapacitacion.update({
       where: { id: sesion.id },
       data: { estado: 'FINALIZADA' },
     });
 
-    res.json({ ok: true, asistieron: asistieronIds.length });
+    res.json({ ok: true, asistieron: asistieronIds.length, sinAplicar: asistentesSinAplicar.length });
   } catch (error) {
     console.error('Error finalizing sesion:', error);
     res.status(500).json({ error: 'Error interno' });

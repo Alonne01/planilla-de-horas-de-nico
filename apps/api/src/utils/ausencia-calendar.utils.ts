@@ -4,8 +4,9 @@
  * created to back-fill any previously-approved absences/vacations.
  */
 import { PrismaClient, Prisma } from '@prisma/client';
-import { claveFecha, diaDesdeEntrada, dentroDelRango, rangoConsultaDia } from './fecha-dia.utils.js';
+import { claveFecha, diaDesdeEntrada, dentroDelRango, fmtFechaDia, rangoConsultaDia } from './fecha-dia.utils.js';
 import { recalcularTotalesPlanilla } from './calculo.utils.js';
+import { crearNotificacion } from './notificacion.utils.js';
 
 const { Decimal } = Prisma;
 
@@ -299,6 +300,63 @@ export function clampDia(dia: Date, borde: Date, esTecho = false): Date {
   const b = diaDesdeEntrada(borde);
   if (esTecho) return d > b ? b : d;
   return d < b ? b : d;
+}
+
+/**
+ * Los días de un `ResultadoInyeccion` como los lee una persona (D/M/YYYY).
+ *
+ * Las claves vienen de `claveFecha`, así que el round-trip por `diaDesdeEntrada`
+ * es exacto; se pasa por ahí y no por `new Date(clave)` para no depender del
+ * parseo implícito.
+ */
+function listaDias(claves: string[]): string {
+  return claves.map((c) => fmtFechaDia(diaDesdeEntrada(c))).join(', ');
+}
+
+/**
+ * Traduce el resultado de la inyección en notificaciones para el dueño de la
+ * planilla y para quien aprobó. Sin esto, el operador se entera de que le
+ * borraron las horas (o de que la ausencia no se aplicó) sólo si mira.
+ *
+ * `aprobadorId` en null apaga la copia para quien aprobó. Lo usa el cierre de una
+ * sesión de capacitación, que bloquea el día de cada asistente dentro de un
+ * bucle: avisarle ahí adentro le mandaría al organizador una notificación por
+ * asistente, así que arma una sola agregada al final. Si el aprobador ES el
+ * dueño (la marca manual de un día, que la carga el propio empleado en su
+ * planilla) la copia también se saltea: son dos notificaciones idénticas para la
+ * misma persona.
+ */
+export async function avisarResultadoInyeccion(params: {
+  resultado: ResultadoInyeccion;
+  usuarioId: string;
+  aprobadorId: string | null;
+  etiqueta: string;
+}): Promise<void> {
+  const { resultado, usuarioId, aprobadorId, etiqueta } = params;
+
+  if (resultado.pisados.length > 0) {
+    await crearNotificacion({
+      usuarioId,
+      tipo: 'PLANILLA',
+      titulo: 'Se reemplazaron horas cargadas',
+      cuerpo: `${etiqueta}: se aprobó y los días ${listaDias(resultado.pisados)} quedaron bloqueados. Las horas que tenías cargadas ahí se reemplazaron.`,
+      link: '/planillas',
+    });
+  }
+
+  if (resultado.omitidos.length > 0) {
+    const dias = listaDias(resultado.omitidos.map((o) => o.dia));
+    const estado = resultado.omitidos[0]!.estado;
+    const cuerpo = `${etiqueta}: se aprobó, pero la planilla del período ya está ${estado} y no se modificó. Para que los días ${dias} queden bloqueados hay que rechazarla y reenviarla.`;
+    await crearNotificacion({
+      usuarioId, tipo: 'PLANILLA', titulo: 'La ausencia aprobada no se aplicó a la planilla', cuerpo, link: '/planillas',
+    });
+    if (aprobadorId && aprobadorId !== usuarioId) {
+      await crearNotificacion({
+        usuarioId: aprobadorId, tipo: 'PLANILLA', titulo: 'Ausencia aprobada sin aplicar a la planilla', cuerpo, link: '/aprobaciones',
+      });
+    }
+  }
 }
 
 export function formatTipoAusencia(tipo: string): string {
