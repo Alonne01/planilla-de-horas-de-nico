@@ -12,6 +12,7 @@ import { toast } from '@/stores/toastStore';
 import { mensajeDeError } from '@/lib/errores';
 import PeriodSelector from '@/components/layout/PeriodSelector';
 import { usePeriodoActual, AVISO_PERIODO_POR_DEFECTO } from '@/hooks/usePeriodoConfig';
+import { fmtDia, diaKey } from '@/utils/fechaDia';
 
 interface Sector {
   id: string;
@@ -122,6 +123,11 @@ export default function CierrePage() {
 
   // Export handler
   const handleExport = async (forzar = false) => {
+    // El período es obligatorio para el backend: sin él, el Excel y el chequeo
+    // de pendientes que bloquea el cierre mirarían todo el histórico aprobado.
+    // `periodo` sólo es null antes de que resuelva la config (el render está
+    // gateado por `listo`), pero el botón también se deshabilita por las dudas.
+    if (!periodo) return;
     setExporting(true);
     setExportError(null);
     try {
@@ -129,6 +135,8 @@ export default function CierrePage() {
         sectorIds: exportMode === 'sector' ? selectedSectorIds : [],
         exportarTodos: exportMode === 'todos',
         forzar,
+        periodoInicio: periodo.inicio,
+        periodoFin: periodo.fin,
       };
       const res = await api.post('/export/cierre', body, { responseType: 'blob' });
 
@@ -249,12 +257,16 @@ export default function CierrePage() {
           </h1>
           {periodo && (
             <p className="text-sm text-muted-foreground">
-              {/* `periodo` NO es una fecha-día del backend: lo genera
-                  utils/periodos.ts como .toISOString() de una medianoche LOCAL.
-                  Se lee con `new Date(iso)` a propósito — es el round-trip
-                  inverso exacto. Aplicarle fmtDia/diaKey acá lo correría un día
-                  en cualquier huso positivo. */}
-              Período: {new Date(periodo.inicio).toLocaleDateString('es-AR')} — {new Date(periodo.fin).toLocaleDateString('es-AR')}
+              {/* `periodo` SÍ es una fecha-día: utils/periodos.ts la construye
+                  con `Date.UTC` (medianoche UTC del día calendario argentino) y
+                  la serializa con `.toISOString()`. Va con `fmtDia`, que saca la
+                  clave del STRING. `new Date(iso).toLocaleDateString()` acá
+                  muestra el día ANTERIOR en cualquier huso negativo —Argentina,
+                  sin ir más lejos—, que es el bug que este `fmtDia` arregla.
+                  (El comentario que había antes decía lo contrario: describía la
+                  época en que el período se armaba con el constructor local y
+                  salía a las 03:00Z.) */}
+              Período: {fmtDia(periodo.inicio)} — {fmtDia(periodo.fin)}
             </p>
           )}
         </div>
@@ -364,7 +376,7 @@ export default function CierrePage() {
           {/* Export button */}
           <button
             onClick={() => handleExport(false)}
-            disabled={exporting || (exportMode === 'sector' && selectedSectorIds.length === 0)}
+            disabled={exporting || !periodo || (exportMode === 'sector' && selectedSectorIds.length === 0)}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
@@ -384,17 +396,29 @@ export default function CierrePage() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={async () => {
+                  if (!periodo) return;
                   try {
-                    const res = await api.get('/export/pendientes', { responseType: 'blob' });
+                    // Mismo período que la tabla de acá abajo: el Excel de
+                    // pendientes se calcula contra el ciclo elegido, no contra
+                    // el histórico de planillas aprobadas.
+                    const qs = new URLSearchParams({
+                      periodoInicio: periodo.inicio,
+                      periodoFin: periodo.fin,
+                    });
+                    const res = await api.get(`/export/pendientes?${qs}`, { responseType: 'blob' });
                     const url = window.URL.createObjectURL(new Blob([res.data]));
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = 'Pendientes de aprobacion.xlsx';
+                    // Este botón nunca lee el Content-Disposition: el nombre se
+                    // arma acá. Lleva el período por la misma razón que el del
+                    // servidor — si no, dos ciclos distintos bajan con el mismo
+                    // nombre y el segundo pisa al primero en Descargas.
+                    a.download = `Pendientes de aprobacion - ${diaKey(periodo.inicio)} al ${diaKey(periodo.fin)}.xlsx`;
                     a.click();
                     window.URL.revokeObjectURL(url);
                   } catch { /* noop */ }
                 }}
-                disabled={pendientesTab.length === 0}
+                disabled={pendientesTab.length === 0 || !periodo}
                 className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors shrink-0 whitespace-nowrap"
               >
                 <Download className="h-3.5 w-3.5" /> Descargar Excel

@@ -1,14 +1,70 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import ExcelJS from 'exceljs';
+import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 // Todo de fecha-dia.utils.js, la autoridad de la convención: `claveFecha` venía
 // de contexto-dia.utils.js, que sólo la re-exporta por compatibilidad.
 import { claveFecha, fmtFechaDia, fmtFechaDiaCorta } from '../utils/fecha-dia.utils.js';
+import { fechaDia } from '../utils/zod.utils.js';
+import { periodoQuerySchema, filtroPeriodoPlanilla } from '../utils/periodo-query.utils.js';
+import { getPeriodoActual } from '../utils/calculo.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
+
+/**
+ * Ventana [inicio, fin] del ciclo de planilla que las tres exportaciones usan
+ * para acotar las planillas APROBADA/CERRADA.
+ *
+ * Se normaliza SIEMPRE por `filtroPeriodoPlanilla`, que resuelve las dos puntas
+ * por su cuenta: el front manda la medianoche del ciclo y en la base conviven
+ * las convenciones viejas (`00:00Z`, `03:00Z`, `15:00Z`) hasta que corra la
+ * migración. Comparar por timestamp exacto acá devolvería cero filas apenas el
+ * cliente y la fila se hayan escrito con convenciones distintas.
+ */
+type VentanaPeriodo = { periodoInicio: Date; periodoFin: Date };
+
+/**
+ * Período VIGENTE según la configuración de ciclo de la empresa, derivado en el
+ * servidor. Sólo lo usa `GET /export/sector/:sid`, que conserva los parámetros
+ * de período como opcionales (ver el comentario de esa ruta).
+ *
+ * Mismos defaults 21/20 que `POST /planillas` cuando no hay `EmpresaConfig`.
+ */
+async function periodoVigente(empresaId: string): Promise<VentanaPeriodo> {
+  const config = await prisma.empresaConfig.findUnique({ where: { empresaId } });
+  const { inicio, fin } = getPeriodoActual(config?.periodoDiaInicio ?? 21, config?.periodoDiaFin ?? 20);
+  return { periodoInicio: inicio, periodoFin: fin };
+}
+
+/**
+ * Sufijo `"<desde> al <hasta>"` con que se nombran los archivos exportados.
+ *
+ * Va en clave YYYY-MM-DD (`claveFecha`) y NO en formato es-AR: `fmtFechaDia`
+ * devuelve `D/M/YYYY`, y una barra en el nombre de archivo sale del servidor
+ * como `%2F` (por el `encodeURIComponent` del Content-Disposition), el navegador
+ * la vuelve a decodificar y queda un nombre inválido en Windows. De paso
+ * YYYY-MM-DD ordena alfabéticamente igual que cronológicamente, que es lo que
+ * uno quiere en la carpeta donde se guardan los cierres.
+ *
+ * `claveFecha` lee la clave UTC, que es exactamente lo correcto acá: las dos
+ * puntas ya vienen normalizadas por `fechaDia` / `getPeriodoActual`.
+ */
+function rangoArchivo(periodoInicio: Date, periodoFin: Date): string {
+  return `${claveFecha(periodoInicio)} al ${claveFecha(periodoFin)}`;
+}
+
+/**
+ * Deja un texto libre (hoy sólo el nombre de un sector, que lo escribe RRHH) en
+ * condiciones de ser parte de un nombre de archivo. Misma razón que
+ * `rangoArchivo`: un sector llamado "Almacén/Depósito" metía una barra en el
+ * Content-Disposition y el archivo bajaba con un nombre inválido.
+ */
+function nombreArchivoSeguro(texto: string): string {
+  return texto.replace(/[\\/:*?"<>|]/g, '-').trim() || 'sector';
+}
 
 router.use(authMiddleware);
 
@@ -336,11 +392,37 @@ function csvCell(valor: unknown): string {
 }
 
 // ─── GET /export/sector/:sid ─────────────────────
-// Generates a CSV with all planillas for a sector in a period
-
+// CSV con las planillas APROBADA/CERRADA de un sector, acotado a UN período.
+//
+// A diferencia de /cierre y /pendientes, acá `periodoInicio`/`periodoFin` son
+// OPCIONALES y por defecto se usa el ciclo vigente resuelto en el servidor: esta
+// ruta no tiene ningún llamador en el front (sólo las suites QA, que la invocan
+// sin parámetros), así que exigirlos rompería a los únicos clientes que tiene
+// sin arreglarle nada a nadie. Antes el "período" del comentario era mentira:
+// no filtraba nada y el CSV traía el histórico completo del sector.
 router.get('/sector/:sid', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const sectorId = req.params.sid as string;
+
+    const periodo = periodoQuerySchema.safeParse(req.query);
+    if (!periodo.success) {
+      res.status(400).json({ error: 'periodoInicio/periodoFin inválido', details: periodo.error.flatten() });
+      return;
+    }
+    // Una sola punta deja la ventana abierta del otro lado y devuelve historia
+    // entera: es justo el defecto que esta ruta viene a cerrar, así que se pide
+    // explícito en vez de completarlo con el ciclo vigente por la mitad.
+    if (!periodo.data.periodoInicio !== !periodo.data.periodoFin) {
+      res.status(400).json({ error: 'periodoInicio y periodoFin deben venir juntos' });
+      return;
+    }
+    if (periodo.data.periodoInicio && periodo.data.periodoFin && periodo.data.periodoFin < periodo.data.periodoInicio) {
+      res.status(400).json({ error: 'periodoFin debe ser mayor o igual a periodoInicio' });
+      return;
+    }
+    const ventana: VentanaPeriodo = periodo.data.periodoInicio && periodo.data.periodoFin
+      ? { periodoInicio: periodo.data.periodoInicio, periodoFin: periodo.data.periodoFin }
+      : await periodoVigente(req.user!.empresaId);
 
     // Bug fix: verify sector belongs to current empresa before exporting its data
     const sector = await prisma.sector.findFirst({
@@ -360,7 +442,11 @@ router.get('/sector/:sid', requireLevel(LEVEL_RRHH), async (req: AuthRequest, re
     const userIds = usuarios.map((u) => u.id);
 
     const planillas = await prisma.planilla.findMany({
-      where: { usuarioId: { in: userIds }, estado: { in: ['APROBADA', 'CERRADA'] } },
+      where: {
+        usuarioId: { in: userIds },
+        estado: { in: ['APROBADA', 'CERRADA'] },
+        ...filtroPeriodoPlanilla(ventana),
+      },
       include: {
         usuario: { select: { nombre: true, apellido: true, legajo: true } },
       },
@@ -397,9 +483,30 @@ router.get('/sector/:sid', requireLevel(LEVEL_RRHH), async (req: AuthRequest, re
 });
 
 // ─── GET /export/pendientes — Excel of users without approved planilla, grouped by sector ─────
+//
+// `periodoInicio`/`periodoFin` son OBLIGATORIOS (query string, es un GET): sin
+// ellos "pendiente" se calculaba contra el histórico entero, así que alguien con
+// una planilla aprobada de hace seis meses no aparecía en el listado aunque no
+// hubiera entregado nada del ciclo vigente.
 router.get('/pendientes', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const empresaId = req.user!.empresaId;
+
+    const periodo = periodoQuerySchema.safeParse(req.query);
+    if (!periodo.success) {
+      res.status(400).json({ error: 'periodoInicio/periodoFin inválido', details: periodo.error.flatten() });
+      return;
+    }
+    const { periodoInicio, periodoFin } = periodo.data;
+    if (!periodoInicio || !periodoFin) {
+      res.status(400).json({ error: 'periodoInicio y periodoFin son requeridos' });
+      return;
+    }
+    if (periodoFin < periodoInicio) {
+      res.status(400).json({ error: 'periodoFin debe ser mayor o igual a periodoInicio' });
+      return;
+    }
+    const filtroPeriodo = filtroPeriodoPlanilla({ periodoInicio, periodoFin });
 
     const usuarios = await prisma.usuario.findMany({
       where: { empresaId, activo: true },
@@ -414,13 +521,17 @@ router.get('/pendientes', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res
       where: {
         usuarioId: { in: usuarios.map(u => u.id) },
         estado: { in: ['APROBADA', 'CERRADA'] },
+        ...filtroPeriodo,
       },
       select: { usuarioId: true, estado: true },
     });
 
-    // Also get non-approved planillas for status info
+    // Also get non-approved planillas for status info. Mismo período que el
+    // filtro de arriba: con el histórico entero la columna "Estado Planilla"
+    // mostraba el estado de una planilla de otro ciclo al lado de un usuario
+    // que en ÉSTE no entregó nada.
     const allPlanillas = await prisma.planilla.findMany({
-      where: { usuarioId: { in: usuarios.map(u => u.id) } },
+      where: { usuarioId: { in: usuarios.map(u => u.id) }, ...filtroPeriodo },
       select: { usuarioId: true, estado: true },
       orderBy: { updatedAt: 'desc' },
     });
@@ -489,9 +600,10 @@ router.get('/pendientes', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
-    const now = new Date();
-    const monthStr = now.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-    const filename = `Pendientes de aprobacion - ${monthStr}.xlsx`;
+    // El PERÍODO consultado, no el mes de hoy: ahora que el contenido se acota
+    // al ciclo elegido, un nombre con la fecha de descarga miente sobre lo que
+    // hay adentro apenas se exporta un ciclo que no es el vigente.
+    const filename = `Pendientes de aprobacion - ${rangoArchivo(periodoInicio, periodoFin)}.xlsx`;
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
@@ -516,11 +628,42 @@ function calcViandas(
   return 0;
 }
 
+/**
+ * Body de `POST /export/cierre`.
+ *
+ * `periodoInicio`/`periodoFin` son OBLIGATORIOS: son el ciclo que se está
+ * cerrando, la pantalla ya lo tiene elegido y lo muestra, y sin ellos el Excel
+ * (y peor, el chequeo de pendientes que devuelve 409) miraba todo el histórico.
+ * Pasan por `fechaDia`, así que da igual si el cliente manda `"2026-07-21"`,
+ * medianoche UTC o medianoche argentina.
+ *
+ * `sectorIds` se valida acá y no a mano: crudo desde `req.body` hacía reventar a
+ * Prisma con un 500 que tapaba el diagnóstico real del cierre.
+ */
+const cierreExportSchema = z
+  .object({
+    periodoInicio: fechaDia,
+    periodoFin: fechaDia,
+    sectorIds: z.array(z.string()).optional(),
+    exportarTodos: z.boolean().optional(),
+    forzar: z.boolean().optional(),
+  })
+  .refine(
+    (d) => d.periodoFin >= d.periodoInicio,
+    { message: 'periodoFin debe ser mayor o igual a periodoInicio', path: ['periodoFin'] },
+  );
+
 // ─── POST /export/cierre — Excel export for period closing ─────
 router.post('/cierre', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const empresaId = req.user!.empresaId;
-    const { sectorIds, exportarTodos, forzar } = req.body;
+
+    const parsed = cierreExportSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+    const { sectorIds, exportarTodos, forzar, periodoInicio, periodoFin } = parsed.data;
 
     // Load vianda config
     const empresaConfig = await prisma.empresaConfig.findUnique({ where: { empresaId } });
@@ -532,12 +675,6 @@ router.post('/cierre', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
     };
 
     // Determine which users to include
-    // sectorIds llega crudo del body: si no es un array de strings Prisma revienta con
-    // un 500 que tapa el diagnóstico real del cierre de período.
-    if (sectorIds != null && (!Array.isArray(sectorIds) || sectorIds.some((s: unknown) => typeof s !== 'string'))) {
-      res.status(400).json({ error: 'sectorIds debe ser un array de ids de sector' });
-      return;
-    }
     let userFilter: any = { empresaId, activo: true };
     if (!exportarTodos && sectorIds?.length) {
       userFilter.sectorId = { in: sectorIds };
@@ -554,16 +691,15 @@ router.post('/cierre', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
 
     const userIds = usuarios.map(u => u.id);
 
-    // Todas las planillas APROBADA/CERRADA de esos usuarios, SIN filtro de
-    // período: el body de este endpoint (`sectorIds`, `exportarTodos`,
-    // `forzar`) no trae ninguno, y la pantalla de Cierre tampoco lo manda. El
-    // comentario que había acá decía "for current period" y era falso: el Excel
-    // arrastra todo lo aprobado histórico, no el ciclo vigente. Acotarlo al
-    // período es un cambio de contrato (front + back) que va aparte.
+    // Las planillas APROBADA/CERRADA de esos usuarios EN EL CICLO QUE SE CIERRA.
+    // Misma ventana que usa `GET /planillas?periodoInicio=&periodoFin=`, que es
+    // lo que lista la pantalla de Cierre: el Excel tiene que coincidir con lo
+    // que el usuario ve arriba, no traer el histórico entero.
     const planillas = await prisma.planilla.findMany({
       where: {
         usuarioId: { in: userIds },
         estado: { in: ['APROBADA', 'CERRADA'] },
+        ...filtroPeriodoPlanilla({ periodoInicio, periodoFin }),
       },
       include: {
         usuario: {
@@ -577,7 +713,10 @@ router.post('/cierre', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
       orderBy: { usuario: { apellido: 'asc' } },
     });
 
-    // Check for users without approved planillas
+    // Usuarios sin planilla aprobada EN ESTE período. Se deriva de `planillas`
+    // a propósito, no de una segunda consulta: si el listado del Excel y este
+    // chequeo pudieran mirar ventanas distintas volvería el defecto que
+    // bloquea/deja pasar el cierre con gente faltando.
     const usersWithPlanilla = new Set(planillas.map(p => p.usuarioId));
     const usersSinPlanilla = usuarios.filter(u => !usersWithPlanilla.has(u.id));
 
@@ -765,16 +904,18 @@ router.post('/cierre', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
     // Generate buffer and send
     const buffer = await workbook.xlsx.writeBuffer();
 
-    const now = new Date();
-    const monthStr = now.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+    // El PERÍODO exportado, no el mes de hoy. Un cierre se guarda y se busca
+    // meses después: con la fecha de descarga en el nombre, exportar un ciclo
+    // viejo producía un archivo que mentía sobre su propio contenido.
+    const rango = rangoArchivo(periodoInicio, periodoFin);
     let filename: string;
     if (exportarTodos || !sectorIds?.length) {
-      filename = `Cierre planillas - Todos - ${monthStr}.xlsx`;
+      filename = `Cierre planillas - Todos - ${rango}.xlsx`;
     } else if (sectorIds.length === 1) {
       const sectorName = bySector.keys().next().value ?? 'sector';
-      filename = `Cierre planillas - ${sectorName} - ${monthStr}.xlsx`;
+      filename = `Cierre planillas - ${nombreArchivoSeguro(sectorName)} - ${rango}.xlsx`;
     } else {
-      filename = `Cierre planillas - ${sectorIds.length} sectores - ${monthStr}.xlsx`;
+      filename = `Cierre planillas - ${sectorIds.length} sectores - ${rango}.xlsx`;
     }
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

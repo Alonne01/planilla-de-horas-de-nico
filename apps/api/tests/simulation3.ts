@@ -827,7 +827,10 @@ async function scenarioY_ExportXLSX(
   });
 
   await scenario('Y3 GET /export/pendientes (XLSX pending planillas)', label, async () => {
-    const { status } = await get('/export/pendientes', rrhhSession.token);
+    // periodoInicio/periodoFin son obligatorios: "pendiente" se calcula contra
+    // el ciclo que se está cerrando, no contra el histórico aprobado.
+    const qs = `periodoInicio=${encodeURIComponent(data.periodoInicio)}&periodoFin=${encodeURIComponent(data.periodoFin)}`;
+    const { status } = await get(`/export/pendientes?${qs}`, rrhhSession.token);
     assertStatus(status, 200);
   });
 
@@ -835,6 +838,8 @@ async function scenarioY_ExportXLSX(
     const { status, body } = await post('/export/cierre', {
       exportarTodos: true,
       forzar: true,   // bypass "usuarios sin planilla" check (test DB has 91 users, 1 planilla)
+      periodoInicio: data.periodoInicio,
+      periodoFin: data.periodoFin,
     }, rrhhSession.token);
     assertStatus(status, 200, JSON.stringify(body));
   });

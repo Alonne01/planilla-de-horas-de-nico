@@ -354,7 +354,11 @@ async function main() {
     assertStatus(status, 403);
   });
   await scenario('EX8 GET /export/pendientes (RRHH) → 200 xlsx', 'Export', async () => {
-    const { status, contentType } = await get('/export/pendientes', rrhh.token);
+    assert(!!pInicioArIso, 'test bed incomplete');
+    const { status, contentType } = await get(
+      `/export/pendientes?periodoInicio=${encodeURIComponent(pInicioArIso)}&periodoFin=${encodeURIComponent(pFinArIso)}`,
+      rrhh.token,
+    );
     assertStatus(status, 200);
     assert(contentType.includes(XLSX), `content-type=${contentType}`);
   });
@@ -363,18 +367,137 @@ async function main() {
     assertStatus(status, 403);
   });
   await scenario('EX10 POST /export/cierre {exportarTodos,forzar} (RRHH) → 200 xlsx', 'Export', async () => {
-    const { status, contentType } = await post('/export/cierre', { exportarTodos: true, forzar: true }, rrhh.token);
+    assert(!!pInicioArIso, 'test bed incomplete');
+    const { status, contentType } = await post('/export/cierre', {
+      exportarTodos: true, forzar: true, periodoInicio: pInicioArIso, periodoFin: pFinArIso,
+    }, rrhh.token);
     assertStatus(status, 200);
     assert(contentType.includes(XLSX), `content-type=${contentType}`);
   });
   await scenario('EX11 POST /export/cierre no forzar (RRHH) → 409 pendientes', 'Export', async () => {
-    const { status, body } = await post('/export/cierre', { exportarTodos: true }, rrhh.token);
+    assert(!!pInicioArIso, 'test bed incomplete');
+    const { status, body } = await post('/export/cierre', {
+      exportarTodos: true, periodoInicio: pInicioArIso, periodoFin: pFinArIso,
+    }, rrhh.token);
     assertStatus(status, 409, JSON.stringify(body).slice(0, 200));
     assert(Array.isArray((body as any).pendientes), 'no pendientes array');
   });
   await scenario('EX12 POST /export/cierre (OPERADOR) → 403', 'Export', async () => {
+    // Sin período a propósito: la autorización tiene que cortar ANTES de validar
+    // el body, si no un OPERADOR distingue "sin permisos" de "período inválido".
     const { status } = await post('/export/cierre', { exportarTodos: true, forzar: true }, operador.token);
     assertStatus(status, 403);
+  });
+
+  // ── Alcance por PERÍODO del cierre ────────────────────────────────────────
+  // Los tres endpoints de exportación consultaban TODAS las planillas
+  // APROBADA/CERRADA sin filtro de período. Eso tenía dos consecuencias: el
+  // Excel arrastraba el histórico entero, y —peor— el chequeo de "usuarios sin
+  // planilla aprobada" que devuelve 409 y bloquea el cierre daba por entregada
+  // una planilla aprobada de CUALQUIER período, así que se podía cerrar un ciclo
+  // con gente que no había presentado nada. EX14 es ese escenario.
+  //
+  // Período de control: 2078, disjunto del que usa el test bed (2080+TS%20) y
+  // del ciclo vigente. EX14 verifica que esté vacío antes de concluir nada.
+  const zMes = (TS % 12) + 1;
+  const zDia = (TS % 25) + 1;
+  const zInicioAr = isoDayAr(2078, zMes, zDia);
+  const zFinAr = isoDayAr(2078, zMes, zDia + 2);
+
+  await scenario('EX13 POST /export/cierre del período del test bed → el dueño NO figura pendiente', 'Export', async () => {
+    assert(!!opId && !!pInicioArIso, 'test bed incomplete');
+    const { status, body } = await post('/export/cierre', {
+      exportarTodos: true, periodoInicio: pInicioArIso, periodoFin: pFinArIso,
+    }, rrhh.token);
+    assertStatus(status, 409, JSON.stringify(body).slice(0, 200));
+    const b = body as any;
+    assert(b.totalAprobadas >= 1, `totalAprobadas=${b.totalAprobadas}, se esperaba al menos la planilla del test bed`);
+    assert(
+      !(b.pendientes as Array<{ id: string }>).some(p => p.id === opId),
+      'el dueño de la planilla aprobada de ESTE período figura como pendiente',
+    );
+  });
+
+  await scenario('EX14 POST /export/cierre de OTRO período: ni arrastra aprobadas ni las da por entregadas', 'Export', async () => {
+    assert(!!opId, 'test bed incomplete');
+    // El período de control tiene que estar vacío, y se confirma con la MISMA
+    // lista que muestra la pantalla de Cierre (GET /planillas?periodo...).
+    const { status: ls, body: lb } = await get(
+      `/planillas?periodoInicio=${encodeURIComponent(zInicioAr)}&periodoFin=${encodeURIComponent(zFinAr)}`,
+      rrhh.token,
+    );
+    assertStatus(ls, 200, JSON.stringify(lb).slice(0, 200));
+    const enZ = (lb as Array<{ estado: string }>).filter(p => p.estado === 'APROBADA' || p.estado === 'CERRADA');
+    assert(enZ.length === 0, `el período de control no está vacío (${enZ.length} planillas aprobadas): elegí otro`);
+
+    const { status, body } = await post('/export/cierre', {
+      exportarTodos: true, periodoInicio: zInicioAr, periodoFin: zFinAr,
+    }, rrhh.token);
+    assertStatus(status, 409, JSON.stringify(body).slice(0, 200));
+    const b = body as any;
+    // Las dos consecuencias se reportan juntas: la segunda (el chequeo que
+    // bloquea el cierre) es la grave y no se ve si la primera corta antes.
+    const fallas: string[] = [];
+    if (!(b.pendientes as Array<{ id: string }>).some(p => p.id === opId)) {
+      fallas.push('el chequeo de pendientes da por entregada una planilla aprobada de OTRO período: el cierre deja pasar a ese usuario');
+    }
+    if (b.totalAprobadas !== 0) {
+      fallas.push(`el Excel arrastra ${b.totalAprobadas} planilla(s) aprobada(s) de OTRO período`);
+    }
+    assert(fallas.length === 0, fallas.join(' || '));
+  });
+
+  await scenario('EX15 POST /export/cierre sin período → 400 (no 500)', 'Export', async () => {
+    const { status, body } = await post('/export/cierre', { exportarTodos: true, forzar: true }, rrhh.token);
+    assertStatus(status, 400, JSON.stringify(body).slice(0, 200));
+  });
+
+  await scenario('EX16 GET /export/pendientes sin período → 400 (no 500)', 'Export', async () => {
+    const { status, body } = await get('/export/pendientes', rrhh.token);
+    assertStatus(status, 400, JSON.stringify(body).slice(0, 200));
+  });
+
+  await scenario('EX17 POST /export/cierre con período inválido → 400 (no 500)', 'Export', async () => {
+    const { status, body } = await post('/export/cierre', {
+      exportarTodos: true, forzar: true, periodoInicio: 'no-es-fecha', periodoFin: pFinArIso,
+    }, rrhh.token);
+    assertStatus(status, 400, JSON.stringify(body).slice(0, 200));
+  });
+
+  await scenario('EX18 el Excel y el chequeo de pendientes salen de la MISMA ventana', 'Export', async () => {
+    // INVARIANTE, atada acá y no sólo con un comentario en el handler: el
+    // listado que va al Excel (`totalAprobadas`) y el chequeo que devuelve 409 y
+    // bloquea el cierre (`totalPendientes`) tienen que derivar del MISMO período
+    // y del MISMO universo de usuarios. Hoy se cumple porque los dos salen de un
+    // único `findMany`; el día que alguien meta una segunda consulta con otra
+    // ventana, esta identidad se rompe y este test lo caza.
+    //
+    // Con `exportarTodos: true` el universo del endpoint es `{empresaId,
+    // activo: true}`, que es exactamente lo que devuelve GET /usuarios?activo=true
+    // para un RRHH (nivel 90, sin recorte por sector). Y como no puede haber dos
+    // planillas del mismo usuario en un mismo ciclo, vale la igualdad:
+    //     totalAprobadas + totalPendientes === usuarios activos
+    const { status: us, body: ub } = await get('/usuarios?activo=true', rrhh.token);
+    assertStatus(us, 200, JSON.stringify(ub).slice(0, 200));
+    const activos = (ub as unknown[]).length;
+    assert(activos > 0, 'no hay usuarios activos con los que verificar la invariante');
+
+    for (const [etiqueta, ini, fin] of [
+      ['período del test bed', pInicioArIso, pFinArIso],
+      ['período de control vacío', zInicioAr, zFinAr],
+    ] as const) {
+      const { status, body } = await post('/export/cierre', {
+        exportarTodos: true, periodoInicio: ini, periodoFin: fin,
+      }, rrhh.token);
+      assertStatus(status, 409, `${etiqueta}: ${JSON.stringify(body).slice(0, 200)}`);
+      const b = body as { totalAprobadas: number; totalPendientes: number };
+      assert(
+        b.totalAprobadas + b.totalPendientes === activos,
+        `${etiqueta}: totalAprobadas(${b.totalAprobadas}) + totalPendientes(${b.totalPendientes}) = `
+        + `${b.totalAprobadas + b.totalPendientes} ≠ ${activos} usuarios activos — el Excel y el `
+        + 'chequeo de pendientes dejaron de mirar la misma ventana',
+      );
+    }
   });
 
   // ════════════════════════════════════════════════════════════════════════
