@@ -3,6 +3,7 @@ import { Search, Users, Loader2, Eye, EyeOff, AlertTriangle } from 'lucide-react
 import { cn } from '@/lib/utils';
 import { esDiaFranco } from '@/utils/planillaHelpers';
 import { francoDelDia, tramoDelDia } from '@/utils/tramosDiagrama';
+import { turnoKey } from '@/utils/turnos';
 import {
   type GanttData, type Empleado, type TramoEmp, type Bloque, type Cat,
   MESES, DOW_SHORT, CAT, CAT_LABEL, ESTADO_BADGE, COUNTABLE, CAT_ORDER,
@@ -11,14 +12,10 @@ import {
 
 // ── Turno derivation: se agrupa por el tramo vigente HOY (con un cambio a mitad
 // de año, agrupar por el diagrama "de siempre" mezclaría gente que ya cambió con
-// gente que todavía no) ──
+// gente que todavía no). El criterio de la clave en sí (mismo patrón de
+// descanso, no misma asignación) vive en utils/turnos.ts, con test propio. ──
 function tramoVigenteHoy(tramos: TramoEmp[]): TramoEmp | null {
   return tramoDelDia(tramos, new Date());
-}
-function turnoKey(tramos: TramoEmp[]): string {
-  const t = tramoVigenteHoy(tramos);
-  if (!t) return 'SIN';
-  return `${t.diagrama.id}|${t.fechaInicio.slice(0, 10)}`;
 }
 function turnoSubtitle(tramos: TramoEmp[], anio: number): string {
   const t = tramoVigenteHoy(tramos);
