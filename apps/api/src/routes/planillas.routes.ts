@@ -17,7 +17,8 @@ import {
 import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { logAuditoria } from '../lib/auditoria.js';
 import { devolverSaldoDeMarca, borrarAdjuntosDeMarcas } from '../utils/marca-manual.utils.js';
-import { contextoDelDia, esDiaFrancoSegunDiagrama, feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
+import { contextoDelDia, feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
+import { tramosDeUsuario, esFrancoEnFecha } from '../utils/diagrama-vigencia.utils.js';
 import {
   construirCircuito,
   nivelesPorRol,
@@ -442,11 +443,14 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       where: { id: req.user!.userId },
       select: { empresaId: true, sectorId: true, rol: true },
     });
-    const diagramaAsignacion = await prisma.usuarioDiagrama.findFirst({
-      where: { usuarioId: req.user!.userId, activo: true },
-      include: { diagrama: true },
-      orderBy: { fechaInicio: 'desc' },
-    });
+    // Tramos que cubren el período: un cambio de diagrama aprobado a mitad de
+    // ciclo parte el período, y con una sola asignación la validación reclama
+    // días que eran franco (o deja pasar días laborables sin cargar).
+    const tramos = await tramosDeUsuario(
+      req.user!.userId,
+      new Date(planilla.periodoInicio),
+      new Date(planilla.periodoFin),
+    );
 
     // Feriados vigentes: los mismos que usa el cálculo del recargo (nacionales ∪
     // los de la empresa), para que la planilla no exija cargar un día que el
@@ -455,10 +459,9 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
       ? new Set((await feriadosDeEmpresa(usuario.empresaId)).keys())
       : new Set<string>();
 
-    // Franco por diagrama: misma función que deriva esFrancoTrabajado al guardar.
+    // Franco por diagrama: misma fuente que deriva esFrancoTrabajado al guardar.
     function esDiaFranco(fecha: Date): boolean {
-      if (!diagramaAsignacion) return false;
-      return esDiaFrancoSegunDiagrama(fecha, diagramaAsignacion.diagrama, diagramaAsignacion.fechaInicio);
+      return esFrancoEnFecha(tramos, fecha);
     }
 
     const inicio = new Date(planilla.periodoInicio);
