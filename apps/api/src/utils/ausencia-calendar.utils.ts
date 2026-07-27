@@ -4,6 +4,7 @@
  * created to back-fill any previously-approved absences/vacations.
  */
 import { PrismaClient, Prisma } from '@prisma/client';
+import { diaDesdeEntrada, dentroDelRango } from './fecha-dia.utils.js';
 
 const { Decimal } = Prisma;
 
@@ -40,7 +41,7 @@ export async function inyectarDiasBloqueados(range: AusenciaRange): Promise<void
 
   for (const day of days) {
     const planilla = planillas.find(
-      (p) => day >= p.periodoInicio && day <= p.periodoFin
+      (p) => dentroDelRango(day, p.periodoInicio, p.periodoFin)
     );
     if (!planilla) continue;
 
@@ -116,8 +117,8 @@ export async function backfillAusenciasEnPlanilla(
   for (const aus of ausencias) {
     const tipoLabel = formatTipoAusencia(aus.tipo);
     const days = buildDaysBetween(
-      clampDate(aus.fechaInicio, periodoInicio),
-      clampDate(aus.fechaFin, periodoFin, true),
+      clampDia(aus.fechaInicio, periodoInicio),
+      clampDia(aus.fechaFin, periodoFin, true),
     );
 
     for (const day of days) {
@@ -157,8 +158,8 @@ export async function backfillAusenciasEnPlanilla(
 
   for (const vac of vacaciones) {
     const days = buildDaysBetween(
-      clampDate(vac.fechaInicio, periodoInicio),
-      clampDate(vac.fechaFin, periodoFin, true),
+      clampDia(vac.fechaInicio, periodoInicio),
+      clampDia(vac.fechaFin, periodoFin, true),
     );
 
     for (const day of days) {
@@ -199,15 +200,17 @@ export async function backfillAusenciasEnPlanilla(
 
 // ─── Helpers ─────────────────────────────────────
 
-function buildDaysBetween(start: Date, end: Date): Date[] {
-  // Se normaliza en UTC (no con setHours/getDate en hora local): las fechas de
-  // este dominio (RegistroHoras.fecha, Ausencia.fechaInicio/Fin, Planilla.periodo*)
-  // se guardan como medianoche UTC del día calendario. Usar setHours (hora local)
-  // en un servidor con TZ != UTC (p. ej. America/Buenos_Aires, UTC-3) desplaza el
-  // día hacia atrás y rompe la coincidencia con esos registros.
+/**
+ * Días calendario entre dos fechas, inclusive. Normaliza las puntas: da lo mismo
+ * si vienen a medianoche UTC, a medianoche argentina o con la hora de la
+ * aprobación.
+ *
+ * Exportada para poder testearla sin base de datos.
+ */
+export function buildDaysBetween(start: Date, end: Date): Date[] {
   const days: Date[] = [];
-  const cur = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
-  const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+  const cur = diaDesdeEntrada(start);
+  const last = diaDesdeEntrada(end);
   while (cur <= last) {
     days.push(new Date(cur));
     cur.setUTCDate(cur.getUTCDate() + 1);
@@ -215,9 +218,17 @@ function buildDaysBetween(start: Date, end: Date): Date[] {
   return days;
 }
 
-function clampDate(d: Date, boundary: Date, isMax = false): Date {
-  if (isMax) return d > boundary ? boundary : d;
-  return d < boundary ? boundary : d;
+/**
+ * Recorta un día contra un borde del período, comparando por día calendario.
+ *
+ * Antes comparaba timestamps: con el período guardado a las 03:00Z y el día a
+ * las 00:00Z, el primer día del período quedaba afuera.
+ */
+export function clampDia(dia: Date, borde: Date, esTecho = false): Date {
+  const d = diaDesdeEntrada(dia);
+  const b = diaDesdeEntrada(borde);
+  if (esTecho) return d > b ? b : d;
+  return d < b ? b : d;
 }
 
 export function formatTipoAusencia(tipo: string): string {
