@@ -35,3 +35,17 @@ export function diaLocal(iso: string): Date {
 export function fmtDia(iso: string, opts?: Intl.DateTimeFormatOptions): string {
   return diaLocal(iso).toLocaleDateString('es-AR', opts);
 }
+
+/**
+ * Clave 'YYYY-MM-DD' del día de HOY en el huso del navegador.
+ *
+ * Es el reemplazo de `new Date().toISOString().slice(0, 10)`, que devuelve el día
+ * **UTC**: entre las 21:00 y las 24:00 en Argentina ése ya es el día siguiente.
+ *
+ * `ahora` es un parámetro sólo para poder testearlo con un instante fijo.
+ */
+export function hoyKey(ahora: Date = new Date()): string {
+  const mes = String(ahora.getMonth() + 1).padStart(2, '0');
+  const dia = String(ahora.getDate()).padStart(2, '0');
+  return `${ahora.getFullYear()}-${mes}-${dia}`;
+}

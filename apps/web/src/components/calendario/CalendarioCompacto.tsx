@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Users, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { diaLocal, fmtDia } from '@/utils/fechaDia';
+import { diaLocal, fmtDia, hoyKey } from '@/utils/fechaDia';
 import {
   type GanttData, type Bloque, type Cat,
   MESES, CAT, CAT_LABEL, CAT_ORDER, ESTADO_BADGE, catOf, tipoLabel, computeOverlapPeaks,
@@ -29,6 +29,14 @@ export default function CalendarioCompacto({ data, anio, isLoading, onOverlapSel
   );
   const totalDays = useMemo(() => months.reduce((s, m) => s + m.days, 0), [months]);
 
+  /**
+   * Día-del-año (0-based) de una FECHA-DÍA: una clave 'YYYY-MM-DD' o un ISO que
+   * el backend ya normalizó a medianoche UTC.
+   *
+   * NO admite un instante real: lee el día con `slice(0, 10)` sobre el ISO, que
+   * es el día **UTC**. Para "hoy" hay que pasarle `hoyKey()`, no
+   * `new Date().toISOString()`.
+   */
   const dateToDayOffset = (dateStr: string) => {
     const d = diaLocal(dateStr);
     const start = new Date(anio, 0, 1, 12, 0, 0);
@@ -131,7 +139,7 @@ export default function CalendarioCompacto({ data, anio, isLoading, onOverlapSel
 
                     {/* Marcador de hoy */}
                     {anio === new Date().getFullYear() && (() => {
-                      const todayOffset = dateToDayOffset(new Date().toISOString());
+                      const todayOffset = dateToDayOffset(hoyKey());
                       return (
                         <div
                           className="absolute top-0 bottom-0 w-px bg-primary/60 z-10"
