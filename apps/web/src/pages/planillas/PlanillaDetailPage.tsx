@@ -1488,6 +1488,20 @@ export default function PlanillaDetailPage() {
             </div>
 
             <div className="p-4 space-y-4">
+              {/* Pedido en revisión: se avisa, pero no se bloquea la carga. Va
+                  arriba del formulario, que sigue editable y guardable. */}
+              {!registroMap[selectedDate]?.bloqueado && pendientePorDia[selectedDate] && (
+                <div className="rounded-lg border border-cal-amber/30 bg-amber-500/10 p-3 space-y-1">
+                  <p className="text-xs font-semibold text-cal-amber flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5" />
+                    {etiquetaTipoSolicitud(pendientePorDia[selectedDate]!.tipo)} en revisión
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Tenés un pedido en revisión para este día. Si se aprueba, lo que cargues acá se va a reemplazar.
+                  </p>
+                </div>
+              )}
+
               {/* Locked day notice */}
               {registroMap[selectedDate]?.bloqueado && (
                 <div className="rounded-lg border border-cal-violet/30 bg-violet-500/10 p-4 text-center space-y-1">
