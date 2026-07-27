@@ -2,6 +2,7 @@ import assert from 'node:assert';
 import {
   tramoDelDia,
   esFrancoEnFecha,
+  diaAnterior,
   type TramoDiagrama,
 } from '../src/utils/diagrama-vigencia.utils.js';
 
@@ -120,7 +121,32 @@ async function run() {
   ];
   assert.strictEqual(tramoDelDia(cierreConHora, d('2026-07-27')), null);
 
-  console.log('✓ diagrama-vigencia: 14/14 OK');
+  // 15. Un día normal: retrocede uno.
+  assert.strictEqual(diaAnterior(d('2026-08-02')).toISOString(), d('2026-08-01').toISOString());
+
+  // 16. Cruce de mes: 01/08 → 31/07.
+  assert.strictEqual(diaAnterior(d('2026-08-01')).toISOString(), d('2026-07-31').toISOString());
+
+  // 17. Cruce de año: 01/01 → 31/12 del año anterior.
+  assert.strictEqual(diaAnterior(d('2026-01-01')).toISOString(), d('2025-12-31').toISOString());
+
+  // 18. No muta el Date recibido: las rutas siguen usando la fecha original
+  //     después de calcular el corte, así que una mutación in-place sería un bug
+  //     silencioso (fechaInicio de la nueva asignación correría un día para atrás).
+  const original = new Date('2026-08-01T15:32:10.100Z');
+  const antes = original.getTime();
+  diaAnterior(original);
+  assert.strictEqual(original.getTime(), antes);
+
+  // 19. Conserva la hora original: las rutas guardan la hora real de la
+  //     aprobación/asignación, no medianoche, y tramoDelDia compara por clave de
+  //     día — pero igual el valor guardado en la base debe conservar la hora.
+  assert.strictEqual(
+    diaAnterior(new Date('2026-08-01T15:32:10.100Z')).toISOString(),
+    '2026-07-31T15:32:10.100Z',
+  );
+
+  console.log('✓ diagrama-vigencia: 19/19 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

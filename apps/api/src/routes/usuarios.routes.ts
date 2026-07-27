@@ -7,6 +7,7 @@ import { fechaFlexible } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_ADMIN, LEVEL_RRHH, LEVEL_COORDINADOR, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
 import { revokeAllRefreshTokensForUser } from '../utils/jwt.utils.js';
+import { diaAnterior } from '../utils/diagrama-vigencia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -534,16 +535,20 @@ router.patch('/:id/diagrama', requireLevel(LEVEL_RRHH), async (req: AuthRequest,
     }
 
     // Atomic: deactivate the current assignment and create the new one together.
+    const inicioNuevo = new Date(parsed.data.fechaInicio);
     const assignment = await prisma.$transaction(async (tx) => {
+      // Se cierra el día antes de que arranque la nueva, no "hoy": con una
+      // fechaInicio futura, cerrar hoy dejaba los días del medio sin diagrama, y
+      // sin diagrama ningún día es franco.
       await tx.usuarioDiagrama.updateMany({
         where: { usuarioId: req.params.id as string, activo: true },
-        data: { activo: false, fechaFin: new Date() },
+        data: { activo: false, fechaFin: diaAnterior(inicioNuevo) },
       });
       return tx.usuarioDiagrama.create({
         data: {
           usuarioId: req.params.id as string,
           diagramaId: parsed.data.diagramaId,
-          fechaInicio: new Date(parsed.data.fechaInicio),
+          fechaInicio: inicioNuevo,
         },
         include: { diagrama: true },
       });

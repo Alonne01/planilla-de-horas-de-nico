@@ -18,6 +18,7 @@ import {
   resolverFlujo,
   type PasoCircuito,
 } from '../utils/circuito.utils.js';
+import { diaAnterior } from '../utils/diagrama-vigencia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -380,18 +381,20 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
 
         // On final approval: apply the diagram change
         if (nuevoEstado === 'APROBADA') {
-          // Close current diagram assignment
+          const desde = solicitud.fechaEfectiva ?? new Date();
+          // La saliente se cierra el día ANTERIOR al arranque de la entrante: si
+          // ambas cubren el día del corte, ese día queda con dos diagramas
+          // vigentes y el franco depende de un desempate.
           await tx.usuarioDiagrama.updateMany({
             where: { usuarioId: solicitud.usuarioId, activo: true },
-            data: { activo: false, fechaFin: solicitud.fechaEfectiva ?? new Date() },
+            data: { activo: false, fechaFin: diaAnterior(desde) },
           });
 
-          // Create new diagram assignment
           await tx.usuarioDiagrama.create({
             data: {
               usuarioId: solicitud.usuarioId,
               diagramaId: solicitud.diagramaNuevoId,
-              fechaInicio: solicitud.fechaEfectiva ?? new Date(),
+              fechaInicio: desde,
               activo: true,
             },
           });

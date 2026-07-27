@@ -116,3 +116,13 @@ export function esFrancoEnFecha(tramos: TramoDiagrama[], fecha: Date): boolean {
   if (!tramo) return false;
   return esDiaFrancoSegunDiagrama(fecha, tramo.diagrama, tramo.fechaInicio);
 }
+
+/**
+ * El día anterior, en UTC. Se usa para cerrar la asignación saliente el día antes
+ * de que arranque la entrante, en vez de dejar las dos cubriendo el día del corte.
+ */
+export function diaAnterior(fecha: Date): Date {
+  const d = new Date(fecha);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d;
+}
