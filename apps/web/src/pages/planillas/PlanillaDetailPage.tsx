@@ -16,6 +16,7 @@ import {
   dateKey, esFeriadoNacional, nombreFeriado, cargarFeriados,
   buildCalendarDays, buildWeeks, cellStyle,
 } from '@/utils/planillaHelpers';
+import { diaKey } from '@/utils/fechaDia';
 import { francoDelDia, tramoDelDia, esInicioDeTramo, diagramaHeaderText, type TramoDiagrama } from '@/utils/tramosDiagrama';
 import { pasoActualDe, type PasoDocumento } from '@/utils/circuito';
 import { avisarSinCircuito } from '@/lib/avisoCircuito';
@@ -335,8 +336,7 @@ export default function PlanillaDetailPage() {
     const map: Record<string, Registro> = {};
     if (planilla) {
       for (const r of planilla.registros) {
-        const d = new Date(r.fecha);
-        map[dateKey(d)] = r;
+        map[diaKey(r.fecha)] = r;
       }
     }
     return map;
@@ -620,7 +620,7 @@ export default function PlanillaDetailPage() {
             return new Date(y, m - 1, d, t.getHours(), t.getMinutes(), 0).toISOString();
           };
           const body = {
-            fecha: new Date(y, m - 1, d, 12, 0, 0).toISOString(),
+            fecha: key,
             entradaTurno1: sameClock(src.entradaTurno1),
             salidaTurno1: sameClock(src.salidaTurno1),
             entradaTurno2: null,
@@ -873,7 +873,6 @@ export default function PlanillaDetailPage() {
 
   function handleSaveDay() {
     const [y, m, d] = selectedDate!.split('-').map(Number);
-    const fecha = new Date(y, m - 1, d, 12, 0, 0);
 
     const toIso = (time: string) => {
       if (!time) return null;
@@ -894,7 +893,7 @@ export default function PlanillaDetailPage() {
     }
 
     saveRegistroMutation.mutate({
-      fecha: fecha.toISOString(),
+      fecha: selectedDate,
       entradaTurno1: toIso(formData.entradaTurno1),
       salidaTurno1: toIso(formData.salidaTurno1),
       entradaTurno2: null,
