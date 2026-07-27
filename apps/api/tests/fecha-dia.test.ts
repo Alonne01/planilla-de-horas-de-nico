@@ -18,6 +18,7 @@ import {
   filtroFechaInicioEnPeriodo,
   filtroDiaExacto,
 } from '../src/utils/periodo-query.utils.js';
+import { estadoVigencia } from '../src/utils/capacitacion-vigencia.utils.js';
 
 async function run() {
   // 1. Fecha-sola: el día es literal, no se le aplica ningún offset.
@@ -270,7 +271,26 @@ async function run() {
   assert.ok(!(new Date('2026-07-22T00:00:00.000Z') <= diaExacto.lte));
   assert.ok(!(new Date('2026-07-20T15:00:00.000Z') >= diaExacto.gte));
 
-  console.log('✓ fecha-dia: 33/33 OK');
+  // 34. El estado de vigencia de una capacitación se mide por día calendario,
+  //     no contra el instante `new Date()`. El caso que fallaba: el 26/7 a las
+  //     23:00 hora argentina (= 27/7 02:00Z), un certificado que vence el 26/7
+  //     daba ceil(-1.083) = -1 → "vencida", cuando en Argentina todavía es el 26
+  //     y vence recién esa noche.
+  const hoy26 = diaLocalEmpresaDe(new Date('2026-07-27T02:00:00.000Z')); // 26/7 23:00 AR
+  assert.strictEqual(claveFecha(hoy26), '2026-07-26');
+  assert.strictEqual(estadoVigencia(diaDesdeEntrada('2026-07-26'), 30, hoy26), 'proxima');
+  assert.strictEqual(estadoVigencia(diaDesdeEntrada('2026-07-25'), 30, hoy26), 'vencida');
+  assert.strictEqual(estadoVigencia(diaDesdeEntrada('2026-08-25'), 30, hoy26), 'proxima');
+  assert.strictEqual(estadoVigencia(diaDesdeEntrada('2026-08-26'), 30, hoy26), 'vigente');
+  assert.strictEqual(estadoVigencia(null, 30, hoy26), 'sin_vencimiento');
+  // Tolera las filas viejas sin migrar (medianoche argentina / mediodía).
+  assert.strictEqual(estadoVigencia(new Date('2026-07-26T03:00:00.000Z'), 30, hoy26), 'proxima');
+  assert.strictEqual(estadoVigencia(new Date('2026-07-25T15:00:00.000Z'), 30, hoy26), 'vencida');
+  // alertaDias = 0: sólo el mismo día avisa.
+  assert.strictEqual(estadoVigencia(diaDesdeEntrada('2026-07-26'), 0, hoy26), 'proxima');
+  assert.strictEqual(estadoVigencia(diaDesdeEntrada('2026-07-27'), 0, hoy26), 'vigente');
+
+  console.log('✓ fecha-dia: 34/34 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

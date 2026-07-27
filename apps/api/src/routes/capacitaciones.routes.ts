@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
 import { fechaDia } from '../utils/zod.utils.js';
+import { hoyLocalEmpresa } from '../utils/fecha-dia.utils.js';
+import { estadoVigencia } from '../utils/capacitacion-vigencia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -180,18 +182,11 @@ router.get('/registros', requireLevel(LEVEL_COORDINADOR), async (req: AuthReques
     });
 
     // Filter by status (vigente/vencida/proxima) in-memory
-    const now = new Date();
-    const result = registros.map((r) => {
-      let statusCap: 'vigente' | 'vencida' | 'proxima' | 'sin_vencimiento' = 'sin_vencimiento';
-      if (r.fechaVencimiento) {
-        const venc = new Date(r.fechaVencimiento);
-        const diffDays = Math.ceil((venc.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays < 0) statusCap = 'vencida';
-        else if (diffDays <= (r.tipo.alertaDias ?? 30)) statusCap = 'proxima';
-        else statusCap = 'vigente';
-      }
-      return { ...r, statusCap };
-    });
+    const hoy = hoyLocalEmpresa();
+    const result = registros.map((r) => ({
+      ...r,
+      statusCap: estadoVigencia(r.fechaVencimiento, r.tipo.alertaDias ?? 30, hoy),
+    }));
 
     if (estado) {
       res.json(result.filter((r) => r.statusCap === estado));
@@ -321,7 +316,7 @@ router.delete('/registros/:id', requireLevel(LEVEL_RRHH), async (req: AuthReques
 
 router.get('/resumen', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const now = new Date();
+    const hoy = hoyLocalEmpresa();
     const userNivel = req.user!.rolNivel ?? 0;
     const userId = req.user!.userId;
 
@@ -350,10 +345,11 @@ router.get('/resumen', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest,
 
     let vigentes = 0, vencidas = 0, proximas = 0;
     registros.forEach((r) => {
-      if (!r.fechaVencimiento) { vigentes++; return; }
-      const diff = Math.ceil((new Date(r.fechaVencimiento).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      if (diff < 0) vencidas++;
-      else if (diff <= (r.tipo.alertaDias ?? 30)) proximas++;
+      // Un registro sin vencimiento cuenta como vigente en este resumen (a
+      // diferencia de GET /registros, que lo expone como 'sin_vencimiento').
+      const estado = estadoVigencia(r.fechaVencimiento, r.tipo.alertaDias ?? 30, hoy);
+      if (estado === 'vencida') vencidas++;
+      else if (estado === 'proxima') proximas++;
       else vigentes++;
     });
 
