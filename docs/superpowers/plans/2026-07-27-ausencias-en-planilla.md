@@ -1174,21 +1174,35 @@ git commit -m "fix(web): todas las pantallas leen las fechas-dia por clave"
 
 ```bash
 cd "C:/dev/planilla de horas/apps/api" && npx prisma db execute --stdin <<'SQL'
-SELECT 'ausencias' t, count(*) FROM ausencias WHERE (fecha_inicio AT TIME ZONE 'UTC')::time <> '00:00:00'
-UNION ALL SELECT 'vacaciones', count(*) FROM vacaciones WHERE (fecha_inicio AT TIME ZONE 'UTC')::time <> '00:00:00'
-UNION ALL SELECT 'planillas', count(*) FROM planillas WHERE (periodo_inicio AT TIME ZONE 'UTC')::time <> '00:00:00'
-UNION ALL SELECT 'registros', count(*) FROM registros_horas WHERE (fecha AT TIME ZONE 'UTC')::time <> '00:00:00';
+SELECT 'ausencias' t, count(*) FROM ausencias WHERE fecha_inicio IS DISTINCT FROM date_trunc('day', fecha_inicio)
+UNION ALL SELECT 'vacaciones', count(*) FROM vacaciones WHERE fecha_inicio IS DISTINCT FROM date_trunc('day', fecha_inicio)
+UNION ALL SELECT 'planillas', count(*) FROM planillas WHERE periodo_inicio IS DISTINCT FROM date_trunc('day', periodo_inicio)
+UNION ALL SELECT 'registros', count(*) FROM registros_horas WHERE fecha IS DISTINCT FROM date_trunc('day', fecha);
 SQL
 ```
 
 Anotar los números: al terminar tienen que ser todos 0.
 
-- [ ] **Step 2: Verificar que el colapso no rompe el índice único**
+- [ ] **Step 2: Verificar la precondición que hace correcta la conversión**
+
+`date_trunc` se queda con la parte fecha del valor guardado. Eso es lo correcto **mientras ninguna fila caiga en la ventana `00:00 < hora < 03:00`**: un valor ahí sería un instante que en hora argentina pertenece al día *anterior*, y truncarlo lo correría un día hacia adelante. Hay que barrer las 23 columnas (la lista completa está en el SQL del Step 4):
+
+```bash
+cd "C:/dev/planilla de horas/apps/api" && npx prisma db execute --stdin <<'SQL'
+SELECT 'ausencias.fecha_inicio' c, count(*) FROM ausencias WHERE fecha_inicio::time > '00:00:00' AND fecha_inicio::time < '03:00:00'
+UNION ALL SELECT 'usuarios.fecha_ingreso', count(*) FROM usuarios WHERE fecha_ingreso::time > '00:00:00' AND fecha_ingreso::time < '03:00:00'
+UNION ALL SELECT 'usuarios_diagramas.fecha_inicio', count(*) FROM usuarios_diagramas WHERE fecha_inicio::time > '00:00:00' AND fecha_inicio::time < '03:00:00';
+SQL
+```
+
+Esperado: `0` en todas. Si alguna diera distinto de 0, **parar**: esa fila necesita convertirse restando el offset, no truncando.
+
+- [ ] **Step 3: Verificar que el colapso no rompe el índice único**
 
 ```bash
 cd "C:/dev/planilla de horas/apps/api" && npx prisma db execute --stdin <<'SQL'
 SELECT count(*) AS colisiones FROM (
-  SELECT planilla_id, date(fecha AT TIME ZONE 'UTC') d
+  SELECT planilla_id, date_trunc('day', fecha) d
   FROM registros_horas GROUP BY 1,2 HAVING count(*) > 1
 ) x;
 SQL
@@ -1196,77 +1210,99 @@ SQL
 
 Esperado: `0`. Si diera distinto de 0, **parar**: hay días con dos registros (uno con horas y otro bloqueado) y hay que decidir cuál sobrevive antes de migrar. La regla en ese caso es conservar el bloqueado y borrar el otro.
 
-- [ ] **Step 3: Crear la migración vacía**
+- [ ] **Step 4: Crear la migración vacía**
 
 ```bash
 cd "C:/dev/planilla de horas/apps/api" && npx prisma migrate dev --name normalizar_fechas_dia --create-only
 ```
 
-- [ ] **Step 4: Escribir el SQL**
+- [ ] **Step 5: Escribir el SQL**
+
+> **La versión aplicada y de referencia vive en
+> `apps/api/prisma/migrations/20260727173000_normalizar_fechas_dia/migration.sql`**
+> (commit `84f8f04`), con el comentario de cabecera completo. Lo de abajo es lo
+> mismo; ante cualquier diferencia manda el archivo, no este documento.
 
 En el `migration.sql` recién creado:
 
 ```sql
--- Normaliza todas las FECHAS-DÍA a medianoche UTC del día calendario argentino.
+-- Normaliza todas las FECHAS-DÍA a medianoche del día calendario argentino.
 --
--- POR QUÉ EL `AT TIME ZONE 'UTC'` DEL FINAL (y no se puede sacar):
--- `ts AT TIME ZONE 'America/Argentina/Buenos_Aires'` sobre un `timestamptz`
--- devuelve un `timestamp` SIN huso. Al asignarlo de vuelta a una columna
--- `timestamptz`, Postgres lo reinterpreta EN LA ZONA DE LA SESIÓN. Con la sesión
--- en UTC sale bien; con la sesión en hora argentina es un no-op silencioso.
--- El `AT TIME ZONE 'UTC'` cierra el viaje de ida y vuelta explícitamente, así
--- que el resultado no depende de la configuración de la conexión.
+-- POR QUÉ ESTE SQL NO LLEVA NINGÚN `AT TIME ZONE`:
+-- Las 23 columnas de abajo son `timestamp WITHOUT time zone`: Prisma mapea
+-- `DateTime` a `timestamp(3)`, no a `timestamptz`. Verificado contra
+-- information_schema: en todo el schema no hay una sola fecha-día en timestamptz.
 --
--- POR QUÉ EL WHERE TAMBIÉN LLEVA `AT TIME ZONE 'UTC'`:
--- `col::time` sobre un `timestamptz` también se evalúa en la zona de la sesión.
--- Bajo una sesión en hora argentina, una fila YA correcta (00:00Z) castea a
--- 21:00:00 y entraría al UPDATE, que la correría un día. La guarda tiene que
--- preguntar por la hora EN UTC.
+-- Sobre un `timestamp` naive, `AT TIME ZONE` NO es un viaje de ida y vuelta
+-- neutro: es una conversión real que MUEVE el valor. `col AT TIME ZONE 'UTC'`
+-- interpreta el naive como UTC y devuelve un timestamptz, que después se castea
+-- en la zona de la SESIÓN. Como el servidor corre con
+-- TimeZone = America/Buenos_Aires, una fila YA correcta (00:00) castea a 21:00
+-- del día anterior y entraría al UPDATE; y una fila en 03:00 castea a 00:00, así
+-- que quedaría sin arreglar. O sea que con `AT TIME ZONE` el script hace
+-- exactamente lo contrario de lo que tiene que hacer: rompe las filas sanas y
+-- deja las rotas. Comprobado sobre el servidor real antes de escribir esto.
 --
--- Sólo se tocan las filas cuya hora UTC no sea 00:00: las demás ya están en la
--- convención de destino, y aplicarles la conversión las correría al día anterior.
--- Escrito así, el script es idempotente: correrlo dos veces da el mismo estado.
+-- Prisma escribe y lee estas columnas como reloj UTC, así que la parte DÍA del
+-- valor guardado ya es el día calendario argentino en las convenciones que
+-- convivían:
+--   00:00 -> día D (ya correcta)
+--   03:00 -> medianoche AR de D, guardada como UTC        -> día D
+--   15:00 -> mediodía AR de D, guardado como UTC          -> día D
+--   22:08 -> instante real (new Date()) de las 19:08 AR   -> día D
+-- En los cuatro casos el día buscado es la parte fecha del naive, así que
+-- truncar es la conversión correcta y no hay que tocar la zona horaria.
+--
+-- `date_trunc('day', <timestamp>)` sobre un naive es aritmética pura: da el
+-- mismo resultado bajo cualquier TimeZone de sesión. El script es idempotente y
+-- no depende de la configuración de la conexión. El `IS DISTINCT FROM` deja
+-- fuera las filas que ya están bien y también los NULL de las columnas
+-- opcionales, sin necesitar un `IS NOT NULL` aparte.
+--
+-- PRECONDICIÓN (la del Step 2): truncar es correcto sólo mientras ninguna fila
+-- caiga en la ventana 00:00 < hora < 03:00. Un valor ahí sería un instante que
+-- en hora argentina pertenece al día ANTERIOR, y date_trunc lo correría un día.
 --
 -- No se tocan los instantes reales (created_at, aprobada_at, enviada_at,
 -- entrada_turno*, salida_turno*, etc.).
 
-UPDATE registros_horas SET fecha = date_trunc('day', fecha AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (fecha AT TIME ZONE 'UTC')::time <> '00:00:00';
+UPDATE registros_horas SET fecha = date_trunc('day', fecha) WHERE fecha IS DISTINCT FROM date_trunc('day', fecha);
 
-UPDATE ausencias SET fecha_inicio = date_trunc('day', fecha_inicio AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (fecha_inicio AT TIME ZONE 'UTC')::time <> '00:00:00';
-UPDATE ausencias SET fecha_fin = date_trunc('day', fecha_fin AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (fecha_fin AT TIME ZONE 'UTC')::time <> '00:00:00';
+UPDATE ausencias SET fecha_inicio = date_trunc('day', fecha_inicio) WHERE fecha_inicio IS DISTINCT FROM date_trunc('day', fecha_inicio);
+UPDATE ausencias SET fecha_fin = date_trunc('day', fecha_fin) WHERE fecha_fin IS DISTINCT FROM date_trunc('day', fecha_fin);
 
-UPDATE vacaciones SET fecha_inicio = date_trunc('day', fecha_inicio AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (fecha_inicio AT TIME ZONE 'UTC')::time <> '00:00:00';
-UPDATE vacaciones SET fecha_fin = date_trunc('day', fecha_fin AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (fecha_fin AT TIME ZONE 'UTC')::time <> '00:00:00';
+UPDATE vacaciones SET fecha_inicio = date_trunc('day', fecha_inicio) WHERE fecha_inicio IS DISTINCT FROM date_trunc('day', fecha_inicio);
+UPDATE vacaciones SET fecha_fin = date_trunc('day', fecha_fin) WHERE fecha_fin IS DISTINCT FROM date_trunc('day', fecha_fin);
 
-UPDATE planillas SET periodo_inicio = date_trunc('day', periodo_inicio AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (periodo_inicio AT TIME ZONE 'UTC')::time <> '00:00:00';
-UPDATE planillas SET periodo_fin = date_trunc('day', periodo_fin AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (periodo_fin AT TIME ZONE 'UTC')::time <> '00:00:00';
+UPDATE planillas SET periodo_inicio = date_trunc('day', periodo_inicio) WHERE periodo_inicio IS DISTINCT FROM date_trunc('day', periodo_inicio);
+UPDATE planillas SET periodo_fin = date_trunc('day', periodo_fin) WHERE periodo_fin IS DISTINCT FROM date_trunc('day', periodo_fin);
 
-UPDATE usuarios_diagramas SET fecha_inicio = date_trunc('day', fecha_inicio AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (fecha_inicio AT TIME ZONE 'UTC')::time <> '00:00:00';
-UPDATE usuarios_diagramas SET fecha_fin = date_trunc('day', fecha_fin AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE fecha_fin IS NOT NULL AND (fecha_fin AT TIME ZONE 'UTC')::time <> '00:00:00';
+UPDATE usuarios_diagramas SET fecha_inicio = date_trunc('day', fecha_inicio) WHERE fecha_inicio IS DISTINCT FROM date_trunc('day', fecha_inicio);
+UPDATE usuarios_diagramas SET fecha_fin = date_trunc('day', fecha_fin) WHERE fecha_fin IS DISTINCT FROM date_trunc('day', fecha_fin);
 
-UPDATE usuarios SET fecha_ingreso = date_trunc('day', fecha_ingreso AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (fecha_ingreso AT TIME ZONE 'UTC')::time <> '00:00:00';
-UPDATE usuarios SET fecha_nacimiento = date_trunc('day', fecha_nacimiento AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE fecha_nacimiento IS NOT NULL AND (fecha_nacimiento AT TIME ZONE 'UTC')::time <> '00:00:00';
-UPDATE usuarios SET fecha_fin_prueba = date_trunc('day', fecha_fin_prueba AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE fecha_fin_prueba IS NOT NULL AND (fecha_fin_prueba AT TIME ZONE 'UTC')::time <> '00:00:00';
-UPDATE usuarios SET fecha_egreso = date_trunc('day', fecha_egreso AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE fecha_egreso IS NOT NULL AND (fecha_egreso AT TIME ZONE 'UTC')::time <> '00:00:00';
+UPDATE usuarios SET fecha_ingreso = date_trunc('day', fecha_ingreso) WHERE fecha_ingreso IS DISTINCT FROM date_trunc('day', fecha_ingreso);
+UPDATE usuarios SET fecha_nacimiento = date_trunc('day', fecha_nacimiento) WHERE fecha_nacimiento IS DISTINCT FROM date_trunc('day', fecha_nacimiento);
+UPDATE usuarios SET fecha_fin_prueba = date_trunc('day', fecha_fin_prueba) WHERE fecha_fin_prueba IS DISTINCT FROM date_trunc('day', fecha_fin_prueba);
+UPDATE usuarios SET fecha_egreso = date_trunc('day', fecha_egreso) WHERE fecha_egreso IS DISTINCT FROM date_trunc('day', fecha_egreso);
 
-UPDATE exportaciones SET periodo_inicio = date_trunc('day', periodo_inicio AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (periodo_inicio AT TIME ZONE 'UTC')::time <> '00:00:00';
-UPDATE exportaciones SET periodo_fin = date_trunc('day', periodo_fin AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (periodo_fin AT TIME ZONE 'UTC')::time <> '00:00:00';
+UPDATE exportaciones SET periodo_inicio = date_trunc('day', periodo_inicio) WHERE periodo_inicio IS DISTINCT FROM date_trunc('day', periodo_inicio);
+UPDATE exportaciones SET periodo_fin = date_trunc('day', periodo_fin) WHERE periodo_fin IS DISTINCT FROM date_trunc('day', periodo_fin);
 
-UPDATE proyectos SET fecha_inicio = date_trunc('day', fecha_inicio AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE fecha_inicio IS NOT NULL AND (fecha_inicio AT TIME ZONE 'UTC')::time <> '00:00:00';
-UPDATE proyectos SET fecha_fin = date_trunc('day', fecha_fin AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE fecha_fin IS NOT NULL AND (fecha_fin AT TIME ZONE 'UTC')::time <> '00:00:00';
+UPDATE proyectos SET fecha_inicio = date_trunc('day', fecha_inicio) WHERE fecha_inicio IS DISTINCT FROM date_trunc('day', fecha_inicio);
+UPDATE proyectos SET fecha_fin = date_trunc('day', fecha_fin) WHERE fecha_fin IS DISTINCT FROM date_trunc('day', fecha_fin);
 
-UPDATE empleado_capacitaciones SET fecha_realizacion = date_trunc('day', fecha_realizacion AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (fecha_realizacion AT TIME ZONE 'UTC')::time <> '00:00:00';
-UPDATE empleado_capacitaciones SET fecha_vencimiento = date_trunc('day', fecha_vencimiento AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE fecha_vencimiento IS NOT NULL AND (fecha_vencimiento AT TIME ZONE 'UTC')::time <> '00:00:00';
+UPDATE empleado_capacitaciones SET fecha_realizacion = date_trunc('day', fecha_realizacion) WHERE fecha_realizacion IS DISTINCT FROM date_trunc('day', fecha_realizacion);
+UPDATE empleado_capacitaciones SET fecha_vencimiento = date_trunc('day', fecha_vencimiento) WHERE fecha_vencimiento IS DISTINCT FROM date_trunc('day', fecha_vencimiento);
 
-UPDATE sesiones_capacitacion SET fecha = date_trunc('day', fecha AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (fecha AT TIME ZONE 'UTC')::time <> '00:00:00';
+UPDATE sesiones_capacitacion SET fecha = date_trunc('day', fecha) WHERE fecha IS DISTINCT FROM date_trunc('day', fecha);
 
-UPDATE solicitudes_cambio_diagrama SET fecha_efectiva = date_trunc('day', fecha_efectiva AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE fecha_efectiva IS NOT NULL AND (fecha_efectiva AT TIME ZONE 'UTC')::time <> '00:00:00';
+UPDATE solicitudes_cambio_diagrama SET fecha_efectiva = date_trunc('day', fecha_efectiva) WHERE fecha_efectiva IS DISTINCT FROM date_trunc('day', fecha_efectiva);
 
-UPDATE wentop_tarjetas SET fecha_reporte = date_trunc('day', fecha_reporte AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE (fecha_reporte AT TIME ZONE 'UTC')::time <> '00:00:00';
-UPDATE wentop_tarjetas SET fecha_cierre = date_trunc('day', fecha_cierre AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' WHERE fecha_cierre IS NOT NULL AND (fecha_cierre AT TIME ZONE 'UTC')::time <> '00:00:00';
+UPDATE wentop_tarjetas SET fecha_reporte = date_trunc('day', fecha_reporte) WHERE fecha_reporte IS DISTINCT FROM date_trunc('day', fecha_reporte);
+UPDATE wentop_tarjetas SET fecha_cierre = date_trunc('day', fecha_cierre) WHERE fecha_cierre IS DISTINCT FROM date_trunc('day', fecha_cierre);
 ```
 
-- [ ] **Step 5: Aplicar la migración**
+- [ ] **Step 6: Aplicar la migración**
 
 Bajar la API si está corriendo (con la API viva, `prisma generate` falla en Windows por el `.dll` tomado), y después:
 
@@ -1274,18 +1310,20 @@ Bajar la API si está corriendo (con la API viva, `prisma generate` falla en Win
 cd "C:/dev/planilla de horas/apps/api" && npx prisma migrate deploy
 ```
 
-- [ ] **Step 6: Verificar el resultado**
+- [ ] **Step 7: Verificar el resultado**
 
 ```bash
 cd "C:/dev/planilla de horas/apps/api" && npx prisma db execute --stdin <<'SQL'
-SELECT 'ausencias' t, count(*) FROM ausencias WHERE (fecha_inicio AT TIME ZONE 'UTC')::time <> '00:00:00'
-UNION ALL SELECT 'vacaciones', count(*) FROM vacaciones WHERE (fecha_inicio AT TIME ZONE 'UTC')::time <> '00:00:00'
-UNION ALL SELECT 'planillas', count(*) FROM planillas WHERE (periodo_inicio AT TIME ZONE 'UTC')::time <> '00:00:00'
-UNION ALL SELECT 'registros', count(*) FROM registros_horas WHERE (fecha AT TIME ZONE 'UTC')::time <> '00:00:00';
+SELECT 'ausencias' t, count(*) FROM ausencias WHERE fecha_inicio IS DISTINCT FROM date_trunc('day', fecha_inicio)
+UNION ALL SELECT 'vacaciones', count(*) FROM vacaciones WHERE fecha_inicio IS DISTINCT FROM date_trunc('day', fecha_inicio)
+UNION ALL SELECT 'planillas', count(*) FROM planillas WHERE periodo_inicio IS DISTINCT FROM date_trunc('day', periodo_inicio)
+UNION ALL SELECT 'registros', count(*) FROM registros_horas WHERE fecha IS DISTINCT FROM date_trunc('day', fecha);
 SQL
 ```
 
-Esperado: los cuatro en 0. Además, la ausencia del reporte tiene que seguir diciendo 31 de julio:
+Esperado: los cuatro en 0. Correr el `migration.sql` una segunda vez tiene que dar `UPDATE 0` en los 23 statements: si alguno toca filas, el script no es idempotente y hay algo mal.
+
+Además, la ausencia del reporte tiene que seguir diciendo 31 de julio:
 
 ```bash
 cd "C:/dev/planilla de horas/apps/api" && npx prisma db execute --stdin <<'SQL'
@@ -1297,7 +1335,7 @@ SQL
 
 Esperado: la `FALTA_JUSTIFICADA` en `2026-07-31 00:00:00` y el `CERTIFICADO_MEDICO` del `2026-07-28` al `2026-07-29`.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 cd "C:/dev/planilla de horas"
