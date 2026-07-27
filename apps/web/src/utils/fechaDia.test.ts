@@ -1,24 +1,32 @@
 import assert from 'node:assert';
-import { diaKey, fmtDia, diaLocal, hoyKey, diasEntre } from './fechaDia.js';
+import { diaKey, fmtDia, diaLocal, hoyKey, diasEntre, claveLocal } from './fechaDia.js';
 
 async function run() {
   // 1. La clave sale del string, sin construir un Date (que correría el día en UTC-3).
   assert.strictEqual(diaKey('2026-07-31T00:00:00.000Z'), '2026-07-31');
 
-  // 2. Datos previos a la migración (medianoche argentina) → mismo día.
+  // 2. Datos previos a la migración: las otras DOS convenciones que todavía
+  //    conviven en la base — 03:00Z (medianoche argentina) y 15:00Z (mediodía
+  //    local, lo que mandaba la planilla). Las tres son el mismo día.
   assert.strictEqual(diaKey('2026-07-31T03:00:00.000Z'), '2026-07-31');
+  assert.strictEqual(diaKey('2026-07-31T15:00:00.000Z'), '2026-07-31');
 
   // 3. Fecha-sola.
   assert.strictEqual(diaKey('2026-07-31'), '2026-07-31');
 
-  // 4. diaLocal da un Date en el día correcto del huso del navegador.
-  const d = diaLocal('2026-07-31T00:00:00.000Z');
-  assert.strictEqual(d.getFullYear(), 2026);
-  assert.strictEqual(d.getMonth(), 6);
-  assert.strictEqual(d.getDate(), 31);
+  // 4. diaLocal da un Date en el día correcto del huso del navegador, para las
+  //    tres convenciones.
+  for (const iso of ['2026-07-31T00:00:00.000Z', '2026-07-31T03:00:00.000Z', '2026-07-31T15:00:00.000Z']) {
+    const d = diaLocal(iso);
+    assert.strictEqual(d.getFullYear(), 2026, iso);
+    assert.strictEqual(d.getMonth(), 6, iso);
+    assert.strictEqual(d.getDate(), 31, iso);
+  }
 
-  // 5. El formateo muestra el día pedido, no el anterior.
+  // 5. El formateo muestra el día pedido, no el anterior, para las tres.
   assert.strictEqual(fmtDia('2026-07-31T00:00:00.000Z'), '31/7/2026');
+  assert.strictEqual(fmtDia('2026-07-31T03:00:00.000Z'), '31/7/2026');
+  assert.strictEqual(fmtDia('2026-07-31T15:00:00.000Z'), '31/7/2026');
 
   // 6. Con opciones: el formato que usa WentopPage (`formatDate`) para
   //    fechaReporte/fechaCierre. Antes daba '30/07/2026'.
@@ -64,7 +72,32 @@ async function run() {
     assert.notStrictEqual(hoyKey(nocheLocal), diaUtc, 'hoyKey debe seguir el día local, no el UTC');
   }
 
-  console.log('✓ fechaDia: 9/9 OK');
+  // 10. claveLocal lee el día LOCAL de un `Date`. Es el contrato del que cuelgan
+  //     hoyKey, planillaHelpers.dateKey, el claveLocal de tramosDiagrama y los
+  //     fechaInicio/fechaFin de los 4 POST de ausencias y vacaciones, así que se
+  //     testea DIRECTO y no sólo a través de hoyKey.
+  //     Los dos instantes están a horas locales que caen en otro día UTC (23:00
+  //     al oeste de UTC, 00:30 al este), así que si alguien "optimiza" claveLocal
+  //     a `.toISOString().slice(0, 10)` —el error que su docstring advierte— esto
+  //     falla en cualquier huso que no sea exactamente UTC, que es el único donde
+  //     las dos versiones coinciden.
+  for (const [h, min] of [[23, 0], [0, 30]] as const) {
+    assert.strictEqual(claveLocal(new Date(2026, 6, 15, h, min, 0)), '2026-07-15', `${h}:${min} local`);
+  }
+  // Ceros a la izquierda en mes y día.
+  assert.strictEqual(claveLocal(new Date(2026, 0, 5, 12, 0, 0)), '2026-01-05');
+
+  // 11. La trampa simétrica: claveLocal NO sirve para una fecha-día del backend.
+  //     Sobre una medianoche UTC, en cualquier huso al oeste de UTC devuelve el
+  //     día ANTERIOR. Por eso las fechas-día del backend van por diaKey, que
+  //     nunca construye un Date.
+  const medianocheUtc = new Date('2026-07-31T00:00:00.000Z');
+  if (medianocheUtc.getTimezoneOffset() > 0) { // > 0 ⇒ al oeste de UTC (Argentina)
+    assert.strictEqual(claveLocal(medianocheUtc), '2026-07-30');
+    assert.notStrictEqual(claveLocal(medianocheUtc), diaKey('2026-07-31T00:00:00.000Z'));
+  }
+
+  console.log('✓ fechaDia: 11/11 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

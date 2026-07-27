@@ -1,11 +1,19 @@
 /**
  * Fechas-DÍA en el front.
  *
- * El backend las guarda como medianoche UTC del día calendario argentino y las
- * serializa con `.toISOString()`. Construir un `Date` con ese string y leerlo con
- * getters locales (`getDate()`, `toLocaleDateString()`) corre el día hacia atrás
- * en cualquier huso negativo: en Argentina (UTC-3), `2026-07-31T00:00:00.000Z`
- * es el 30 a las 21:00. Ese era el bug de la ausencia que se pintaba un día antes.
+ * La convención de destino es medianoche UTC del día calendario argentino, y el
+ * backend serializa con `.toISOString()`. Construir un `Date` con ese string y
+ * leerlo con getters locales (`getDate()`, `toLocaleDateString()`) corre el día
+ * hacia atrás en cualquier huso negativo: en Argentina (UTC-3),
+ * `2026-07-31T00:00:00.000Z` es el 30 a las 21:00. Ése era el bug de la ausencia
+ * que se pintaba un día antes.
+ *
+ * OJO: la migración de datos TODAVÍA NO CORRIÓ. En la base conviven las tres
+ * convenciones históricas — `00:00Z`, `03:00Z` (medianoche argentina) y `15:00Z`
+ * (mediodía local, lo que mandaba la planilla) — y estos helpers manejan las tres
+ * sin distinguirlas, justamente porque la clave sale del string y nunca se
+ * construye un `Date` con el ISO. No leas el párrafo de arriba como permiso para
+ * hacer `new Date(iso)` sobre un campo "ya migrado": sigue siendo incorrecto.
  *
  * Regla: la clave del día sale del STRING; si hace falta un `Date` (para
  * formatear o para calcular), se construye con los componentes ya extraídos.
@@ -14,7 +22,16 @@
  * con `new Date(iso)` porque su hora importa.
  */
 
-/** Clave 'YYYY-MM-DD' de una fecha-día serializada por el backend. */
+/**
+ * Clave 'YYYY-MM-DD' de una FECHA-DÍA serializada por el backend.
+ *
+ * Sólo para fechas-día. Pasarle un INSTANTE real devuelve su día **UTC**, que no
+ * es el día calendario argentino: entre las 21:00 y las 24:00 en Argentina el día
+ * UTC ya es mañana. Ése fue exactamente el error del marcador de "hoy" del gantt
+ * (`diaKey(new Date().toISOString())` daba el día siguiente), y el tipo `string`
+ * no lo puede atajar. Para el día local de un `Date` está `claveLocal`; para hoy,
+ * `hoyKey`.
+ */
 export function diaKey(iso: string): string {
   return iso.slice(0, 10);
 }
