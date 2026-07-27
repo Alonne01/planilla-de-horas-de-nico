@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient, PlanillaEstado, LugarTrabajo, PernocteEnum, Prisma, AusenciaTipo } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { z } from 'zod';
-import { fechaFlexible, spanDiasCalendario } from '../utils/zod.utils.js';
+import { fechaDia, fechaFlexible, spanDiasCalendario } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH, LEVEL_ADMIN } from '../middleware/roles.middleware.js';
 import { notificarPlanilla, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
@@ -18,6 +18,7 @@ import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, formatTipoAusencia
 import { logAuditoria } from '../lib/auditoria.js';
 import { devolverSaldoDeMarca, borrarAdjuntosDeMarcas } from '../utils/marca-manual.utils.js';
 import { feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
+import { claveFecha, dentroDelRango } from '../utils/fecha-dia.utils.js';
 import { tramosDeUsuario, esFrancoEnFecha } from '../utils/diagrama-vigencia.utils.js';
 import {
   construirCircuito,
@@ -58,8 +59,8 @@ async function assertPlanillaAccess(req: AuthRequest, planillaId: string): Promi
 const MAX_DIAS_PERIODO = 366;
 
 const createPlanillaSchema = z.object({
-  periodoInicio: fechaFlexible.optional(),
-  periodoFin: fechaFlexible.optional(),
+  periodoInicio: fechaDia.optional(),
+  periodoFin: fechaDia.optional(),
 }).refine(
   (d) => !d.periodoInicio || !d.periodoFin
     || spanDiasCalendario(d.periodoInicio, d.periodoFin) <= MAX_DIAS_PERIODO,
@@ -70,7 +71,7 @@ const createPlanillaSchema = z.object({
 const horaOpcional = z.union([fechaFlexible, z.literal('')]).nullable().optional();
 
 const createRegistroSchema = z.object({
-  fecha: fechaFlexible,
+  fecha: fechaDia,
   entradaTurno1: horaOpcional,
   salidaTurno1: horaOpcional,
   entradaTurno2: horaOpcional,
@@ -91,7 +92,7 @@ const createRegistroSchema = z.object({
 
 // PUT identifica el registro por :rid, por lo que `fecha` es opcional
 // (si se omite, se conserva la fecha del registro existente).
-const updateRegistroSchema = createRegistroSchema.extend({ fecha: z.string().optional() });
+const updateRegistroSchema = createRegistroSchema.extend({ fecha: fechaDia.optional() });
 
 // ─── GET /planillas ──────────────────────────────
 
@@ -422,12 +423,12 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
     // Índice por fecha: evita recorrer todos los registros en cada día del período
     const registrosPorFecha = new Map<string, (typeof registros)[number]>();
     for (const r of registros) {
-      const rDate = new Date(r.fecha).toISOString().split('T')[0] as string;
+      const rDate = claveFecha(r.fecha);
       if (!registrosPorFecha.has(rDate)) registrosPorFecha.set(rDate, r);
     }
 
-    for (let d = new Date(inicio); d <= fin; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0] as string;
+    for (let d = new Date(inicio); d <= fin; d.setUTCDate(d.getUTCDate() + 1)) {
+      const dateStr = claveFecha(d);
 
       // Skip franco (rest) days — no registro needed
       if (esDiaFranco(d)) continue;
@@ -1008,7 +1009,7 @@ router.post('/:id/registros', async (req: AuthRequest, res: Response): Promise<v
     }
 
     const config = await getEmpresaConfig(planilla.usuario.empresaId);
-    const fecha = new Date(parsed.data.fecha);
+    const fecha = parsed.data.fecha;
     const { calculo, esFeriado, esFrancoTrabajado } = await calcularConContexto(
       parsed.data,
       fecha,
@@ -1098,7 +1099,7 @@ router.put('/:id/registros/:rid', async (req: AuthRequest, res: Response): Promi
     }
 
     const config = await getEmpresaConfig(planilla.usuario.empresaId);
-    const fecha = parsed.data.fecha ? new Date(parsed.data.fecha) : existingReg.fecha;
+    const fecha = parsed.data.fecha ?? existingReg.fecha;
     const { calculo, esFeriado, esFrancoTrabajado } = await calcularConContexto(
       parsed.data,
       fecha,
@@ -1376,7 +1377,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
 const ESTADOS_OWNER = ['BORRADOR', 'RECHAZADA'];
 
 const marcarDiaSchema = z.object({
-  fecha: fechaFlexible,
+  fecha: fechaDia,
   tipo: z.nativeEnum(AusenciaTipo),
   descripcion: z.string().max(500).optional(),
 });
@@ -1440,13 +1441,9 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
       return;
     }
 
-    // No usar setHours (hora local): desplazaría la fecha un día por el huso horario
-    // del servidor y rompería la igualdad con las fechas guardadas como UTC-medianoche
-    // (mismo patrón que el resto del archivo, p. ej. POST /:id/registros).
-    const fecha = new Date(parsed.data.fecha);
-    const ini = new Date(planilla.periodoInicio);
-    const fin = new Date(planilla.periodoFin);
-    if (fecha < ini || fecha > fin) {
+    // La fecha llega normalizada por fechaDia: medianoche UTC del día calendario.
+    const fecha = parsed.data.fecha;
+    if (!dentroDelRango(fecha, planilla.periodoInicio, planilla.periodoFin)) {
       res.status(400).json({ error: 'La fecha está fuera del período de la planilla' });
       return;
     }
@@ -1465,7 +1462,7 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
     }
 
     const tipo = parsed.data.tipo;
-    const anio = fecha.getFullYear();
+    const anio = fecha.getUTCFullYear();
 
     let ausencia;
     try {
