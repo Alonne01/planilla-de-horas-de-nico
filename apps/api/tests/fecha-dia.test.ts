@@ -6,6 +6,7 @@ import {
   dentroDelRango,
   hoyLocalEmpresa,
 } from '../src/utils/fecha-dia.utils.js';
+import { fechaDia, spanDiasCalendario } from '../src/utils/zod.utils.js';
 
 async function run() {
   // 1. Fecha-sola: el día es literal, no se le aplica ningún offset.
@@ -55,7 +56,26 @@ async function run() {
   // 12. hoyLocalEmpresa devuelve medianoche UTC exacta (invariante de la convención).
   assert.strictEqual(hoyLocalEmpresa().getTime() % 86_400_000, 0);
 
-  console.log('✓ fecha-dia: 12/12 OK');
+  // 13. fechaDia devuelve un Date ya normalizado, no un string.
+  const parseado = fechaDia.parse('2026-07-31T03:00:00.000Z');
+  assert.ok(parseado instanceof Date);
+  assert.strictEqual(parseado.toISOString(), '2026-07-31T00:00:00.000Z');
+
+  // 14. fechaDia rechaza basura con el mismo mensaje que fechaFlexible.
+  assert.strictEqual(fechaDia.safeParse('31/07/2026').success, false);
+
+  // 15. spanDiasCalendario acepta Date (además de string) y es inclusivo.
+  assert.strictEqual(spanDiasCalendario('2026-07-28', '2026-07-29'), 2);
+  assert.strictEqual(
+    spanDiasCalendario(new Date('2026-07-28T00:00:00.000Z'), new Date('2026-07-29T00:00:00.000Z')),
+    2,
+  );
+  assert.strictEqual(
+    spanDiasCalendario(new Date('2026-07-31T00:00:00.000Z'), new Date('2026-07-31T00:00:00.000Z')),
+    1,
+  );
+
+  console.log('✓ fecha-dia: 15/15 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { diaDesdeEntrada } from './fecha-dia.utils.js';
 
 /**
  * Schema de fecha flexible: acepta fecha-sola "YYYY-MM-DD" o ISO 8601 datetime
@@ -14,11 +15,25 @@ export const fechaFlexible = z.string().refine(
 );
 
 /**
- * Cantidad de días-calendario entre dos fechas, inclusive en ambos extremos
- * (el mismo día da 1). Asume que ambos strings ya pasaron por `fechaFlexible`.
+ * Fecha-DÍA: valida igual que `fechaFlexible` pero **devuelve un `Date` ya
+ * normalizado** a medianoche UTC del día calendario argentino.
+ *
+ * Los handlers no tienen que decidir nada: da lo mismo si el cliente manda
+ * "2026-07-31", "2026-07-31T00:00:00-03:00" o un ISO con hora.
+ *
+ * `fechaFlexible` sigue existiendo para lo que NO es una fecha-día: las horas de
+ * entrada/salida de un registro (`horaOpcional` en planillas.routes.ts), que son
+ * instantes reales y conservan su hora.
  */
-export function spanDiasCalendario(fechaInicio: string, fechaFin: string): number {
-  const ini = new Date(fechaInicio);
-  const fin = new Date(fechaFin);
-  return Math.floor((fin.getTime() - ini.getTime()) / 86_400_000) + 1;
+export const fechaDia = fechaFlexible.transform((s) => diaDesdeEntrada(s));
+
+/**
+ * Cantidad de días-calendario entre dos fechas, inclusive en ambos extremos
+ * (el mismo día da 1). Acepta strings validados por `fechaFlexible` o los `Date`
+ * que devuelve `fechaDia`.
+ */
+export function spanDiasCalendario(fechaInicio: string | Date, fechaFin: string | Date): number {
+  const ini = diaDesdeEntrada(fechaInicio);
+  const fin = diaDesdeEntrada(fechaFin);
+  return Math.round((fin.getTime() - ini.getTime()) / 86_400_000) + 1;
 }
