@@ -44,12 +44,24 @@ router.get('/diagramas', requireLevel(LEVEL_COORDINADOR), async (req: AuthReques
 
 // ─── Schemas ─────────────────────────────────────
 
+/** Medianoche UTC de hoy: el piso contra el que se compara la fecha de inicio. */
+function hoyUTC(): Date {
+  const ahora = new Date();
+  return new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate()));
+}
+
 const createSolicitudSchema = z.object({
   usuarioId: z.string().uuid(),
   diagramaNuevoId: z.string().uuid(),
   motivo: z.string().min(1).max(500).optional(),
-  fechaEfectiva: fechaFlexible.optional(),
-});
+  // Obligatoria y futura: el diagrama nuevo rige desde este día, y la solicitud
+  // vence si no se termina de aprobar antes. Aceptarla vacía o pasada dejaría el
+  // cambio aplicándose retroactivo sobre días ya cargados.
+  fechaEfectiva: fechaFlexible,
+}).refine(
+  (d) => new Date(d.fechaEfectiva) > hoyUTC(),
+  { message: 'La fecha de inicio del diagrama debe ser posterior a hoy', path: ['fechaEfectiva'] },
+);
 
 // ─── GET /cambios-diagrama ────────────────────────
 // Lists solicitudes visible to the current user

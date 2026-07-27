@@ -61,6 +61,13 @@ function diagramaLabel(d: Diagrama | null) {
   return d.nombre;
 }
 
+/** Mañana en formato YYYY-MM-DD: el primer día que el backend acepta. */
+function manana(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export default function CambiosDiagramaPage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
@@ -71,6 +78,7 @@ export default function CambiosDiagramaPage() {
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedDiagramaId, setSelectedDiagramaId] = useState('');
   const [motivo, setMotivo] = useState('');
+  const [fechaEfectiva, setFechaEfectiva] = useState('');
   const [rechazandoId, setRechazandoId] = useState<string | null>(null);
   const [motivoRechazo, setMotivoRechazo] = useState('');
   const [filter, setFilter] = useState<'all' | 'PENDIENTE' | 'APROBADA' | 'RECHAZADA'>('all');
@@ -110,7 +118,7 @@ export default function CambiosDiagramaPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: { usuarioId: string; diagramaNuevoId: string; motivo?: string }) =>
+    mutationFn: (data: { usuarioId: string; diagramaNuevoId: string; motivo?: string; fechaEfectiva: string }) =>
       api.post('/cambios-diagrama', data),
     onSuccess: (res) => {
       // El alta ES el envío: si el sector del empleado no tiene circuito, el
@@ -122,6 +130,7 @@ export default function CambiosDiagramaPage() {
       setSelectedUserId('');
       setSelectedDiagramaId('');
       setMotivo('');
+      setFechaEfectiva('');
       toast({ title: 'Solicitud creada', variant: 'success' });
     },
   });
@@ -165,8 +174,13 @@ export default function CambiosDiagramaPage() {
   const filtered = filter === 'all' ? displayList : displayList.filter(s => s.estado === filter);
 
   const handleSubmit = () => {
-    if (!selectedUserId || !selectedDiagramaId) return;
-    createMutation.mutate({ usuarioId: selectedUserId, diagramaNuevoId: selectedDiagramaId, motivo: motivo || undefined });
+    if (!selectedUserId || !selectedDiagramaId || !fechaEfectiva) return;
+    createMutation.mutate({
+      usuarioId: selectedUserId,
+      diagramaNuevoId: selectedDiagramaId,
+      motivo: motivo || undefined,
+      fechaEfectiva,
+    });
   };
 
   return (
@@ -249,6 +263,24 @@ export default function CambiosDiagramaPage() {
             </select>
           </div>
 
+          {/* Fecha de inicio del diagrama nuevo */}
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
+              Desde qué día rige
+            </label>
+            <input
+              type="date"
+              value={fechaEfectiva}
+              min={manana()}
+              onChange={(e) => setFechaEfectiva(e.target.value)}
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              La solicitud vence si no queda aprobada antes de esta fecha: ese día se
+              rechaza sola y hay que pedirla de nuevo con otra fecha.
+            </p>
+          </div>
+
           {/* Motivo */}
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">Motivo (opcional)</label>
@@ -263,7 +295,7 @@ export default function CambiosDiagramaPage() {
 
           <button
             onClick={handleSubmit}
-            disabled={!selectedUserId || !selectedDiagramaId || createMutation.isPending}
+            disabled={!selectedUserId || !selectedDiagramaId || !fechaEfectiva || createMutation.isPending}
             className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4" />}
