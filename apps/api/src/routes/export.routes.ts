@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { claveFecha } from '../utils/contexto-dia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -55,8 +56,18 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
     // Los tramos que tocan el período. Con un cambio a mitad de ciclo, poner un
     // solo nombre en el encabezado contradice los francos de la propia planilla.
     const fmt = (d: Date) => d.toISOString().slice(0, 10).split('-').reverse().join('/');
+    // Comparar el Date crudo es el mismo bug que ya se corrigió en
+    // diagrama-vigencia.utils.ts (tramoDelDia) y en recalculo-diagrama.utils.ts:
+    // `fechaInicio`/`fechaFin` guardan la hora real de la aprobación, no
+    // medianoche UTC, así que un tramo que arranca a las 15:32 del último día
+    // del período quedaría afuera aunque por día calendario corresponda. Se
+    // compara por clave de día ('YYYY-MM-DD'), la misma convención que usa
+    // `RegistroHoras.fecha`.
+    const periodoInicioClave = claveFecha(planilla.periodoInicio);
+    const periodoFinClave = claveFecha(planilla.periodoFin);
     const tramosPeriodo = u.diagramas.filter(
-      (a) => a.fechaInicio <= planilla.periodoFin && (!a.fechaFin || a.fechaFin >= planilla.periodoInicio),
+      (a) => claveFecha(a.fechaInicio) <= periodoFinClave
+        && (!a.fechaFin || claveFecha(a.fechaFin) >= periodoInicioClave),
     );
     const diagramaNombre = tramosPeriodo.length === 0
       ? null
