@@ -267,13 +267,19 @@ async function main() {
   });
 
   // ═══ D. Cambio de diagrama ═══
+  /** Fecha futura para las solicitudes de cambio de diagrama, que exigen una. */
+  function fechaFuturaISO(diasAdelante = 30): string {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + diasAdelante);
+    return d.toISOString().slice(0, 10);
+  }
   await scenario('D1 el dueño cancela su cambio de diagrama → desaparece', async () => {
     const { body: diagramas } = await get('/diagramas', owner.token);
     const lista = Array.isArray(diagramas) ? diagramas : (diagramas?.data ?? []);
     if (lista.length === 0) { info('no hay diagramas cargados: escenario no aplicable'); return; }
     const destino = lista.find((d: any) => d.id !== owner.user.sectorId) ?? lista[0];
     const { status, body } = await post('/cambios-diagrama', {
-      usuarioId: ownerId, diagramaNuevoId: destino.id, motivo: `QA ${TS}`,
+      usuarioId: ownerId, diagramaNuevoId: destino.id, motivo: `QA ${TS}`, fechaEfectiva: fechaFuturaISO(),
     }, owner.token);
     if (status !== 201) { info(`no se pudo crear la solicitud (HTTP ${status}): ${JSON.stringify(body).slice(0, 120)}`); return; }
     const c = await cancelar('cambio-diagrama', body.id, owner.token);

@@ -1089,6 +1089,13 @@ async function scenarioN_WenTop(users: UserInfo[], rrhhSession: Session, adminSe
 // SCENARIO O: Cambios Diagrama — create request, approval chain
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/** Fecha futura para las solicitudes de cambio de diagrama, que exigen una. */
+function fechaFuturaISO(diasAdelante = 30): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + diasAdelante);
+  return d.toISOString().slice(0, 10);
+}
+
 async function scenarioO_CambiosDiagrama(users: UserInfo[], rrhhSession: Session, adminSession: Session) {
   const label = 'O:CambioDiagrama';
   console.log(c('CYAN', '\n── Scenario O: Cambios Diagrama ─────────────────────────────────────────'));
@@ -1125,6 +1132,7 @@ async function scenarioO_CambiosDiagrama(users: UserInfo[], rrhhSession: Session
       usuarioId: operador!.id,
       diagramaNuevoId,
       motivo: 'Cambio de turno por necesidades operativas',
+      fechaEfectiva: fechaFuturaISO(),
     }, coordSession.token);
     if (status === 409) {
       // Pending/en-revision request exists — use RRHH to cancel or reject it
@@ -1145,6 +1153,7 @@ async function scenarioO_CambiosDiagrama(users: UserInfo[], rrhhSession: Session
         usuarioId: operador!.id,
         diagramaNuevoId,
         motivo: 'Cambio de turno por necesidades operativas (retry)',
+        fechaEfectiva: fechaFuturaISO(),
       }, coordSession.token);
       if (s2 !== 201 && s2 !== 200) throw new Error(`HTTP ${s2}: ${JSON.stringify(b2)}`);
       solicitudId = (b2 as Record<string, unknown>).id as string;
@@ -1226,6 +1235,7 @@ async function scenarioO_CambiosDiagrama(users: UserInfo[], rrhhSession: Session
       usuarioId: operador!.id,
       diagramaNuevoId: altDiagramaId,
       motivo: 'Cambio de prueba para rechazar',
+      fechaEfectiva: fechaFuturaISO(),
     }, coordSession.token);
     if (status !== 201 && status !== 200) { log('⚠', `Could not create second request: ${status}`, label); return; }
     const newSolId = (body as Record<string, unknown>).id as string;

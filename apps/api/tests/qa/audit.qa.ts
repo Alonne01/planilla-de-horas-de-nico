@@ -435,6 +435,12 @@ async function main() {
   // ════════════════════════════════════════════════════════════════════════
   // CAMBIOS-DIAGRAMA
   // ════════════════════════════════════════════════════════════════════════
+  /** Fecha futura para las solicitudes de cambio de diagrama, que exigen una. */
+  function fechaFuturaISO(diasAdelante = 30): string {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + diasAdelante);
+    return d.toISOString().slice(0, 10);
+  }
   let diagId = '';
   let solA = '';
   let solB = '';
@@ -476,7 +482,7 @@ async function main() {
     assertStatus(status, 403);
   });
   await scenario('CD7 POST /cambios-diagrama (OPERADOR) → 403', 'CambiosDiagrama', async () => {
-    const { status } = await post('/cambios-diagrama', { usuarioId: opId, diagramaNuevoId: diagId }, operador.token);
+    const { status } = await post('/cambios-diagrama', { usuarioId: opId, diagramaNuevoId: diagId, fechaEfectiva: fechaFuturaISO() }, operador.token);
     assertStatus(status, 403);
   });
   await scenario('CD8 POST /cambios-diagrama invalid body (COORDINADOR) → 400', 'CambiosDiagrama', async () => {
@@ -485,14 +491,17 @@ async function main() {
   });
   await scenario('CD9 POST /cambios-diagrama (COORDINADOR) → 201 (solA)', 'CambiosDiagrama', async () => {
     const { status, body } = await post('/cambios-diagrama', {
-      usuarioId: opId, diagramaNuevoId: diagId, motivo: 'QA test A',
+      usuarioId: opId, diagramaNuevoId: diagId, motivo: 'QA test A', fechaEfectiva: fechaFuturaISO(),
     }, coord.token);
     assertStatus(status, 201, JSON.stringify(body));
     solA = (body as any).id;
     cleanup.push(async () => { await del(`/cambios-diagrama/${solA}`, coord.token).catch(() => {}); });
   });
   await scenario('CD10 POST /cambios-diagrama duplicate pending → 409', 'CambiosDiagrama', async () => {
-    const { status } = await post('/cambios-diagrama', { usuarioId: opId, diagramaNuevoId: diagId }, coord.token);
+    // fechaEfectiva es obligatoria desde e4acf21, pero acá lo que se prueba es el
+    // 409 por duplicado: sin la fecha, el 400 de validación lo taparía antes de
+    // llegar al chequeo de duplicados.
+    const { status } = await post('/cambios-diagrama', { usuarioId: opId, diagramaNuevoId: diagId, fechaEfectiva: fechaFuturaISO() }, coord.token);
     assertStatus(status, 409);
   });
   await scenario('CD11 POST :id/rechazar no motivo (RRHH) → 400', 'CambiosDiagrama', async () => {
@@ -509,7 +518,7 @@ async function main() {
     assertStatus(status, 400);
   });
   await scenario('CD14 POST /cambios-diagrama (solB, after A rejected) → 201', 'CambiosDiagrama', async () => {
-    const { status, body } = await post('/cambios-diagrama', { usuarioId: opId, diagramaNuevoId: diagId, motivo: 'QA test B' }, coord.token);
+    const { status, body } = await post('/cambios-diagrama', { usuarioId: opId, diagramaNuevoId: diagId, motivo: 'QA test B', fechaEfectiva: fechaFuturaISO() }, coord.token);
     assertStatus(status, 201, JSON.stringify(body));
     solB = (body as any).id;
   });
@@ -539,7 +548,7 @@ async function main() {
     assertStatus(status, 403);
   });
   await scenario('CD19 POST /cambios-diagrama (solC) → 201', 'CambiosDiagrama', async () => {
-    const { status, body } = await post('/cambios-diagrama', { usuarioId: opId, diagramaNuevoId: diagId, motivo: 'QA test C' }, coord.token);
+    const { status, body } = await post('/cambios-diagrama', { usuarioId: opId, diagramaNuevoId: diagId, motivo: 'QA test C', fechaEfectiva: fechaFuturaISO() }, coord.token);
     assertStatus(status, 201, JSON.stringify(body));
     solC = (body as any).id;
   });
