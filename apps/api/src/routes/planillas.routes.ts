@@ -1382,8 +1382,6 @@ const marcarDiaSchema = z.object({
   descripcion: z.string().max(500).optional(),
 });
 
-function ymd(d: Date): string { return d.toISOString().split('T')[0]; }
-
 // Libera el saldo comp. reservado/usado por las marcas manuales de una planilla
 // y las elimina. Se usa al borrar la planilla (Ausencia.planillaId no tiene FK/cascade).
 // Devuelve las URLs de los adjuntos para que el llamador los borre del disco DESPUÉS
@@ -1536,7 +1534,7 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
     await recalcularTotalesPlanilla(planillaId);
     await logAuditoria({
       entidad: 'Ausencia', entidadId: ausencia.id, accion: 'CREAR',
-      descripcion: `Marca manual ${tipo} ${ymd(fecha)} (a aprobar con la planilla)`,
+      descripcion: `Marca manual ${tipo} ${claveFecha(fecha)} (a aprobar con la planilla)`,
       usuarioId: actorId,
     });
 

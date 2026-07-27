@@ -2,9 +2,19 @@ import { z } from 'zod';
 import { diaDesdeEntrada, MS_POR_DIA } from './fecha-dia.utils.js';
 
 /**
- * Schema de fecha flexible: acepta fecha-sola "YYYY-MM-DD" o ISO 8601 datetime
- * completo (p. ej. "2026-06-01T00:00:00.000Z"). Devuelve el string sin transformar,
- * por lo que los handlers existentes (que hacen `new Date(valor)`) siguen funcionando.
+ * Schema de los INSTANTES-HORA (no de fechas-día): hoy el único consumidor es
+ * `horaOpcional` en planillas.routes.ts, para entradaTurno1/salidaTurno1/
+ * entradaTurno2/salidaTurno2 — que sí conservan su hora y por eso no pasan por
+ * `fechaDia`. Acepta fecha-sola "YYYY-MM-DD" o ISO 8601 datetime completo (p. ej.
+ * "2026-06-01T00:00:00.000Z") y devuelve el string sin transformar, por lo que
+ * el handler (que hace `new Date(valor)`) sigue funcionando.
+ *
+ * Aceptar "YYYY-MM-DD" a secas es un resabio de cuando este mismo schema
+ * también se usaba para fechas-día (antes de que existiera `fechaDia`): para
+ * una hora de turno es una entrada sin sentido ("2026-06-01", sin hora, ¿a qué
+ * hora del día corresponde?) que hoy pasa la validación igual —
+ * `new Date('2026-06-01')` da medianoche UTC, una hora "válida" pero casi
+ * seguro no la que el usuario quiso cargar.
  *
  * Reemplaza a `z.string().datetime()`, que rechazaba el formato fecha-sola y obligaba
  * a los clientes a mandar siempre el datetime completo.
