@@ -17,7 +17,7 @@
  */
 import { z } from 'zod';
 import { fechaDia } from './zod.utils.js';
-import { finDelDia, rangoConsultaDia } from './fecha-dia.utils.js';
+import { diaDesdeEntrada, finDelDia, rangoConsultaDia } from './fecha-dia.utils.js';
 
 /**
  * Una fecha-día opcional que llega por query string.
@@ -55,15 +55,23 @@ type FiltroRango = { gte?: Date; lte?: Date };
  * Filtro sobre las columnas `periodoInicio`/`periodoFin` de una planilla.
  *
  * Los dos bordes son independientes (cada uno se aplica sólo si vino), como en
- * el código que reemplaza. El piso es la medianoche UTC del día pedido —que ya
- * es lo que devuelve `fechaDia`—, así que una planilla guardada con la fecha-día
- * normalizada del primer día del ciclo entra en la ventana; el techo es el
- * último instante del último día, para que también entren las filas viejas que
- * todavía tienen hora (`03:00Z`, `15:00Z`) mientras no corra la migración.
+ * el código que reemplaza. El piso es la medianoche UTC del día pedido, así que
+ * una planilla guardada con la fecha-día normalizada del primer día del ciclo
+ * entra en la ventana; el techo es el último instante del último día, para que
+ * también entren las filas viejas que todavía tienen hora (`03:00Z`, `15:00Z`)
+ * mientras no corra la migración.
+ *
+ * Normaliza las dos puntas por su cuenta (igual que
+ * `filtroFechaInicioEnPeriodo` y `filtroDiaExacto`) y NO por contrato con el
+ * llamador: hoy los cinco call sites le pasan valores que ya salieron de
+ * `fechaDia`, pero un sexto que le pase un `planilla.periodoInicio` leído de la
+ * base —que hasta que corra la migración puede seguir en `03:00Z`— dejaría el
+ * piso en `03:00Z` y perdería justo las filas ya migradas a `00:00Z`. Sería el
+ * bug original reintroducido detrás de un nombre que promete lo contrario.
  */
 export function filtroPeriodoPlanilla(p: PeriodoQuery): { periodoInicio?: FiltroRango; periodoFin?: FiltroRango } {
   const filtro: { periodoInicio?: FiltroRango; periodoFin?: FiltroRango } = {};
-  if (p.periodoInicio) filtro.periodoInicio = { gte: p.periodoInicio };
+  if (p.periodoInicio) filtro.periodoInicio = { gte: diaDesdeEntrada(p.periodoInicio) };
   if (p.periodoFin) filtro.periodoFin = { lte: finDelDia(p.periodoFin) };
   return filtro;
 }

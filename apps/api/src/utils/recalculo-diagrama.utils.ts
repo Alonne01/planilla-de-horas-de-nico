@@ -1,5 +1,6 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { calcularConContexto, getEmpresaConfig, recalcularTotalesPlanilla } from './calculo.utils.js';
+import { diaDesdeEntrada } from './fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 
@@ -38,17 +39,18 @@ export async function recalcularDesde(
 ): Promise<ResultadoRecalculo> {
   // `RegistroHoras.fecha` siempre se guarda a medianoche UTC del día calendario
   // (misma convención que claveFecha en contexto-dia.utils.ts), pero `desde`
-  // puede llegar con la hora real de una aprobación: el llamador de
-  // cambios-diagrama.routes.ts cae a `new Date()` cuando la solicitud es vieja
-  // y no tiene `fechaEfectiva`. Comparando el Date crudo, "fecha >= desde" da
-  // false para el registro de HOY mismo (medianoche < la hora actual), aunque
-  // `tramoDelDia` ya considere que el diagrama nuevo rige desde hoy por clave
-  // de día: el día del cambio quedaría afuera del recálculo en silencio. Se
+  // puede llegar con hora: los llamadores le pasan `fechaEfectiva` (fecha-día) o
+  // un valor de la base que, hasta que corra la migración, puede seguir en
+  // `03:00Z`/`15:00Z`. Comparando el Date crudo, "fecha >= desde" da false para
+  // el registro de ESE MISMO día (medianoche < la hora guardada), aunque
+  // `tramoDelDia` ya considere que el diagrama nuevo rige ese día por clave de
+  // día: el día del cambio quedaría afuera del recálculo en silencio. Se
   // normaliza acá adentro (no en el llamador) para que la función sea robusta
   // sin importar qué hora traiga el Date que le pasen.
-  const desdeDia = new Date(Date.UTC(
-    desde.getUTCFullYear(), desde.getUTCMonth(), desde.getUTCDate(), 0, 0, 0, 0,
-  ));
+  //
+  // `diaDesdeEntrada` y no los getters UTC a mano: para un instante real de las
+  // últimas 3 h del día argentino, el día UTC ya es el siguiente.
+  const desdeDia = diaDesdeEntrada(desde);
 
   const planillas = await prisma.planilla.findMany({
     where: { usuarioId, periodoFin: { gte: desdeDia } },

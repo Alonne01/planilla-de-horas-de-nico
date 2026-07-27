@@ -484,7 +484,15 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
 
         // On final approval: apply the diagram change
         if (nuevoEstado === 'APROBADA') {
-          const desde = solicitud.fechaEfectiva ?? new Date();
+          // `hoyLocalEmpresa()` y no `new Date()`: este valor se guarda tal cual
+          // en `usuarioDiagrama.fechaInicio`, que es una fecha-DÍA. El fallback
+          // es alcanzable —`fechaEfectiva` es nullable en el schema y quedan
+          // filas viejas con null, de antes de que el POST la exigiera—, y con
+          // un instante crudo una aprobación entre las 21:00 y las 24:00 hora
+          // argentina se guarda con la clave del día SIGUIENTE: el corte de
+          // diagrama se pinta un día tarde, y `cierreDeAsignacion` cierra la
+          // saliente un día tarde con él.
+          const desde = solicitud.fechaEfectiva ?? hoyLocalEmpresa();
           // La saliente se cierra el día ANTERIOR al arranque de la entrante: si
           // ambas cubren el día del corte, ese día queda con dos diagramas
           // vigentes y el franco depende de un desempate.
@@ -559,7 +567,11 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       // `recalcularDesde` no lo hace, así que hace falta el try/catch acá para
       // no tumbar la respuesta de /avanzar.
       try {
-        const desdeRecalculo = solicitud.fechaEfectiva ?? new Date();
+        // Mismo fallback que el de la aplicación del cambio, y por el mismo
+        // motivo: `recalcularDesde` recorta el instante a su día UTC, que en las
+        // últimas 3 h del día argentino ya es el día siguiente, y el día del
+        // cambio se quedaría sin recalcular en silencio.
+        const desdeRecalculo = solicitud.fechaEfectiva ?? hoyLocalEmpresa();
         const { diasRecalculados, planillasCongeladas } = await recalcularDesde(
           solicitud.usuarioId, req.user!.empresaId, desdeRecalculo,
         );
