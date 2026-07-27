@@ -12,7 +12,7 @@ import {
 import { inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { notificarAusencia, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
-import { fechaFlexible, spanDiasCalendario } from '../utils/zod.utils.js';
+import { fechaDia, spanDiasCalendario } from '../utils/zod.utils.js';
 import { canManageUser } from '../utils/user-scope.utils.js';
 import {
   construirCircuito,
@@ -43,15 +43,15 @@ const MAX_SPAN_DIAS = 366;
 const createAusenciaSchema = z.object({
   usuarioId: z.string().uuid(),
   tipo: z.nativeEnum(AusenciaTipo),
-  fechaInicio: fechaFlexible,
-  fechaFin: fechaFlexible,
+  fechaInicio: fechaDia,
+  fechaFin: fechaDia,
   diasAusencia: z.number().int().min(1).max(366),
   descripcion: z.string().max(500).optional(),
   numeroCertificado: z.string().max(50).optional(),
   descuentaSueldo: z.boolean().optional(),
   porcentajeDescuento: z.number().min(0).max(100).optional(),
 }).refine(
-  (d) => new Date(d.fechaFin) >= new Date(d.fechaInicio),
+  (d) => d.fechaFin >= d.fechaInicio,
   { message: 'fechaFin debe ser mayor o igual a fechaInicio', path: ['fechaFin'] },
 ).refine(
   (d) => d.diasAusencia <= spanDiasCalendario(d.fechaInicio, d.fechaFin),
@@ -63,8 +63,8 @@ const createAusenciaSchema = z.object({
 
 const updateAusenciaSchema = z.object({
   tipo: z.nativeEnum(AusenciaTipo).optional(),
-  fechaInicio: fechaFlexible.optional(),
-  fechaFin: fechaFlexible.optional(),
+  fechaInicio: fechaDia.optional(),
+  fechaFin: fechaDia.optional(),
   diasAusencia: z.number().int().min(1).max(366).optional(),
   descripcion: z.string().max(500).optional(),
   numeroCertificado: z.string().max(50).optional(),
@@ -214,13 +214,13 @@ router.post('/solicitar', async (req: AuthRequest, res: Response): Promise<void>
 
     const schema = z.object({
       tipo: z.nativeEnum(AusenciaTipo),
-      fechaInicio: fechaFlexible,
-      fechaFin: fechaFlexible,
+      fechaInicio: fechaDia,
+      fechaFin: fechaDia,
       diasAusencia: z.number().int().min(1).max(366),
       descripcion: z.string().max(500).optional(),
       numeroCertificado: z.string().max(50).optional(),
     }).refine(
-      (d) => new Date(d.fechaFin) >= new Date(d.fechaInicio),
+      (d) => d.fechaFin >= d.fechaInicio,
       { message: 'fechaFin debe ser mayor o igual a fechaInicio', path: ['fechaFin'] },
     ).refine(
       (d) => d.diasAusencia <= spanDiasCalendario(d.fechaInicio, d.fechaFin),
@@ -280,8 +280,8 @@ router.post('/solicitar', async (req: AuthRequest, res: Response): Promise<void>
         tipo: parsed.data.tipo,
         estado: 'PENDIENTE',
         pasoActual: 1,
-        fechaInicio: new Date(parsed.data.fechaInicio),
-        fechaFin: new Date(parsed.data.fechaFin),
+        fechaInicio: parsed.data.fechaInicio,
+        fechaFin: parsed.data.fechaFin,
         diasAusencia: parsed.data.diasAusencia,
         descripcion: parsed.data.descripcion ?? null,
         numeroCertificado: parsed.data.numeroCertificado ?? null,
@@ -336,12 +336,12 @@ router.post('/compensatorio', async (req: AuthRequest, res: Response): Promise<v
     const empresaId = req.user!.empresaId;
 
     const schema = z.object({
-      fechaInicio: fechaFlexible,
-      fechaFin: fechaFlexible,
+      fechaInicio: fechaDia,
+      fechaFin: fechaDia,
       diasAusencia: z.number().int().min(1).max(366),
       descripcion: z.string().max(500).optional(),
     }).refine(
-      (d) => new Date(d.fechaFin) >= new Date(d.fechaInicio),
+      (d) => d.fechaFin >= d.fechaInicio,
       { message: 'fechaFin debe ser mayor o igual a fechaInicio', path: ['fechaFin'] },
     ).refine(
       (d) => d.diasAusencia <= spanDiasCalendario(d.fechaInicio, d.fechaFin),
@@ -358,7 +358,7 @@ router.post('/compensatorio', async (req: AuthRequest, res: Response): Promise<v
     }
 
     // Use fechaInicio's year — consistent with revokar and avanzar paths
-    const anio = new Date(parsed.data.fechaInicio).getFullYear();
+    const anio = parsed.data.fechaInicio.getUTCFullYear();
 
     // Find COMPENSATORIO approval flow (read-only, outside transaction).
     // `rol` resuelve el nivel del solicitante; `nombre`/`apellido` van en el
@@ -410,8 +410,8 @@ router.post('/compensatorio', async (req: AuthRequest, res: Response): Promise<v
           tipo: 'FRANCO_COMPENSATORIO',
           estado: 'PENDIENTE',
           pasoActual: 1,
-          fechaInicio: new Date(parsed.data.fechaInicio),
-          fechaFin: new Date(parsed.data.fechaFin),
+          fechaInicio: parsed.data.fechaInicio,
+          fechaFin: parsed.data.fechaFin,
           diasAusencia: parsed.data.diasAusencia,
           descripcion: parsed.data.descripcion ?? null,
           descuentaSueldo: false,
@@ -512,8 +512,8 @@ router.post('/', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: R
         cargadaPorId: actorId,
         tipo: parsed.data.tipo,
         estado: isCertMedico ? 'APROBADA' : 'BORRADOR',
-        fechaInicio: new Date(parsed.data.fechaInicio),
-        fechaFin: new Date(parsed.data.fechaFin),
+        fechaInicio: parsed.data.fechaInicio,
+        fechaFin: parsed.data.fechaFin,
         diasAusencia: parsed.data.diasAusencia,
         descripcion: parsed.data.descripcion ?? null,
         numeroCertificado: parsed.data.numeroCertificado ?? null,
@@ -540,8 +540,8 @@ router.post('/', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: R
       const tipoLabel = formatTipoAusencia(parsed.data.tipo);
       await inyectarDiasBloqueados({
         usuarioId: targetUserId,
-        fechaInicio: new Date(parsed.data.fechaInicio),
-        fechaFin: new Date(parsed.data.fechaFin),
+        fechaInicio: parsed.data.fechaInicio,
+        fechaFin: parsed.data.fechaFin,
         motivoBloqueo: parsed.data.tipo,
         observaciones: `${tipoLabel}${parsed.data.descripcion ? ` — ${parsed.data.descripcion}` : ''}`,
       });
@@ -1273,13 +1273,13 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
       || parsed.data.fechaFin !== undefined
       || parsed.data.diasAusencia !== undefined;
     if (tocaRango) {
-      const nuevoInicio = parsed.data.fechaInicio ? new Date(parsed.data.fechaInicio) : existing.fechaInicio;
-      const nuevoFin = parsed.data.fechaFin ? new Date(parsed.data.fechaFin) : existing.fechaFin;
+      const nuevoInicio = parsed.data.fechaInicio ?? existing.fechaInicio;
+      const nuevoFin = parsed.data.fechaFin ?? existing.fechaFin;
       if (nuevoFin < nuevoInicio) {
         res.status(400).json({ error: 'fechaFin debe ser mayor o igual a fechaInicio' });
         return;
       }
-      const span = Math.floor((nuevoFin.getTime() - nuevoInicio.getTime()) / 86_400_000) + 1;
+      const span = spanDiasCalendario(nuevoInicio, nuevoFin);
       if (span > MAX_SPAN_DIAS) {
         res.status(400).json({ error: `El rango no puede superar ${MAX_SPAN_DIAS} días de calendario` });
         return;
@@ -1293,8 +1293,6 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = { ...parsed.data };
-    if (data.fechaInicio) data.fechaInicio = new Date(data.fechaInicio);
-    if (data.fechaFin) data.fechaFin = new Date(data.fechaFin);
     if (data.aprobada !== undefined) {
       data.aprobadaPorId = req.user!.userId;
     }
