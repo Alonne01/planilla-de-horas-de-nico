@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
-import { fechaFlexible } from '../utils/zod.utils.js';
+import { fechaDia } from '../utils/zod.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -23,8 +23,8 @@ const tipoCapSchema = z.object({
 const empleadoCapSchema = z.object({
   usuarioId: z.string().uuid(),
   tipoId: z.string().uuid(),
-  fechaRealizacion: fechaFlexible,
-  fechaVencimiento: fechaFlexible.nullable().optional(),
+  fechaRealizacion: fechaDia,
+  fechaVencimiento: fechaDia.nullable().optional(),
   institucion: z.string().max(200).nullable().optional(),
   archivoUrl: z.string().max(500).nullable().optional(),
   observaciones: z.string().max(500).nullable().optional(),
@@ -221,8 +221,10 @@ router.post('/registros', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res
     if (!tipo) { res.status(400).json({ error: 'Tipo de capacitación no encontrado' }); return; }
 
     // Auto-calculate fechaVencimiento if tipo has vigenciaDias
-    let fechaVencimiento = data.fechaVencimiento ? new Date(data.fechaVencimiento) : null;
+    let fechaVencimiento = data.fechaVencimiento ?? null;
     if (!fechaVencimiento && tipo.vigenciaDias) {
+      // `new Date(...)` copia el valor: no se puede mutar `data.fechaRealizacion`
+      // directamente con `setDate`, porque abajo se guarda ese mismo campo.
       fechaVencimiento = new Date(data.fechaRealizacion);
       fechaVencimiento.setDate(fechaVencimiento.getDate() + tipo.vigenciaDias);
     }
@@ -231,7 +233,7 @@ router.post('/registros', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res
       data: {
         usuarioId: data.usuarioId,
         tipoId: data.tipoId,
-        fechaRealizacion: new Date(data.fechaRealizacion),
+        fechaRealizacion: data.fechaRealizacion,
         fechaVencimiento,
         institucion: data.institucion ?? null,
         archivoUrl: data.archivoUrl ?? null,
@@ -265,8 +267,8 @@ router.put('/registros/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: any = {};
     if (data.tipoId !== undefined) updateData.tipoId = data.tipoId;
-    if (data.fechaRealizacion) updateData.fechaRealizacion = new Date(data.fechaRealizacion);
-    if (data.fechaVencimiento !== undefined) updateData.fechaVencimiento = data.fechaVencimiento ? new Date(data.fechaVencimiento) : null;
+    if (data.fechaRealizacion) updateData.fechaRealizacion = data.fechaRealizacion;
+    if (data.fechaVencimiento !== undefined) updateData.fechaVencimiento = data.fechaVencimiento ?? null;
     if (data.institucion !== undefined) updateData.institucion = data.institucion;
     if (data.archivoUrl !== undefined) updateData.archivoUrl = data.archivoUrl;
     if (data.observaciones !== undefined) updateData.observaciones = data.observaciones;

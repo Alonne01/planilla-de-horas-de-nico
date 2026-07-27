@@ -3,15 +3,15 @@ import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
-import { fechaFlexible } from '../utils/zod.utils.js';
+import { fechaDia } from '../utils/zod.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
 
 const exportacionSchema = z
   .object({
-    periodoInicio: fechaFlexible,
-    periodoFin: fechaFlexible,
+    periodoInicio: fechaDia,
+    periodoFin: fechaDia,
     nombreArchivo: z.string().min(1, 'nombreArchivo es requerido'),
     sectoresIds: z.array(z.string()).optional(),
     usuariosIds: z.array(z.string()).optional(),
@@ -19,7 +19,7 @@ const exportacionSchema = z
     totalRegistros: z.number().int().nullable().optional(),
   })
   .refine(
-    (d) => new Date(String(d.periodoFin)) >= new Date(String(d.periodoInicio)),
+    (d) => d.periodoFin >= d.periodoInicio,
     { message: 'periodoFin debe ser mayor o igual a periodoInicio', path: ['periodoFin'] },
   );
 
@@ -57,15 +57,12 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     }
     const { periodoInicio, periodoFin, sectoresIds, usuariosIds, nombreArchivo, totalPersonas, totalRegistros } = parsed.data;
 
-    const pi = new Date(String(periodoInicio));
-    const pf = new Date(String(periodoFin));
-
     const exportacion = await prisma.exportacion.create({
       data: {
         empresaId: req.user!.empresaId,
         generadaPorId: req.user!.userId,
-        periodoInicio: pi,
-        periodoFin: pf,
+        periodoInicio,
+        periodoFin,
         sectoresIds: sectoresIds ?? [],
         usuariosIds: usuariosIds ?? [],
         rolesFiltro: [],

@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { PrismaClient, CambioDiagramaEstado } from '@prisma/client';
 import { z } from 'zod';
-import { fechaFlexible } from '../utils/zod.utils.js';
+import { fechaDia } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
 import { crearNotificacion, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
@@ -54,7 +54,7 @@ const createSolicitudSchema = z.object({
   // Obligatoria y futura: el diagrama nuevo rige desde este día, y la solicitud
   // vence si no se termina de aprobar antes. Aceptarla vacía o pasada dejaría el
   // cambio aplicándose retroactivo sobre días ya cargados.
-  fechaEfectiva: fechaFlexible,
+  fechaEfectiva: fechaDia,
 }).refine(
   (d) => {
     // Comparación por CLAVE DE DÍA (`claveFecha`, mismo criterio que la guardia de
@@ -64,15 +64,12 @@ const createSolicitudSchema = z.object({
     // que ser el día calendario en Argentina). "Posterior a hoy" exige que la
     // clave de la fecha recibida sea estrictamente mayor.
     //
-    // Caso límite: un string con hora explícita que cruza medianoche en UTC
-    // dentro del mismo día en Argentina, p. ej. '2026-07-27T23:00:00-03:00'
-    // (=2026-07-28T02:00:00Z), da clave '2026-07-28' en vez de '27'. Se acepta
-    // así a propósito: es la misma convención que ya usa `claveFecha` en todo
-    // este módulo (día = día calendario UTC) y que `fechaEfectiva` ya asume en la
-    // guardia de vencimiento de /avanzar. El form del front sólo manda
-    // 'YYYY-MM-DD' sin hora (nunca este caso); un cliente de API que sí mande
-    // hora explícita queda sujeto a la misma regla que el resto del sistema.
-    return claveFecha(new Date(d.fechaEfectiva)) > claveFecha(hoyLocalEmpresa());
+    // `fechaEfectiva` ya llega normalizada por `fechaDia` (medianoche UTC del día
+    // calendario ARGENTINO, no UTC): no hace falta volver a envolverla en
+    // `new Date(...)`, y el caso límite de un string con hora explícita que cruza
+    // medianoche UTC ya lo resuelve `diaDesdeEntrada` con el mismo criterio que
+    // `hoyLocalEmpresa()`.
+    return claveFecha(d.fechaEfectiva) > claveFecha(hoyLocalEmpresa());
   },
   { message: 'La fecha de inicio del diagrama debe ser posterior a hoy', path: ['fechaEfectiva'] },
 );
@@ -251,7 +248,7 @@ router.post('/', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: 
         diagramaNuevoId,
         flujoId: flujo?.id ?? null,
         motivo: motivo ?? null,
-        fechaEfectiva: fechaEfectiva ? new Date(fechaEfectiva) : null,
+        fechaEfectiva,
         estado: 'PENDIENTE',
         pasoActual: 1,
         // Se guarda SIEMPRE el arreglo, aunque venga vacío: un `[]` dice "se creó
@@ -403,11 +400,11 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
     // solicitud se cierra vencida y hay que pedirla de nuevo con otra fecha.
     // Es la red del barrido diario: sin esto, una aprobación entre dos corridas
     // aplicaría un cambio retroactivo.
-    // La comparación es por CLAVE DE DÍA (no por timestamp): `fechaFlexible`
-    // acepta un sufijo de hora en el string de entrada, así que `fechaEfectiva`
-    // no está garantizado a ser medianoche UTC. Comparando timestamps crudos,
-    // una fecha de inicio de HOY a las 15:00 sería "> hoy" y la guardia no
-    // dispararía pese a que el día ya llegó.
+    // La comparación es por CLAVE DE DÍA (no por timestamp): `fechaDia` normaliza
+    // las solicitudes nuevas a medianoche UTC del día calendario argentino, pero
+    // las creadas antes de ese cambio pueden no estarlo. Comparando timestamps
+    // crudos, una fecha de inicio de HOY a las 15:00 sería "> hoy" y la guardia
+    // no dispararía pese a que el día ya llegó.
     // El "hoy" es `hoyLocalEmpresa()` (contexto-dia.utils.ts), no los componentes
     // UTC crudos del servidor: entre las 21:00 y las 24:00 hora Argentina, un
     // `hoyUTC()` basado en componentes crudos ya cree que es mañana, y esta

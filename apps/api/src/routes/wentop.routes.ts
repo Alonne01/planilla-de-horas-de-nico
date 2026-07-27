@@ -12,7 +12,7 @@ import {
   MAX_FOTOS_POR_TARJETA,
   MAX_BYTES_POR_TARJETA,
 } from '../middleware/upload.middleware.js';
-import { fechaFlexible } from '../utils/zod.utils.js';
+import { fechaDia } from '../utils/zod.utils.js';
 import { unlink } from 'fs/promises';
 import path from 'path';
 
@@ -59,7 +59,7 @@ const textoCortoOpcional = z.string().max(MAX_TEXTO_CORTO).nullable().optional()
 const categorias = z.array(z.string().max(MAX_TEXTO_CORTO)).max(MAX_CATEGORIAS).optional();
 
 const tarjetaSchema = z.object({
-  fechaReporte: fechaFlexible,
+  fechaReporte: fechaDia,
   sectorObservacionId: z.string().uuid().nullable().optional(),
   sectorTercero: z.boolean().optional(),
   cliente: textoCortoOpcional,
@@ -79,7 +79,7 @@ const updateTarjetaSchema = tarjetaSchema.partial();
 const estadoSchema = z.object({
   estado: z.enum(['ABIERTA', 'EN_PROGRESO', 'CERRADA']),
   accionCierre: z.string().max(MAX_TEXTO_LARGO).nullable().optional(),
-  fechaCierre: fechaFlexible.nullable().optional(),
+  fechaCierre: fechaDia.nullable().optional(),
 });
 
 // ─── Helper ──────────────────────────────────────
@@ -481,7 +481,7 @@ router.post('/', escrituraLimiter, async (req: AuthRequest, res: Response): Prom
         empresaId: req.user!.empresaId,
         creadorId: req.user!.userId,
         estado: 'ABIERTA',
-        fechaReporte: new Date(fechaReporte),
+        fechaReporte,
         sectorObservacionId: sectorObservacionId || null,
         sectorTercero: sectorTercero ?? false,
         cliente: cliente || null,
@@ -561,7 +561,7 @@ router.put('/:id', escrituraLimiter, async (req: AuthRequest, res: Response): Pr
     const updated = await prisma.wentopTarjeta.update({
       where: { id: req.params.id },
       data: {
-        ...(fechaReporte !== undefined && { fechaReporte: new Date(fechaReporte) }),
+        ...(fechaReporte !== undefined && { fechaReporte }),
         ...(sectorObservacionId !== undefined && { sectorObservacionId: sectorObservacionId || null }),
         ...(sectorTercero !== undefined && { sectorTercero }),
         ...(cliente !== undefined && { cliente: cliente || null }),
@@ -622,7 +622,7 @@ router.patch('/:id/estado', async (req: AuthRequest, res: Response): Promise<voi
         return;
       }
       data.accionCierre = accionCierre;
-      data.fechaCierre = fechaCierre ? new Date(fechaCierre) : new Date();
+      data.fechaCierre = fechaCierre ?? new Date();
     } else {
       // Clear closure data when reopening
       data.accionCierre = null;

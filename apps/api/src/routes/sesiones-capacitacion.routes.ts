@@ -5,7 +5,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_COORDINADOR, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { crearNotificacion } from '../utils/notificacion.utils.js';
 import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
-import { fechaFlexible } from '../utils/zod.utils.js';
+import { fechaDia } from '../utils/zod.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -18,7 +18,7 @@ const createSesionSchema = z.object({
   tipoId: z.string().uuid(),
   titulo: z.string().min(1).max(200),
   descripcion: z.string().max(1000).nullable().optional(),
-  fecha: fechaFlexible,
+  fecha: fechaDia,
   horaInicio: z.string().max(5).nullable().optional(),
   horaFin: z.string().max(5).nullable().optional(),
   lugar: z.string().max(200).nullable().optional(),
@@ -150,7 +150,7 @@ router.post('/', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: 
         organizadorId: req.user!.userId,
         titulo: parsed.data.titulo,
         descripcion: parsed.data.descripcion ?? null,
-        fecha: new Date(parsed.data.fecha),
+        fecha: parsed.data.fecha,
         horaInicio: parsed.data.horaInicio ?? null,
         horaFin: parsed.data.horaFin ?? null,
         lugar: parsed.data.lugar ?? null,
@@ -209,7 +209,7 @@ router.put('/:id', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: any = { ...data };
-    if (data.fecha) updateData.fecha = new Date(data.fecha);
+    if (data.fecha) updateData.fecha = data.fecha;
 
     const sesion = await prisma.sesionCapacitacion.update({
       where: { id: req.params.id },

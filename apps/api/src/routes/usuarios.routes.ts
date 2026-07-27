@@ -3,7 +3,7 @@ import { PrismaClient, ContratoTipo, Prisma } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { z } from 'zod';
-import { fechaFlexible } from '../utils/zod.utils.js';
+import { fechaDia } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_ADMIN, LEVEL_RRHH, LEVEL_COORDINADOR, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
 import { revokeAllRefreshTokensForUser } from '../utils/jwt.utils.js';
@@ -31,11 +31,11 @@ const createUsuarioSchema = z.object({
   legajo: z.string().max(20).optional().nullable(),
   dni: z.string().max(15).optional().nullable(),
   cuil: z.string().max(15).optional().nullable(),
-  fechaNacimiento: fechaFlexible.optional().nullable(),
+  fechaNacimiento: fechaDia.optional().nullable(),
   telefono: z.string().max(30).optional().nullable(),
   tipoContrato: z.nativeEnum(ContratoTipo).optional(),
-  fechaIngreso: fechaFlexible,
-  fechaFinPrueba: fechaFlexible.optional().nullable(),
+  fechaIngreso: fechaDia,
+  fechaFinPrueba: fechaDia.optional().nullable(),
   coordinadorId: z.string().uuid().optional().nullable(),
   supervisorId: z.string().uuid().optional().nullable(),
   diagramaColor: z.enum(['AZUL', 'AMARILLO', 'BASE']).optional().nullable(),
@@ -50,12 +50,12 @@ const updateUsuarioSchema = z.object({
   legajo: z.string().max(20).optional().nullable(),
   dni: z.string().max(15).optional().nullable(),
   cuil: z.string().max(15).optional().nullable(),
-  fechaNacimiento: fechaFlexible.optional().nullable(),
+  fechaNacimiento: fechaDia.optional().nullable(),
   telefono: z.string().max(30).optional().nullable(),
   tipoContrato: z.nativeEnum(ContratoTipo).optional(),
-  fechaIngreso: fechaFlexible.optional(),
-  fechaFinPrueba: fechaFlexible.optional().nullable(),
-  fechaEgreso: fechaFlexible.optional().nullable(),
+  fechaIngreso: fechaDia.optional(),
+  fechaFinPrueba: fechaDia.optional().nullable(),
+  fechaEgreso: fechaDia.optional().nullable(),
   coordinadorId: z.string().uuid().optional().nullable(),
   supervisorId: z.string().uuid().optional().nullable(),
   activo: z.boolean().optional(),
@@ -64,7 +64,7 @@ const updateUsuarioSchema = z.object({
 
 const assignDiagramaSchema = z.object({
   diagramaId: z.string().uuid(),
-  fechaInicio: fechaFlexible,
+  fechaInicio: fechaDia,
 });
 
 // ─── Helper: resolve a role's permission level for this empresa ───
@@ -350,11 +350,11 @@ router.post('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respons
         legajo: parsed.data.legajo ?? null,
         dni: parsed.data.dni ?? null,
         cuil: parsed.data.cuil ?? null,
-        fechaNacimiento: parsed.data.fechaNacimiento ? new Date(parsed.data.fechaNacimiento) : null,
+        fechaNacimiento: parsed.data.fechaNacimiento ?? null,
         telefono: parsed.data.telefono ?? null,
         tipoContrato: parsed.data.tipoContrato ?? ContratoTipo.INDEFINIDO,
-        fechaIngreso: new Date(parsed.data.fechaIngreso),
-        fechaFinPrueba: parsed.data.fechaFinPrueba ? new Date(parsed.data.fechaFinPrueba) : null,
+        fechaIngreso: parsed.data.fechaIngreso,
+        fechaFinPrueba: parsed.data.fechaFinPrueba ?? null,
         coordinadorId: parsed.data.coordinadorId ?? null,
         supervisorId: parsed.data.supervisorId ?? null,
         diagramaColor: parsed.data.diagramaColor ?? null,
@@ -456,10 +456,10 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
         ...(d.activo !== undefined && { activo: d.activo }),
         ...(d.coordinadorId !== undefined && { coordinadorId: d.coordinadorId }),
         ...(d.supervisorId !== undefined && { supervisorId: d.supervisorId }),
-        ...(d.fechaIngreso && { fechaIngreso: new Date(d.fechaIngreso) }),
-        ...(d.fechaNacimiento && { fechaNacimiento: new Date(d.fechaNacimiento) }),
-        ...(d.fechaFinPrueba !== undefined && d.fechaFinPrueba !== null && { fechaFinPrueba: new Date(d.fechaFinPrueba) }),
-        ...(d.fechaEgreso !== undefined && d.fechaEgreso !== null && { fechaEgreso: new Date(d.fechaEgreso) }),
+        ...(d.fechaIngreso && { fechaIngreso: d.fechaIngreso }),
+        ...(d.fechaNacimiento && { fechaNacimiento: d.fechaNacimiento }),
+        ...(d.fechaFinPrueba !== undefined && d.fechaFinPrueba !== null && { fechaFinPrueba: d.fechaFinPrueba }),
+        ...(d.fechaEgreso !== undefined && d.fechaEgreso !== null && { fechaEgreso: d.fechaEgreso }),
         ...(d.diagramaColor !== undefined && { diagramaColor: d.diagramaColor }),
       },
     });
@@ -535,7 +535,7 @@ router.patch('/:id/diagrama', requireLevel(LEVEL_RRHH), async (req: AuthRequest,
     }
 
     // Atomic: deactivate the current assignment and create the new one together.
-    const inicioNuevo = new Date(parsed.data.fechaInicio);
+    const inicioNuevo = parsed.data.fechaInicio;
     const assignment = await prisma.$transaction(async (tx) => {
       // Se cierra el día antes de que arranque la nueva, no "hoy": con una
       // fechaInicio futura, cerrar hoy dejaba los días del medio sin diagrama, y
