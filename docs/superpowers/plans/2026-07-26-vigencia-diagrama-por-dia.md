@@ -64,6 +64,20 @@
 
 ## Task 1: Módulo de vigencia por tramos
 
+> **Corregido durante la ejecución** (commits `862fe3a` + `fbbe7ff`). El código de
+> abajo asumía que `UsuarioDiagrama.fechaInicio`/`fechaFin` guardan medianoche UTC,
+> y **no es así**: `cambios-diagrama.routes.ts:386,394` y `usuarios.routes.ts:540`
+> escriben `new Date()`, con la hora real de la aprobación. Comparando `Date` crudo,
+> el día del cambio se resolvía al diagrama viejo, y si el cierre y la apertura
+> caían a distinto lado de la medianoche UTC ese día quedaba **sin diagrama** — el
+> mismo bug que el módulo venía a arreglar.
+>
+> La versión final compara **claves de día** (`claveFecha`, reutilizada de
+> `contexto-dia.utils.ts`), amplía el filtro SQL al día calendario completo y
+> desempata el `orderBy` con `createdAt`. El test tiene 14 casos, incluidos los de
+> timestamps con hora y cruce de medianoche. Ver el archivo en el repo, no el
+> listado de abajo.
+
 **Files:**
 - Create: `apps/api/src/utils/diagrama-vigencia.utils.ts`
 - Test: `apps/api/tests/diagrama-vigencia.test.ts`
