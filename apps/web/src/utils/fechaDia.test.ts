@@ -49,7 +49,7 @@ async function run() {
   // Año bisiesto: 2028 tiene 29 de febrero.
   assert.strictEqual(diasEntre('2028-03-01', '2028-02-28'), 2);
 
-  console.log('✓ fechaDia: 14/14 OK');
+  console.log('✓ fechaDia: 8/8 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
