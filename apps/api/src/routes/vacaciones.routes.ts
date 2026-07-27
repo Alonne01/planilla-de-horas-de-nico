@@ -9,6 +9,7 @@ import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import { puedeVerCalendario } from '../utils/calendario-access.utils.js';
 import { fechaDia, spanDiasCalendario } from '../utils/zod.utils.js';
 import { hoyLocalEmpresa, rangoConsultaDia } from '../utils/fecha-dia.utils.js';
+import { diasPorAntiguedad } from '../utils/vacaciones-antiguedad.utils.js';
 import { periodoQuerySchema, filtroFechaInicioEnPeriodo } from '../utils/periodo-query.utils.js';
 import {
   construirCircuito,
@@ -35,19 +36,6 @@ const createVacacionSchema = z.object({
   (d) => d.fechaFin >= d.fechaInicio,
   { message: 'La fecha de fin no puede ser anterior a la de inicio', path: ['fechaFin'] },
 );
-
-// ─── Helper: calculate vacation days by LCT seniority ─────────
-function diasPorAntiguedad(fechaIngreso: Date, anio: number): number {
-  const alDic31 = new Date(anio, 11, 31);
-  let anios = alDic31.getFullYear() - fechaIngreso.getFullYear();
-  const aniv = new Date(anio, fechaIngreso.getMonth(), fechaIngreso.getDate());
-  if (alDic31 < aniv) anios--;
-  if (anios < 0) anios = 0;
-  if (anios <= 5) return 14;
-  if (anios <= 10) return 21;
-  if (anios <= 20) return 28;
-  return 35;
-}
 
 // ─── GET /vacaciones/saldo ───────────────────────
 

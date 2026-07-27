@@ -7,7 +7,7 @@ import {
   Edit3, Check, X, Users, Search, Building2
 } from 'lucide-react';
 import { useDialogStore } from '@/stores/dialogStore';
-import { diaLocal } from '@/utils/fechaDia';
+import { ymd } from '@/utils/fechaDia';
 
 interface SaldoRow {
   id: string;
@@ -122,12 +122,20 @@ export default function VacacionSaldosPage() {
     return { total, totalDias, totalUsados, overrides, totalCompDisponibles };
   }, [filteredSaldos]);
 
-  function getAntiguedad(fechaIngreso: string) {
-    const ingreso = diaLocal(fechaIngreso);
-    const now = new Date();
-    let y = now.getFullYear() - ingreso.getFullYear();
-    if (now < new Date(now.getFullYear(), ingreso.getMonth(), ingreso.getDate())) y--;
-    return Math.max(0, y);
+  /**
+   * Años de antigüedad al 31 de diciembre del año que se está mirando: la misma
+   * regla con la que el backend calcula los días de la columna de al lado (LCT
+   * art. 150, ver `apps/api/src/utils/vacaciones-antiguedad.utils.ts`). Medida
+   * al cierre del año la cuenta es la resta de los años a secas, porque el
+   * aniversario siempre cae en o antes del 31 de diciembre.
+   *
+   * Antes se medía contra HOY, así que al moverse a otro año las dos columnas
+   * se contradecían: para 2027 mostraba los años cumplidos hoy al lado de los
+   * días que corresponden al cierre de 2027.
+   */
+  function getAntiguedad(fechaIngreso: string, anioCierre: number) {
+    const [anioIngreso] = ymd(fechaIngreso);
+    return Math.max(0, anioCierre - anioIngreso);
   }
 
   return (
@@ -248,7 +256,7 @@ export default function VacacionSaldosPage() {
                   const total = s.diasCorrespondientes + s.diasAjuste;
                   const disponible = total - s.diasUsados - s.diasPendientes;
                   const isEditing = editingId === s.id;
-                  const ant = getAntiguedad(s.usuario.fechaIngreso);
+                  const ant = getAntiguedad(s.usuario.fechaIngreso, s.anio);
 
                   return (
                     <tr key={s.id} className="border-b border-border/50 hover:bg-muted/10 transition-colors">

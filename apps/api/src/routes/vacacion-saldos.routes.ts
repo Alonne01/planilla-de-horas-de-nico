@@ -4,27 +4,12 @@ import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { hoyLocalEmpresa } from '../utils/fecha-dia.utils.js';
+import { diasPorAntiguedad } from '../utils/vacaciones-antiguedad.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
 
 router.use(authMiddleware);
-
-// ─── Helper: calculate vacation days by LCT seniority ─────────
-function diasPorAntiguedad(fechaIngreso: Date, anio: number): number {
-  // Seniority computed as of Dec 31 of the year
-  const alDic31 = new Date(anio, 11, 31);
-  let anios = alDic31.getFullYear() - fechaIngreso.getFullYear();
-  // If they haven't reached their anniversary yet this year, subtract 1
-  const aniv = new Date(anio, fechaIngreso.getMonth(), fechaIngreso.getDate());
-  if (alDic31 < aniv) anios--;
-  if (anios < 0) anios = 0;
-
-  if (anios <= 5) return 14;
-  if (anios <= 10) return 21;
-  if (anios <= 20) return 28;
-  return 35;
-}
 
 // ─── GET /vacacion-saldos (admin: all users for a year) ───────
 router.get('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
