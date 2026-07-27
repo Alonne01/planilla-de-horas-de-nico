@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { diaKey, fmtDia, diaLocal, hoyKey, diasEntre, claveLocal } from './fechaDia.js';
+import { diaKey, fmtDia, diaLocal, hoyKey, diasHasta, claveLocal } from './fechaDia.js';
 
 async function run() {
   // 1. La clave sale del string, sin construir un Date (que correría el día en UTC-3).
@@ -47,15 +47,16 @@ async function run() {
     assert.strictEqual(hoyKey(d), d.toLocaleDateString('sv-SE'), `hoyKey(${iso})`);
   }
 
-  // 8. diasEntre: días calendario enteros, sin depender de la hora ni del huso.
+  // 8. diasHasta: días calendario enteros, sin depender de la hora ni del huso.
   //    Es lo que decide el badge de vencimiento de una capacitación.
-  assert.strictEqual(diasEntre('2026-08-01', '2026-07-31'), 1);
-  assert.strictEqual(diasEntre('2026-07-31', '2026-07-31'), 0);
-  assert.strictEqual(diasEntre('2026-07-31', '2026-08-01'), -1);
+  assert.strictEqual(diasHasta({ objetivo: '2026-08-01', desde: '2026-07-31' }), 1);
+  assert.strictEqual(diasHasta({ objetivo: '2026-07-31', desde: '2026-07-31' }), 0);
+  assert.strictEqual(diasHasta({ objetivo: '2026-07-31', desde: '2026-08-01' }), -1);
   // Mezcla de convenciones: 00:00Z (migrada) contra 03:00Z (previa) → 1 día.
-  assert.strictEqual(diasEntre('2026-08-01T00:00:00.000Z', '2026-07-31T03:00:00.000Z'), 1);
+  assert.strictEqual(
+    diasHasta({ objetivo: '2026-08-01T00:00:00.000Z', desde: '2026-07-31T03:00:00.000Z' }), 1);
   // Año bisiesto: 2028 tiene 29 de febrero.
-  assert.strictEqual(diasEntre('2028-03-01', '2028-02-28'), 2);
+  assert.strictEqual(diasHasta({ objetivo: '2028-03-01', desde: '2028-02-28' }), 2);
 
   // 9. La ventana que rompía: 21:00–24:00 en Argentina, donde el día UTC ya es el
   //    siguiente. Ahí `new Date().toISOString().split('T')[0]` grababa MAÑANA —

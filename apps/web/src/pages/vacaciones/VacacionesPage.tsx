@@ -434,7 +434,12 @@ function VacacionFormModal({
         const candidateDays = Math.round((d.getTime() - startDate.getTime()) / 86400000) + 1;
         if (candidateDays > maxDias) {
           // Clamp to max
-          const clampedEnd = new Date(startDate.getTime() + (maxDias - 1) * 86400000);
+          // Por componentes, no sumando milisegundos: con un cambio de huso en el
+          // medio eso cae a las 23:00 del día anterior, y este endDate se postea
+          // como claveLocal(endDate) → se pediría un día menos.
+          const clampedEnd = new Date(
+            startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + maxDias - 1,
+          );
           setEndDate(clampedEnd);
         } else {
           setEndDate(d);

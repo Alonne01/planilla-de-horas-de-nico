@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
-import { diaKey, diasEntre, fmtDia, hoyKey } from '@/utils/fechaDia';
+import { diaKey, diasHasta, fmtDia, hoyKey } from '@/utils/fechaDia';
 import { useState, useCallback } from 'react';
 import {
   Loader2, GraduationCap, Plus, Trash2, Pencil, X, Save,
@@ -339,7 +339,7 @@ export default function CapacitacionesPage() {
     if (r.statusCap) return r;
     let statusCap: string = 'sin_vencimiento';
     if (r.fechaVencimiento) {
-      const diff = diasEntre(r.fechaVencimiento, hoy);
+      const diff = diasHasta({ objetivo: r.fechaVencimiento, desde: hoy });
       if (diff < 0) statusCap = 'vencida';
       else if (diff <= (r.tipo?.alertaDias ?? 30)) statusCap = 'proxima';
       else statusCap = 'vigente';

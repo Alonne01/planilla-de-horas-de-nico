@@ -79,16 +79,22 @@ export function hoyKey(ahora: Date = new Date()): string {
 }
 
 /**
- * Días calendario enteros entre dos fechas-día: cuántos días hay que sumarle a
- * `desde` para llegar a `hasta` (0 el mismo día, negativo si `hasta` ya pasó).
+ * Días calendario enteros que faltan para `objetivo` contando desde `desde`:
+ * 0 el mismo día, negativo si `objetivo` ya pasó.
  *
  * Se calcula sobre medianoches UTC armadas con los componentes del día, así que
  * el resultado no depende del huso ni de los horarios de verano — a diferencia
  * de restar dos `Date` con hora, donde el corte se corre según a qué hora del
  * día se mire la pantalla.
+ *
+ * Los argumentos van en un objeto A PROPÓSITO. Con dos parámetros posicionales
+ * del mismo tipo, invertirlos compila y devuelve el valor negado: el badge de
+ * vencimiento de capacitaciones pasaría a marcar "vencida" todo lo válido y
+ * "vigente" lo vencido, sin que nada falle. Nombrarlos hace que el error tenga
+ * que escribirse explícito.
  */
-export function diasEntre(hasta: string, desde: string): number {
-  const [ya, ma, da] = ymd(hasta);
+export function diasHasta({ objetivo, desde }: { objetivo: string; desde: string }): number {
+  const [ya, ma, da] = ymd(objetivo);
   const [yb, mb, db] = ymd(desde);
   return Math.round((Date.UTC(ya, ma - 1, da) - Date.UTC(yb, mb - 1, db)) / 86_400_000);
 }

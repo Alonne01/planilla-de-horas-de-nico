@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Users, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { diaLocal, fmtDia, hoyKey } from '@/utils/fechaDia';
+import { fmtDia, hoyKey, ymd } from '@/utils/fechaDia';
 import {
   type GanttData, type Bloque, type Cat,
   MESES, CAT, CAT_LABEL, CAT_ORDER, ESTADO_BADGE, catOf, tipoLabel, computeOverlapPeaks,
+  daysInMonth, monthOffsets,
 } from './shared';
 
 interface Props {
@@ -24,10 +25,12 @@ export default function CalendarioCompacto({ data, anio, isLoading, onOverlapSel
   );
 
   const months = useMemo(
-    () => MESES.map((label, i) => ({ label, index: i, days: new Date(anio, i + 1, 0).getDate() })),
+    () => MESES.map((label, i) => ({ label, index: i, days: daysInMonth(anio, i) })),
     [anio],
   );
-  const totalDays = useMemo(() => months.reduce((s, m) => s + m.days, 0), [months]);
+  // Misma fuente que `blockDoyRange` (shared.ts), para que las dos vistas del
+  // calendario no calculen el día-del-año de dos maneras distintas.
+  const { monthOffset, totalDays } = useMemo(() => monthOffsets(anio), [anio]);
 
   /**
    * Día-del-año (0-based) de una FECHA-DÍA: una clave 'YYYY-MM-DD' o un ISO que
@@ -36,12 +39,18 @@ export default function CalendarioCompacto({ data, anio, isLoading, onOverlapSel
    * NO admite un instante real: lee el día con `slice(0, 10)` sobre el ISO, que
    * es el día **UTC**. Para "hoy" hay que pasarle `hoyKey()`, no
    * `new Date().toISOString()`.
+   *
+   * Se calcula por COMPONENTES, no restando milisegundos: entre dos mediodías
+   * separados por un cambio de huso la diferencia es N±1h y el `floor` se queda
+   * con N-1, o sea la barra se dibuja un día antes. El clamp se conserva tal cual
+   * estaba (fuera del año → a la punta más cercana), que es lo que diferencia a
+   * esta función de `blockDoyRange`, que devuelve `null`.
    */
   const dateToDayOffset = (dateStr: string) => {
-    const d = diaLocal(dateStr);
-    const start = new Date(anio, 0, 1, 12, 0, 0);
-    const diff = Math.max(0, Math.floor((d.getTime() - start.getTime()) / 86400000));
-    return Math.min(diff, totalDays - 1);
+    const [y, m, d] = ymd(dateStr);
+    if (y < anio) return 0;
+    if (y > anio) return totalDays - 1;
+    return Math.min(monthOffset[m - 1] + (d - 1), totalDays - 1);
   };
 
   // Categorías presentes (para la leyenda).

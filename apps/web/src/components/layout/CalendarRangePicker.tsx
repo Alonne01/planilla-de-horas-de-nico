@@ -2,6 +2,13 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
+/**
+ * DUPLICACIÓN CONOCIDA (preexistente, no la consolides de paso): `VacacionesPage`
+ * mantiene una copia inline de este mismo picker, porque necesita `maxDias` y
+ * ningún caller de éste le pasa `maxDays`. Las dos copias tienen que arreglarse
+ * juntas — el clamp por componentes de más abajo se aplicó en ambas. Unificarlas
+ * es un refactor con su propio riesgo y merece su propia decisión.
+ */
 interface CalendarRangePickerProps {
   startDate: Date | null;
   endDate: Date | null;
@@ -50,7 +57,12 @@ export default function CalendarRangePicker({
         if (maxDays) {
           const candidateDays = Math.round((d.getTime() - startDate.getTime()) / 86400000) + 1;
           if (candidateDays > maxDays) {
-            const clampedEnd = new Date(startDate.getTime() + (maxDays - 1) * 86400000);
+            // Por componentes, no sumando milisegundos: con un cambio de huso en
+            // el medio eso cae a las 23:00 del día anterior. Mismo arreglo que en
+            // la copia inline del picker en VacacionesPage (ver nota de arriba).
+            const clampedEnd = new Date(
+              startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + maxDays - 1,
+            );
             onSelect(startDate, clampedEnd);
             return;
           }
