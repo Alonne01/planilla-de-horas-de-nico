@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { tramosDeUsuario, esFrancoEnFecha } from './diagrama-vigencia.utils.js';
 
 const prisma = new PrismaClient();
 
@@ -201,21 +202,17 @@ export function esDiaFrancoSegunDiagrama(
   return false;
 }
 
-/** Diagrama activo del usuario que cubre esa fecha, si tiene alguno. */
+/**
+ * Si a esa persona le tocaba franco ese día, según el diagrama vigente ESE día.
+ *
+ * Antes se filtraba por `activo: true`, y como aprobar un cambio apaga la
+ * asignación anterior, cualquier día previo al cambio se quedaba sin diagrama y
+ * daba `false`: recalcular un día viejo le borraba el recargo del 100%. La
+ * vigencia la deciden las fechas; ver diagrama-vigencia.utils.ts.
+ */
 export async function esFrancoPorDiagrama(usuarioId: string, fecha: Date): Promise<boolean> {
-  const asignacion = await prisma.usuarioDiagrama.findFirst({
-    where: {
-      usuarioId,
-      activo: true,
-      fechaInicio: { lte: fecha },
-      OR: [{ fechaFin: null }, { fechaFin: { gte: fecha } }],
-    },
-    include: { diagrama: true },
-    orderBy: { fechaInicio: 'desc' },
-  });
-  if (!asignacion) return false;
-
-  return esDiaFrancoSegunDiagrama(fecha, asignacion.diagrama, asignacion.fechaInicio);
+  const tramos = await tramosDeUsuario(usuarioId, fecha, fecha);
+  return esFrancoEnFecha(tramos, fecha);
 }
 
 /**
