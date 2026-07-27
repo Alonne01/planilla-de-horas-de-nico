@@ -7,10 +7,16 @@ import {
   hoyLocalEmpresa,
   diaLocalEmpresaDe,
   rangoConsultaDia,
+  finDelDia,
   fmtFechaDia,
   fmtFechaDiaCorta,
 } from '../src/utils/fecha-dia.utils.js';
 import { fechaDia, spanDiasCalendario } from '../src/utils/zod.utils.js';
+import {
+  periodoQuerySchema,
+  filtroPeriodoPlanilla,
+  filtroFechaInicioEnPeriodo,
+} from '../src/utils/periodo-query.utils.js';
 
 async function run() {
   // 1. Fecha-sola: el día es literal, no se le aplica ningún offset.
@@ -167,7 +173,88 @@ async function run() {
   assert.strictEqual(fmtFechaDiaCorta(diaDesdeEntrada('2026-07-05')), '05/07');
   assert.strictEqual(fmtFechaDiaCorta(diaDesdeEntrada('2026-01-31')), '31/01');
 
-  console.log('✓ fecha-dia: 25/25 OK');
+  // 25b. El ÚNICO call site donde la salida visible cambió: la columna "Fecha"
+  //      de las hojas por empleado del Excel de cierre (export.routes.ts, `fmtDate`).
+  //      Antes se formateaba con toLocaleDateString('es-AR', { day: '2-digit',
+  //      month: '2-digit' }), que en es-AR NO zero-paddea (el skeleton `Md`
+  //      resuelve al patrón `d/M` y descarta el ancho pedido): mostraba `5/7`.
+  //      El zero-padding es intencional; este test lo fija para que un futuro
+  //      "simplificá esto con toLocaleDateString" no lo revierta en silencio.
+  assert.strictEqual(fmtFechaDiaCorta(new Date('2026-07-05T00:00:00.000Z')), '05/07');
+  assert.notStrictEqual(fmtFechaDiaCorta(new Date('2026-07-05T00:00:00.000Z')), '5/7');
+
+  // 26. finDelDia: el techo de un filtro de Prisma es el último instante del día
+  //     ARGENTINO pedido. Reemplaza a `fin.setHours(23,59,59,999)`, que bajo
+  //     TZ=America/Argentina/Buenos_Aires daba 02:59:59.999Z del día SIGUIENTE.
+  assert.strictEqual(finDelDia(new Date('2026-08-20T00:00:00.000Z')).toISOString(), '2026-08-20T23:59:59.999Z');
+  assert.strictEqual(finDelDia(new Date('2026-08-20T03:00:00.000Z')).toISOString(), '2026-08-20T23:59:59.999Z');
+  assert.strictEqual(finDelDia(new Date('2026-08-20T15:00:00.000Z')).toISOString(), '2026-08-20T23:59:59.999Z');
+
+  // 27. El schema de query normaliza el payload REAL del front (medianoche
+  //     argentina = 03:00Z) a fecha-día, y descarta las claves que no son suyas.
+  const q = periodoQuerySchema.parse({
+    periodoInicio: '2026-07-21T03:00:00.000Z',
+    periodoFin: '2026-08-20T03:00:00.000Z',
+    tipo: 'VACACIONES',
+    scope: 'mio',
+  });
+  assert.strictEqual(q.periodoInicio!.toISOString(), '2026-07-21T00:00:00.000Z');
+  assert.strictEqual(q.periodoFin!.toISOString(), '2026-08-20T00:00:00.000Z');
+  assert.strictEqual((q as Record<string, unknown>).tipo, undefined);
+
+  // 28. Los dos bordes son opcionales por separado, la cadena vacía se ignora
+  //     (antes las rutas gateaban con `if (periodoInicio)`), y la basura da
+  //     error de validación en vez de un Invalid Date que rompe a Prisma.
+  assert.strictEqual(periodoQuerySchema.parse({}).periodoInicio, undefined);
+  assert.strictEqual(periodoQuerySchema.parse({ periodoInicio: '' }).periodoInicio, undefined);
+  assert.strictEqual(periodoQuerySchema.safeParse({ periodoInicio: '21/07/2026' }).success, false);
+  assert.strictEqual(periodoQuerySchema.safeParse({ periodoFin: 'no-es-fecha' }).success, false);
+
+  // 29. EL BUG: la ventana efectiva del filtro de planillas. Con el payload del
+  //     front, el piso era 03:00Z (una planilla del primer día del ciclo, ya
+  //     normalizada a 00:00Z, quedaba AFUERA) y el techo 02:59:59.999Z del día
+  //     siguiente (entraba un día de más).
+  const fPlanilla = filtroPeriodoPlanilla(q);
+  assert.strictEqual(fPlanilla.periodoInicio!.gte!.toISOString(), '2026-07-21T00:00:00.000Z');
+  assert.strictEqual(fPlanilla.periodoFin!.lte!.toISOString(), '2026-08-20T23:59:59.999Z');
+  // El primer día del ciclo entra…
+  assert.ok(new Date('2026-07-21T00:00:00.000Z') >= fPlanilla.periodoInicio!.gte!);
+  // …y también las filas viejas sin migrar del mismo día.
+  assert.ok(new Date('2026-07-21T03:00:00.000Z') >= fPlanilla.periodoInicio!.gte!);
+  // El día siguiente al fin del ciclo ya NO entra.
+  assert.ok(!(new Date('2026-08-21T00:00:00.000Z') <= fPlanilla.periodoFin!.lte!));
+  // El último día del ciclo entra en cualquiera de las tres convenciones.
+  assert.ok(new Date('2026-08-20T00:00:00.000Z') <= fPlanilla.periodoFin!.lte!);
+  assert.ok(new Date('2026-08-20T15:00:00.000Z') <= fPlanilla.periodoFin!.lte!);
+
+  // 30. Cada borde del filtro de planillas se aplica por separado.
+  assert.deepStrictEqual(filtroPeriodoPlanilla({}), {});
+  const soloInicio = filtroPeriodoPlanilla({ periodoInicio: diaDesdeEntrada('2026-07-21') });
+  assert.ok(soloInicio.periodoInicio && soloInicio.periodoFin === undefined);
+
+  // 31. El filtro por fechaInicio (ausencias/vacaciones) necesita los dos bordes
+  //     —con uno solo quedaba abierto y devolvía historia entera— y cubre el día
+  //     completo en las dos puntas.
+  assert.deepStrictEqual(filtroFechaInicioEnPeriodo({ periodoInicio: diaDesdeEntrada('2026-07-21') }), {});
+  const fFecha = filtroFechaInicioEnPeriodo(q);
+  assert.strictEqual(fFecha.fechaInicio!.gte!.toISOString(), '2026-07-21T00:00:00.000Z');
+  assert.strictEqual(fFecha.fechaInicio!.lte!.toISOString(), '2026-08-20T23:59:59.999Z');
+
+  // 32. El span de días con datos MIXTOS pre/post migración (inicio ya
+  //     normalizado a 00:00Z, fin todavía con la medianoche argentina 03:00Z).
+  //     El `Math.ceil(diff / MS_POR_DIA) + 1` que reimplementaba este helper en
+  //     vacaciones.routes.ts daba ceil(2.125) + 1 = 4 días para un rango de 3, y
+  //     ese día de más se descontaba del saldo de vacaciones.
+  assert.strictEqual(
+    spanDiasCalendario(new Date('2026-07-21T00:00:00.000Z'), new Date('2026-07-23T03:00:00.000Z')),
+    3,
+  );
+  assert.strictEqual(
+    spanDiasCalendario(new Date('2026-07-21T03:00:00.000Z'), new Date('2026-07-23T00:00:00.000Z')),
+    3,
+  );
+
+  console.log('✓ fecha-dia: 32/32 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

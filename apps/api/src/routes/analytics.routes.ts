@@ -3,6 +3,11 @@ import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_COORDINADOR, LEVEL_RRHH, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
 import { hoyLocalEmpresa } from '../utils/fecha-dia.utils.js';
+import {
+  periodoQuerySchema,
+  filtroPeriodoPlanilla,
+  filtroFechaInicioEnPeriodo,
+} from '../utils/periodo-query.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -270,29 +275,15 @@ router.get('/empresa', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
   try {
     const empresaId = req.user!.empresaId;
 
-    const qPeriodoInicio = req.query.periodoInicio as string | undefined;
-    const qPeriodoFin = req.query.periodoFin as string | undefined;
+    const periodo = periodoQuerySchema.safeParse(req.query);
+    if (!periodo.success) {
+      res.status(400).json({ error: 'periodoInicio/periodoFin inválido', details: periodo.error.flatten() });
+      return;
+    }
     const qSectorId = req.query.sectorId as string | undefined;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const planillaPeriodFilter: any = {};
-    if (qPeriodoInicio) planillaPeriodFilter.periodoInicio = { gte: new Date(qPeriodoInicio) };
-    if (qPeriodoFin) {
-      const fin = new Date(qPeriodoFin);
-      fin.setHours(23, 59, 59, 999);
-      planillaPeriodFilter.periodoFin = { lte: fin };
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fechaPeriodFilter: any = {};
-    if (qPeriodoInicio && qPeriodoFin) {
-      const fin = new Date(qPeriodoFin);
-      fin.setHours(23, 59, 59, 999);
-      fechaPeriodFilter.fechaInicio = {
-        gte: new Date(qPeriodoInicio),
-        lte: fin,
-      };
-    }
+    const planillaPeriodFilter = filtroPeriodoPlanilla(periodo.data);
+    const fechaPeriodFilter = filtroFechaInicioEnPeriodo(periodo.data);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const userWhere: any = { empresaId, activo: true };

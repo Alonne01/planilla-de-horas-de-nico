@@ -14,6 +14,7 @@ import { notificarAusencia, notificarAprobadoresPaso } from '../utils/notificaci
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import { fechaDia, spanDiasCalendario } from '../utils/zod.utils.js';
 import { claveFecha, hoyLocalEmpresa } from '../utils/fecha-dia.utils.js';
+import { periodoQuerySchema, filtroFechaInicioEnPeriodo } from '../utils/periodo-query.utils.js';
 import { canManageUser } from '../utils/user-scope.utils.js';
 import {
   construirCircuito,
@@ -133,24 +134,13 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       where.tipo = tipo;
     }
 
-    const periodoInicio = req.query.periodoInicio as string | undefined;
-    const periodoFin = req.query.periodoFin as string | undefined;
     // Una fecha no parseable llega como Invalid Date y Prisma responde 500 al serializarla
-    if (periodoInicio && isNaN(new Date(periodoInicio).getTime())) {
-      res.status(400).json({ error: 'periodoInicio inválido' });
+    const periodo = periodoQuerySchema.safeParse(req.query);
+    if (!periodo.success) {
+      res.status(400).json({ error: 'periodoInicio/periodoFin inválido', details: periodo.error.flatten() });
       return;
     }
-    if (periodoFin && isNaN(new Date(periodoFin).getTime())) {
-      res.status(400).json({ error: 'periodoFin inválido' });
-      return;
-    }
-    if (periodoInicio && periodoFin) {
-      const fin = new Date(periodoFin); fin.setHours(23, 59, 59, 999);
-      where.fechaInicio = {
-        gte: new Date(periodoInicio),
-        lte: fin,
-      };
-    }
+    Object.assign(where, filtroFechaInicioEnPeriodo(periodo.data));
 
     const ausencias = await prisma.ausencia.findMany({
       where,

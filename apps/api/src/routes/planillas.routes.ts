@@ -19,6 +19,7 @@ import { logAuditoria } from '../lib/auditoria.js';
 import { devolverSaldoDeMarca, borrarAdjuntosDeMarcas } from '../utils/marca-manual.utils.js';
 import { feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
 import { claveFecha, dentroDelRango } from '../utils/fecha-dia.utils.js';
+import { periodoQuerySchema, filtroPeriodoPlanilla } from '../utils/periodo-query.utils.js';
 import { tramosDeUsuario, esFrancoEnFecha } from '../utils/diagrama-vigencia.utils.js';
 import {
   construirCircuito,
@@ -127,19 +128,12 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       where.estado = estados.length === 1 ? estados[0] : { in: estados };
     }
 
-    const periodoInicio = req.query.periodoInicio as string | undefined;
-    const periodoFin = req.query.periodoFin as string | undefined;
-    if (periodoInicio) {
-      const d = new Date(periodoInicio);
-      if (isNaN(d.getTime())) { res.status(400).json({ error: 'periodoInicio inválido' }); return; }
-      where.periodoInicio = { gte: d };
+    const periodo = periodoQuerySchema.safeParse(req.query);
+    if (!periodo.success) {
+      res.status(400).json({ error: 'periodoInicio/periodoFin inválido', details: periodo.error.flatten() });
+      return;
     }
-    if (periodoFin) {
-      const fin = new Date(periodoFin);
-      if (isNaN(fin.getTime())) { res.status(400).json({ error: 'periodoFin inválido' }); return; }
-      fin.setHours(23, 59, 59, 999);
-      where.periodoFin = { lte: fin };
-    }
+    Object.assign(where, filtroPeriodoPlanilla(periodo.data));
 
     const planillas = await prisma.planilla.findMany({
       where,

@@ -9,6 +9,7 @@ import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import { puedeVerCalendario } from '../utils/calendario-access.utils.js';
 import { fechaDia } from '../utils/zod.utils.js';
 import { hoyLocalEmpresa } from '../utils/fecha-dia.utils.js';
+import { periodoQuerySchema, filtroFechaInicioEnPeriodo } from '../utils/periodo-query.utils.js';
 import {
   construirCircuito,
   nivelesPorRol,
@@ -373,24 +374,14 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       where = { usuarioId: userId };
     }
 
-    const periodoInicio = req.query.periodoInicio as string | undefined;
-    const periodoFin = req.query.periodoFin as string | undefined;
-    if (periodoInicio && periodoFin) {
-      const ini = new Date(periodoInicio);
-      const fin = new Date(periodoFin);
-      if (isNaN(ini.getTime()) || isNaN(fin.getTime())) { res.status(400).json({ error: 'periodoInicio/periodoFin inválido' }); return; }
-      fin.setHours(23, 59, 59, 999);
-      where = {
-        AND: [
-          where,
-          {
-            fechaInicio: {
-              gte: ini,
-              lte: fin,
-            },
-          },
-        ],
-      };
+    const periodo = periodoQuerySchema.safeParse(req.query);
+    if (!periodo.success) {
+      res.status(400).json({ error: 'periodoInicio/periodoFin inválido', details: periodo.error.flatten() });
+      return;
+    }
+    const filtroPeriodo = filtroFechaInicioEnPeriodo(periodo.data);
+    if (filtroPeriodo.fechaInicio) {
+      where = { AND: [where, filtroPeriodo] };
     }
 
     const vacaciones = await prisma.vacacion.findMany({

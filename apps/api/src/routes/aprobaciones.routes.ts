@@ -1,9 +1,14 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, PlanillaEstado, VacacionEstado, AusenciaEstado } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { getFlowVisibleUserIds } from '../utils/visibility.utils.js';
 import { matchesCurrentStep, type AprobadorContexto } from '../utils/approval-auth.utils.js';
 import { pasosDe } from '../utils/circuito.utils.js';
+import {
+  periodoQuerySchema,
+  filtroPeriodoPlanilla,
+  filtroFechaInicioEnPeriodo,
+} from '../utils/periodo-query.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -70,26 +75,15 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       : { usuario: { empresaId } };
 
     // ── Period filter (optional) ──────────────────────────────────
-    const qPeriodoInicio = req.query.periodoInicio as string | undefined;
-    const qPeriodoFin = req.query.periodoFin as string | undefined;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const planillaPeriodFilter: any = {};
-    if (qPeriodoInicio) planillaPeriodFilter.periodoInicio = { gte: new Date(qPeriodoInicio) };
-    if (qPeriodoFin) {
-      const fin = new Date(qPeriodoFin); fin.setHours(23, 59, 59, 999);
-      planillaPeriodFilter.periodoFin = { lte: fin };
+    const periodo = periodoQuerySchema.safeParse(req.query);
+    if (!periodo.success) {
+      res.status(400).json({ error: 'periodoInicio/periodoFin inválido', details: periodo.error.flatten() });
+      return;
     }
+    const { periodoInicio: qPeriodoInicio, periodoFin: qPeriodoFin } = periodo.data;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fechaPeriodFilter: any = {};
-    if (qPeriodoInicio && qPeriodoFin) {
-      const fin = new Date(qPeriodoFin); fin.setHours(23, 59, 59, 999);
-      fechaPeriodFilter.fechaInicio = {
-        gte: new Date(qPeriodoInicio),
-        lte: fin,
-      };
-    }
+    const planillaPeriodFilter = filtroPeriodoPlanilla(periodo.data);
+    const fechaPeriodFilter = filtroFechaInicioEnPeriodo(periodo.data);
 
     const approverSectorId = (await prisma.usuario.findUnique({ where: { id: userId }, select: { sectorId: true } }))?.sectorId ?? null;
 
@@ -275,7 +269,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         ...planillaPeriodFilter,
         OR: [
           { ...userFilter, estado: { in: ['APROBADA', 'RECHAZADA', 'CERRADA'] } },
-          ...(myPlanillaIds.length ? [{ id: { in: myPlanillaIds }, estado: { notIn: ['BORRADOR'] as const } }] : []),
+          ...(myPlanillaIds.length ? [{ id: { in: myPlanillaIds }, estado: { notIn: [PlanillaEstado.BORRADOR] } }] : []),
         ],
       },
       include: { usuario: userHistInclude, ...flujoInclude },
@@ -288,7 +282,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         ...fechaPeriodFilter,
         OR: [
           { ...userFilter, estado: { in: ['APROBADA', 'RECHAZADA'] } },
-          ...(myVacacionIds.length ? [{ id: { in: myVacacionIds }, estado: { notIn: ['BORRADOR'] as const } }] : []),
+          ...(myVacacionIds.length ? [{ id: { in: myVacacionIds }, estado: { notIn: [VacacionEstado.BORRADOR] } }] : []),
         ],
       },
       include: { usuario: userHistInclude, ...flujoInclude },
@@ -301,7 +295,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         ...fechaPeriodFilter,
         OR: [
           { ...userFilter, estado: { in: ['APROBADA', 'RECHAZADA'] } },
-          ...(myAusenciaIds.length ? [{ id: { in: myAusenciaIds }, estado: { notIn: ['BORRADOR'] as const } }] : []),
+          ...(myAusenciaIds.length ? [{ id: { in: myAusenciaIds }, estado: { notIn: [AusenciaEstado.BORRADOR] } }] : []),
         ],
       },
       include: { usuario: userHistInclude, ...flujoInclude },
@@ -322,12 +316,10 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     ): Promise<FaltanteEntry[]> => {
       const ids = users.map(u => u.id);
       if (ids.length === 0) return [];
-      const finEnd = new Date(pFin); finEnd.setHours(23, 59, 59, 999);
       const planillas = await prisma.planilla.findMany({
         where: {
           usuarioId: { in: ids },
-          periodoInicio: { gte: pInicio },
-          periodoFin: { lte: finEnd },
+          ...filtroPeriodoPlanilla({ periodoInicio: pInicio, periodoFin: pFin }),
         },
         select: { id: true, usuarioId: true, estado: true },
       });
@@ -353,8 +345,12 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       return result;
     };
 
+    // Getters UTC, no locales: `inicio`/`fin` son fechas-día (medianoche UTC del
+    // día argentino) y el proceso corre con TZ=America/Argentina/Buenos_Aires
+    // (ver Dockerfile), así que `getDate()` devolvería SIEMPRE el día anterior:
+    // el rótulo del selector diría "20 Jul — 19 Ago" para el ciclo 21/7–20/8.
     const buildLabel = (inicio: Date, fin: Date): string => {
-      return `${inicio.getDate()} ${MESES_ES[inicio.getMonth()]} — ${fin.getDate()} ${MESES_ES[fin.getMonth()]} ${fin.getFullYear()}`;
+      return `${inicio.getUTCDate()} ${MESES_ES[inicio.getUTCMonth()]} — ${fin.getUTCDate()} ${MESES_ES[fin.getUTCMonth()]} ${fin.getUTCFullYear()}`;
     };
 
     let faltantesActual: FaltantesPeriodo = null;
@@ -373,20 +369,25 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         },
       });
 
-      // Current period
-      const curInicio = new Date(qPeriodoInicio);
-      const curFin = new Date(qPeriodoFin);
+      // Current period. Ya vienen normalizados a fecha-día por `periodoQuerySchema`,
+      // y se devuelven así (no el string crudo del cliente) para que el período
+      // "actual" y el "anterior" hablen la misma convención.
+      const curInicio = qPeriodoInicio;
+      const curFin = qPeriodoFin;
       const actualItems = await computeFaltantes(curInicio, curFin, visibleUsers);
       faltantesActual = {
         label: buildLabel(curInicio, curFin),
-        periodoInicio: qPeriodoInicio,
-        periodoFin: qPeriodoFin,
+        periodoInicio: curInicio.toISOString(),
+        periodoFin: curFin.toISOString(),
         items: actualItems,
       };
 
-      // Previous period (one month back in the 21-20 cycle)
-      const prevInicio = new Date(curInicio.getFullYear(), curInicio.getMonth() - 1, curInicio.getDate());
-      const prevFin = new Date(curFin.getFullYear(), curFin.getMonth() - 1, curFin.getDate());
+      // Previous period (one month back in the 21-20 cycle). En UTC: restar el mes
+      // con el constructor local sobre una medianoche UTC devuelve el día anterior
+      // bajo TZ=AR, y el `toISOString()` de más abajo se lo mandaría al cliente
+      // como un `periodoInicio` que no es ni fecha-día ni el día correcto.
+      const prevInicio = new Date(Date.UTC(curInicio.getUTCFullYear(), curInicio.getUTCMonth() - 1, curInicio.getUTCDate()));
+      const prevFin = new Date(Date.UTC(curFin.getUTCFullYear(), curFin.getUTCMonth() - 1, curFin.getUTCDate()));
       const anteriorItems = await computeFaltantes(prevInicio, prevFin, visibleUsers);
       faltantesAnterior = {
         label: buildLabel(prevInicio, prevFin),

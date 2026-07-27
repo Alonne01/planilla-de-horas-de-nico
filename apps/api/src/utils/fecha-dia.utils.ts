@@ -50,6 +50,14 @@ export function claveFecha(fecha: Date): string {
  * Formatea desde la clave UTC, no con `toLocaleDateString()`: el proceso corre
  * con TZ=America/Argentina/Buenos_Aires (ver Dockerfile), así que leer una
  * medianoche UTC con getters locales devuelve el día anterior en cada string.
+ *
+ * Entrada inválida: **lanza** `RangeError` (vía `claveFecha` → `toISOString()`),
+ * a diferencia del `toLocaleDateString()` que reemplazó, que devolvía el string
+ * `"Invalid Date"`. Es deliberado y sigue la política del resto de los helpers
+ * puros de este módulo: fallar fuerte antes que escribir `"Invalid Date"` en una
+ * celda de Excel o en el cuerpo de una notificación, donde nadie lo revisa. Los
+ * call sites reciben fechas ya validadas (`fechaDia` en el borde de la ruta) o
+ * valores de la base, así que en la práctica es inalcanzable.
  */
 export function fmtFechaDia(fecha: Date): string {
   const [anio, mes, dia] = claveFecha(fecha).split('-');
@@ -62,8 +70,19 @@ export function fmtFechaDia(fecha: Date): string {
  *
  * Igual que `fmtFechaDia`: formatea desde la clave UTC, nunca con
  * `toLocaleDateString()` — el proceso corre con TZ=America/Argentina/
- * Buenos_Aires (ver Dockerfile), y además `{ day: '2-digit', month: '2-digit' }`
- * no siempre zero-paddea según el build de ICU de Node.
+ * Buenos_Aires (ver Dockerfile), y leer una medianoche UTC con getters locales
+ * devuelve el día anterior.
+ *
+ * Además, `toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })`
+ * **no** zero-paddea: no es una rareza de algunos builds de ICU, es el
+ * comportamiento normal del skeleton-matching de CLDR. Las opciones se traducen
+ * a un skeleton (`Md`), y para es-AR ese skeleton resuelve al patrón `d/M`, que
+ * descarta el ancho pedido. Por eso el único call site que formatea una
+ * fecha-día corta (la columna "Fecha" del Excel en `export.routes.ts`) pasó de
+ * mostrar `5/7` a mostrar `05/07`: el cambio de salida visible es intencional.
+ *
+ * Misma política de errores que `fmtFechaDia`: entrada inválida lanza
+ * `RangeError` en vez de devolver el string `"Invalid Date"`.
  */
 export function fmtFechaDiaCorta(fecha: Date): string {
   const [, mes, dia] = claveFecha(fecha).split('-');
@@ -159,6 +178,20 @@ export function hoyLocalEmpresa(): Date {
 }
 
 /**
+ * Último instante representable del día calendario argentino de `dia`
+ * (`23:59:59.999` en clave UTC), para usarlo como borde superior `lte` de un
+ * filtro de Prisma.
+ *
+ * Reemplaza al idiom `const fin = new Date(x); fin.setHours(23,59,59,999)`, que
+ * estaba repetido en cinco rutas y que bajo TZ=America/Argentina/Buenos_Aires
+ * (ver Dockerfile) no producía el fin del día sino `02:59:59.999Z` del día
+ * SIGUIENTE: se colaba un día de más en cada ventana de consulta.
+ */
+export function finDelDia(dia: Date): Date {
+  return new Date(diaDesdeEntrada(dia).getTime() + MS_POR_DIA - 1);
+}
+
+/**
  * Amplía [desde, hasta] al día completo en UTC, para usarlo en el `where` de
  * Prisma. El filtro en SQL compara timestamps, pero las puntas del rango y los
  * períodos/registros contra los que se comparan pueden traer hora (medianoche
@@ -166,14 +199,13 @@ export function hoyLocalEmpresa(): Date {
  * completo; el recorte fino por día lo hace `dentroDelRango` / `clampDia`
  * después, sobre cada día ya resuelto.
  *
- * Usada por `ausencia-calendar.utils.ts`. `tramosDeUsuario` (en
- * `diagrama-vigencia.utils.ts`) y `recalcularDesde` (en
+ * Usada por `ausencia-calendar.utils.ts` y por `periodo-query.utils.ts` (los
+ * filtros de período de planillas/ausencias/vacaciones/analytics/aprobaciones).
+ * `tramosDeUsuario` (en `diagrama-vigencia.utils.ts`) y `recalcularDesde` (en
  * `recalculo-diagrama.utils.ts`) resuelven el mismo ensanche a mano con
  * `Date.UTC(...)` — no se tocan en este cambio (fuera de alcance), pero
  * deberían migrar a esta función.
  */
 export function rangoConsultaDia(desde: Date, hasta: Date): { desde: Date; hasta: Date } {
-  const desdeDia = diaDesdeEntrada(desde);
-  const hastaDia = new Date(diaDesdeEntrada(hasta).getTime() + MS_POR_DIA - 1);
-  return { desde: desdeDia, hasta: hastaDia };
+  return { desde: diaDesdeEntrada(desde), hasta: finDelDia(hasta) };
 }
