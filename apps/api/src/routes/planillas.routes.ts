@@ -334,7 +334,55 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       planilla.periodoFin,
     );
 
-    res.json({ ...planilla, tramosDiagrama });
+    // Solicitudes en revisión que tocan el período: la planilla sólo conoce lo
+    // materializado como RegistroHoras (que existe recién al aprobar), así que
+    // sin esto el operador no ve los días que ya pidió. Las marcas manuales
+    // (cargaManual) quedan afuera: ésas ya bloquean el día y viajan en el
+    // registro, como `marcaManual`.
+    const [ausenciasPend, vacacionesPend] = await Promise.all([
+      prisma.ausencia.findMany({
+        where: {
+          usuarioId: planilla.usuarioId,
+          cargaManual: false,
+          estado: { in: ['PENDIENTE', 'EN_REVISION'] },
+          fechaInicio: { lte: planilla.periodoFin },
+          fechaFin: { gte: planilla.periodoInicio },
+        },
+        select: { id: true, tipo: true, estado: true, fechaInicio: true, fechaFin: true, descripcion: true },
+      }),
+      prisma.vacacion.findMany({
+        where: {
+          usuarioId: planilla.usuarioId,
+          estado: { in: ['PENDIENTE', 'EN_REVISION'] },
+          fechaInicio: { lte: planilla.periodoFin },
+          fechaFin: { gte: planilla.periodoInicio },
+        },
+        select: { id: true, estado: true, fechaInicio: true, fechaFin: true, motivo: true },
+      }),
+    ]);
+
+    const solicitudesPendientes = [
+      ...ausenciasPend.map((a) => ({
+        id: a.id,
+        clase: 'AUSENCIA' as const,
+        tipo: a.tipo as string,
+        estado: a.estado as string,
+        fechaInicio: a.fechaInicio,
+        fechaFin: a.fechaFin,
+        descripcion: a.descripcion,
+      })),
+      ...vacacionesPend.map((v) => ({
+        id: v.id,
+        clase: 'VACACION' as const,
+        tipo: 'VACACION',
+        estado: v.estado as string,
+        fechaInicio: v.fechaInicio,
+        fechaFin: v.fechaFin,
+        descripcion: v.motivo,
+      })),
+    ];
+
+    res.json({ ...planilla, tramosDiagrama, solicitudesPendientes });
   } catch (error) {
     console.error('Error getting planilla:', error);
     res.status(500).json({ error: 'Error interno' });
