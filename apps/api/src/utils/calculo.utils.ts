@@ -1,6 +1,7 @@
 import { PrismaClient, LugarTrabajo } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { contextoDelDia } from './contexto-dia.utils.js';
+import { diaLocalEmpresaDe } from './fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 
@@ -164,15 +165,23 @@ export async function recalcularTotalesPlanilla(planillaId: string): Promise<voi
   });
 }
 
-// Construye una fecha sin desbordar al mes siguiente. `new Date(2026, 1, 31)`
+// Construye una FECHA-DÍA sin desbordar al mes siguiente. `new Date(2026, 1, 31)`
 // devuelve el 3 de marzo; esto devuelve el 28 de febrero. Hace falta porque el
 // día de inicio/fin del período lo elige el usuario (admin.config.routes.ts
 // acepta 1-31) y el mes puede tener menos días. Misma lógica que
 // `fechaEnMes` en apps/web/src/utils/periodos.ts: hay que mantenerlas iguales.
+//
+// Todo se arma con `Date.UTC` y se lee con getters UTC: el resultado es una
+// fecha-día y tiene que ser MEDIANOCHE UTC del día argentino (ver
+// fecha-dia.utils.ts). Con el constructor local y TZ=America/Argentina/
+// Buenos_Aires salía a las 03:00Z, y cada planilla nueva nacía fuera de la
+// convención — deshaciendo la migración 20260727173000_normalizar_fechas_dia.
+// `Date.UTC` normaliza los meses fuera de rango (negativos o >11) igual que el
+// constructor local, que es lo que `getPeriodoActual` le pasa a propósito.
 function fechaEnMes(anio: number, mes: number, dia: number): Date {
-  const base = new Date(anio, mes, 1); // normaliza meses fuera de rango (negativos o >11)
-  const ultimoDia = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
-  return new Date(base.getFullYear(), base.getMonth(), Math.min(dia, ultimoDia));
+  const base = new Date(Date.UTC(anio, mes, 1)); // normaliza meses fuera de rango (negativos o >11)
+  const ultimoDia = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), Math.min(dia, ultimoDia)));
 }
 
 export function getPeriodoActual(
@@ -180,13 +189,20 @@ export function getPeriodoActual(
   diaFin: number,
   hoy: Date = new Date(),
 ): { inicio: Date; fin: Date } {
-  const anio = hoy.getFullYear();
-  const mes = hoy.getMonth(); // 0-indexed
+  // `hoy` es un INSTANTE real (por defecto `new Date()`), no una fecha-día: hay
+  // que preguntarle en qué día calendario ARGENTINO cae. Sus getters UTC crudos
+  // no sirven —entre las 21:00 y las 24:00 argentinas en UTC ya es el día
+  // siguiente— y los locales sólo aciertan si el proceso corre en TZ=AR.
+  // `diaLocalEmpresaDe` da el día argentino sin depender de la TZ del proceso, y
+  // devuelve medianoche UTC, así que a partir de acá se lee todo con getters UTC.
+  const hoyDia = diaLocalEmpresaDe(hoy);
+  const anio = hoyDia.getUTCFullYear();
+  const mes = hoyDia.getUTCMonth(); // 0-indexed
 
   let inicio: Date;
   let fin: Date;
 
-  if (hoy.getDate() >= diaInicio) {
+  if (hoyDia.getUTCDate() >= diaInicio) {
     // Estamos en la segunda mitad del período
     inicio = fechaEnMes(anio, mes, diaInicio);
     // Fin es el diaFin del MES SIGUIENTE
