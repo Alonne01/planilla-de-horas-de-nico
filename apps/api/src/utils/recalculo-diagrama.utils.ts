@@ -36,8 +36,22 @@ export async function recalcularDesde(
   empresaId: string,
   desde: Date,
 ): Promise<ResultadoRecalculo> {
+  // `RegistroHoras.fecha` siempre se guarda a medianoche UTC del día calendario
+  // (misma convención que claveFecha en contexto-dia.utils.ts), pero `desde`
+  // puede llegar con la hora real de una aprobación: el llamador de
+  // cambios-diagrama.routes.ts cae a `new Date()` cuando la solicitud es vieja
+  // y no tiene `fechaEfectiva`. Comparando el Date crudo, "fecha >= desde" da
+  // false para el registro de HOY mismo (medianoche < la hora actual), aunque
+  // `tramoDelDia` ya considere que el diagrama nuevo rige desde hoy por clave
+  // de día: el día del cambio quedaría afuera del recálculo en silencio. Se
+  // normaliza acá adentro (no en el llamador) para que la función sea robusta
+  // sin importar qué hora traiga el Date que le pasen.
+  const desdeDia = new Date(Date.UTC(
+    desde.getUTCFullYear(), desde.getUTCMonth(), desde.getUTCDate(), 0, 0, 0, 0,
+  ));
+
   const planillas = await prisma.planilla.findMany({
-    where: { usuarioId, periodoFin: { gte: desde } },
+    where: { usuarioId, periodoFin: { gte: desdeDia } },
     select: { id: true, estado: true, periodoInicio: true, periodoFin: true },
   });
 
@@ -47,7 +61,7 @@ export async function recalcularDesde(
 
   for (const p of planillas) {
     const registros = await prisma.registroHoras.findMany({
-      where: { planillaId: p.id, fecha: { gte: desde }, bloqueado: false },
+      where: { planillaId: p.id, fecha: { gte: desdeDia }, bloqueado: false },
     });
     if (registros.length === 0) continue;
 
