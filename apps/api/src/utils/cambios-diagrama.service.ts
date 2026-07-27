@@ -11,10 +11,24 @@ const prisma = new PrismaClient();
 export const MOTIVO_VENCIDA =
   'Vencida: la fecha de inicio del diagrama pasó sin completarse la aprobación';
 
-/** Medianoche UTC de hoy. Una solicitud con fecha de inicio <= hoy ya no sirve. */
-function hoyUTC(): Date {
+/**
+ * Fin del día de hoy en UTC (23:59:59.999). El corte tiene que ser el FINAL del
+ * día, no su comienzo: una `fechaEfectiva` de hoy a las 15:00 ya llegó a su día
+ * y tiene que vencer igual que si fuera hoy a las 00:00. Filtrar con la
+ * medianoche de hoy como límite (`lte` a las 00:00:00) dejaba pasar hasta
+ * mañana cualquier fecha de inicio de hoy con hora distinta de cero.
+ *
+ * Esto expresa en una query de Prisma el mismo criterio que la ruta aplica
+ * comparando por `claveFecha` (clave de día, en `/avanzar`): los dos caminos
+ * tienen que decidir lo mismo para la misma solicitud, o una podría vencer por
+ * un lado y aprobarse por el otro según cuál corra primero.
+ */
+function finDeHoyUTC(): Date {
   const ahora = new Date();
-  return new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate()));
+  return new Date(Date.UTC(
+    ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate(),
+    23, 59, 59, 999,
+  ));
 }
 
 /**
@@ -25,22 +39,31 @@ function hoyUTC(): Date {
  * tuvieron plazo.
  */
 export async function vencerCambiosDiagrama(): Promise<number> {
-  const vencidas = await prisma.solicitudCambioDiagrama.findMany({
+  const candidatas = await prisma.solicitudCambioDiagrama.findMany({
     where: {
       estado: { in: ['PENDIENTE', 'EN_REVISION'] },
-      fechaEfectiva: { not: null, lte: hoyUTC() },
+      fechaEfectiva: { not: null, lte: finDeHoyUTC() },
     },
     select: { id: true, usuarioId: true, solicitanteId: true, fechaEfectiva: true, estado: true },
   });
-  if (vencidas.length === 0) return 0;
+  if (candidatas.length === 0) return 0;
 
-  for (const s of vencidas) {
-    await prisma.$transaction([
-      prisma.solicitudCambioDiagrama.update({
-        where: { id: s.id },
+  let vencidas = 0;
+  for (const s of candidatas) {
+    // Update condicional: entre el findMany de arriba y este punto, la solicitud
+    // pudo cerrarse por otra vía (un /avanzar final concurrente, un /rechazar
+    // explícito de otro aprobador, o el solicitante cancelándola). El filtro por
+    // estado hace que sólo la corrida que llega primero encuentre la fila en
+    // PENDIENTE/EN_REVISION; si `count` da 0, otra ya la cerró y no hay que
+    // escribir un historial ni un aviso duplicados para esta solicitud.
+    const cerroEsta = await prisma.$transaction(async (tx) => {
+      const { count } = await tx.solicitudCambioDiagrama.updateMany({
+        where: { id: s.id, estado: { in: ['PENDIENTE', 'EN_REVISION'] } },
         data: { estado: 'RECHAZADA', obsRechazo: MOTIVO_VENCIDA },
-      }),
-      prisma.cambioDiagramaHistorial.create({
+      });
+      if (count === 0) return false;
+
+      await tx.cambioDiagramaHistorial.create({
         data: {
           solicitudId: s.id,
           usuarioId: s.usuarioId,
@@ -50,8 +73,11 @@ export async function vencerCambiosDiagrama(): Promise<number> {
           rolAprobador: null,
           comentario: MOTIVO_VENCIDA,
         },
-      }),
-    ]);
+      });
+      return true;
+    });
+
+    if (!cerroEsta) continue; // ya la cerraron por otro lado: nada que avisar
 
     const fecha = s.fechaEfectiva
       ? s.fechaEfectiva.toISOString().slice(0, 10).split('-').reverse().join('/')
@@ -65,10 +91,11 @@ export async function vencerCambiosDiagrama(): Promise<number> {
         link: '/cambios-diagrama',
       });
     }
+    vencidas += 1;
   }
 
-  console.log(`⏳ Cambios de diagrama vencidos: ${vencidas.length}`);
-  return vencidas.length;
+  console.log(`⏳ Cambios de diagrama vencidos: ${vencidas}`);
+  return vencidas;
 }
 
 // ─── Scheduler ───────────────────────────────────────────────

@@ -401,22 +401,34 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       solicitud.fechaEfectiva &&
       claveFecha(solicitud.fechaEfectiva) <= claveFecha(hoyUTC())
     ) {
-      await prisma.solicitudCambioDiagrama.update({
-        where: { id: solId },
+      // Update condicional: sin el filtro por estado, dos cierres concurrentes
+      // (este /avanzar y el barrido diario, o dos /avanzar pisándose) escribirían
+      // cada uno su propio historial y su propio aviso para el mismo cierre. Con
+      // el filtro, sólo el que llega primero encuentra la fila en PENDIENTE/
+      // EN_REVISION; el que llega después ve `count === 0` y no duplica nada.
+      const { count } = await prisma.solicitudCambioDiagrama.updateMany({
+        where: { id: solId, estado: { in: ['PENDIENTE', 'EN_REVISION'] } },
         data: { estado: 'RECHAZADA', obsRechazo: MOTIVO_VENCIDA },
       });
-      await prisma.cambioDiagramaHistorial.create({
-        data: {
-          solicitudId: solId,
-          usuarioId: req.user!.userId,
-          estadoAnterior: solicitud.estado,
-          estadoNuevo: 'RECHAZADA',
-          pasoFlujo: pasoActual,
-          rolAprobador: rolPasoAprobado,
-          comentario: MOTIVO_VENCIDA,
-        },
-      });
-      await notificarVencida(solicitud);
+      if (count > 0) {
+        await prisma.cambioDiagramaHistorial.create({
+          data: {
+            solicitudId: solId,
+            usuarioId: req.user!.userId,
+            estadoAnterior: solicitud.estado,
+            estadoNuevo: 'RECHAZADA',
+            pasoFlujo: pasoActual,
+            rolAprobador: rolPasoAprobado,
+            comentario: MOTIVO_VENCIDA,
+          },
+        });
+        await notificarVencida(solicitud);
+      }
+      // De cualquier manera la aprobación no sigue: si `count` dio 0 porque ya la
+      // cerraron, la solicitud tampoco está disponible para aprobar. El 409
+      // "vencida" puede no ser 100% preciso en el caso raro de que la hayan
+      // cancelado o rechazado por otra vía en el mismo instante (ver reporte),
+      // pero decir "ya no se puede aprobar" es correcto en los dos casos.
       res.status(409).json({ error: MOTIVO_VENCIDA });
       return;
     }
