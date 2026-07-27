@@ -17,6 +17,7 @@ import { usePeriodoActual, AVISO_PERIODO_POR_DEFECTO } from '@/hooks/usePeriodoC
 import ScopeToggle from '@/components/layout/ScopeToggle';
 import ApprovalProgressBar, { type PasoAprobacion } from '@/components/ui/ApprovalProgressBar';
 import { pasoActualDe, pasosDe, type PasoDocumento } from '@/utils/circuito';
+import { fmtDia } from '@/utils/fechaDia';
 
 // ─── Types ───────────────────────────────────────
 interface FlujoInfo { pasos: PasoDocumento[] }
@@ -563,7 +564,7 @@ export default function AprobacionesPage() {
                             <StepBadge item={p} />
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            Período: {new Date(p.periodoInicio).toLocaleDateString('es-AR')} — {new Date(p.periodoFin).toLocaleDateString('es-AR')}
+                            Período: {fmtDia(p.periodoInicio)} — {fmtDia(p.periodoFin)}
                           </p>
                         </div>
                         {expandedIds.has(p.id)
@@ -633,7 +634,7 @@ export default function AprobacionesPage() {
                             </span>
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(p.periodoInicio).toLocaleDateString('es-AR')} — {new Date(p.periodoFin).toLocaleDateString('es-AR')}
+                            {fmtDia(p.periodoInicio)} — {fmtDia(p.periodoFin)}
                           </p>
                           {p.obsRechazo && p.estado === 'RECHAZADA' && (
                             <p className="text-xs text-red-400 flex items-center gap-1 mt-0.5">
@@ -767,7 +768,7 @@ export default function AprobacionesPage() {
                             <StepBadge item={v} />
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(v.fechaInicio).toLocaleDateString('es-AR')} — {new Date(v.fechaFin).toLocaleDateString('es-AR')}
+                            {fmtDia(v.fechaInicio)} — {fmtDia(v.fechaFin)}
                             {' · '}<span className="font-medium">{v.diasHabiles} días hábiles</span>
                             <span className="text-muted-foreground/60"> ({v.diasTotales} corridos)</span>
                           </p>
@@ -830,7 +831,7 @@ export default function AprobacionesPage() {
                             <span className="text-xs text-muted-foreground">{v.diasTotales}d</span>
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(v.fechaInicio).toLocaleDateString('es-AR')} — {new Date(v.fechaFin).toLocaleDateString('es-AR')}
+                            {fmtDia(v.fechaInicio)} — {fmtDia(v.fechaFin)}
                           </p>
                           {v.obsRechazo && v.estado === 'RECHAZADA' && (
                             <p className="text-xs text-red-400 flex items-center gap-1 mt-0.5">
@@ -888,7 +889,7 @@ export default function AprobacionesPage() {
                             <StepBadge item={a} />
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(a.fechaInicio).toLocaleDateString('es-AR')} — {new Date(a.fechaFin).toLocaleDateString('es-AR')}
+                            {fmtDia(a.fechaInicio)} — {fmtDia(a.fechaFin)}
                             {' · '}<span className="font-medium">{a.diasAusencia} día{a.diasAusencia !== 1 ? 's' : ''}</span>
                           </p>
                         </div>
@@ -953,7 +954,7 @@ export default function AprobacionesPage() {
                             <span className="text-xs text-muted-foreground">{a.diasAusencia}d</span>
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(a.fechaInicio).toLocaleDateString('es-AR')} — {new Date(a.fechaFin).toLocaleDateString('es-AR')}
+                            {fmtDia(a.fechaInicio)} — {fmtDia(a.fechaFin)}
                           </p>
                           {a.obsRechazo && a.estado === 'RECHAZADA' && (
                             <p className="text-xs text-red-400 flex items-center gap-1 mt-0.5">
@@ -1004,7 +1005,7 @@ export default function AprobacionesPage() {
                             </span>
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            Franco compensatorio: <span className="font-medium">{new Date(c.fecha).toLocaleDateString('es-AR')}</span>
+                            Franco compensatorio: <span className="font-medium">{fmtDia(c.fecha)}</span>
                           </p>
                           {c.observaciones && <p className="text-xs text-muted-foreground mt-0.5">«{c.observaciones}»</p>}
                         </div>
@@ -1070,7 +1071,7 @@ export default function AprobacionesPage() {
                           {c.motivo && <p className="text-xs text-muted-foreground">«{c.motivo}»</p>}
                           {c.fechaEfectiva && (
                             <p className="text-[10px] text-muted-foreground">
-                              Efectivo desde: {new Date(c.fechaEfectiva).toLocaleDateString('es-AR')}
+                              Efectivo desde: {fmtDia(c.fechaEfectiva)}
                             </p>
                           )}
                           <p className="text-[10px] text-muted-foreground">

@@ -20,6 +20,7 @@ import PeriodSelector from '@/components/layout/PeriodSelector';
 import { usePeriodoActual, AVISO_PERIODO_POR_DEFECTO } from '@/hooks/usePeriodoConfig';
 import ScopeToggle from '@/components/layout/ScopeToggle';
 import { useDialogStore } from '@/stores/dialogStore';
+import { diaLocal, fmtDia } from '@/utils/fechaDia';
 
 interface Ausencia {
   id: string;
@@ -189,7 +190,7 @@ export default function AusenciasPage() {
     if (!['PENDIENTE', 'EN_REVISION', 'APROBADA'].includes(a.estado)) return false;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return new Date(a.fechaInicio) >= today;
+    return diaLocal(a.fechaInicio) >= today;
   };
 
   if (!listo) {
@@ -351,7 +352,7 @@ export default function AusenciasPage() {
                     </span>
                     <span className="text-sm font-medium flex items-center gap-1">
                       <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                      {new Date(a.fechaInicio).toLocaleDateString('es-AR')} — {new Date(a.fechaFin).toLocaleDateString('es-AR')}
+                      {fmtDia(a.fechaInicio)} — {fmtDia(a.fechaFin)}
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {a.diasAusencia} día{a.diasAusencia !== 1 ? 's' : ''}

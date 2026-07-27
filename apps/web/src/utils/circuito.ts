@@ -136,6 +136,10 @@ export interface PasoRecorrido {
   completado: boolean;
   actual: boolean;
   aprobadoPor?: { nombre: string; apellido: string } | null;
+  /**
+   * INSTANTE (el `createdAt` de la firma), no una fecha-día: su hora importa y
+   * se lee con `new Date(iso)`. No pasarla por los helpers de `utils/fechaDia`.
+   */
   fecha?: string | null;
   comentario?: string | null;
 }

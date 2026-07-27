@@ -249,6 +249,11 @@ export default function CierrePage() {
           </h1>
           {periodo && (
             <p className="text-sm text-muted-foreground">
+              {/* `periodo` NO es una fecha-día del backend: lo genera
+                  utils/periodos.ts como .toISOString() de una medianoche LOCAL.
+                  Se lee con `new Date(iso)` a propósito — es el round-trip
+                  inverso exacto. Aplicarle fmtDia/diaKey acá lo correría un día
+                  en cualquier huso positivo. */}
               Período: {new Date(periodo.inicio).toLocaleDateString('es-AR')} — {new Date(periodo.fin).toLocaleDateString('es-AR')}
             </p>
           )}

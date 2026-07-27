@@ -1,4 +1,5 @@
 import api from '@/services/api';
+import { ymd } from '@/utils/fechaDia';
 import { type DiagramaInfo } from '@/utils/planillaHelpers';
 
 export interface Sector { id: string; nombre: string }
@@ -87,18 +88,13 @@ export function tipoLabel(tipo: string): string {
   return TIPO_LABEL[tipo] ?? tipo;
 }
 
-// Parse date-only (sin `new Date(iso)`): el backend serializa fechas server-local
-// vía .toISOString(); construir un Date acá correría el día en algunas timezones.
-export function ymd(iso: string): [number, number, number] {
-  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
-  return [y, m, d];
-}
+// Parse date-only (sin `new Date(iso)`): el backend serializa las fechas-día con
+// .toISOString(); construir un Date acá correría el día en algunas timezones.
+// La implementación vive en utils/fechaDia.ts (autoridad única): acá sólo se
+// re-exporta con los nombres que ya usaban los calendarios.
+export { ymd, fmtDia as fmtDate } from '@/utils/fechaDia';
 export function daysInMonth(year: number, monthIndex0: number) {
   return new Date(year, monthIndex0 + 1, 0).getDate();
-}
-export function fmtDate(iso: string) {
-  const [y, m, d] = ymd(iso);
-  return new Date(y, m - 1, d).toLocaleDateString('es-AR');
 }
 export function norm(s: string) {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();

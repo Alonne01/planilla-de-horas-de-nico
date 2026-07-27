@@ -4,6 +4,7 @@ import api from '@/services/api';
 import { cn } from '@/lib/utils';
 import { DIAGRAMA_CARD_BG } from '@/constants/planillaConstants';
 import { useAuthStore } from '@/stores/authStore';
+import { fmtDia } from '@/utils/fechaDia';
 import { Users, Search, Mail, Calendar, Briefcase, ChevronDown } from 'lucide-react';
 
 interface Empleado {
@@ -166,7 +167,7 @@ export default function EquipoPage() {
                   </p>
                 )}
                 <p className="flex items-center gap-1.5">
-                  <Calendar className="h-3 w-3" /> Ingreso: {new Date(emp.fechaIngreso).toLocaleDateString('es-AR')}
+                  <Calendar className="h-3 w-3" /> Ingreso: {fmtDia(emp.fechaIngreso)}
                 </p>
               </div>
 

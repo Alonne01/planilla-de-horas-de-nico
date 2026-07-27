@@ -11,6 +11,7 @@ import {
 import { ESTADO_STYLES, ESTADO_LABELS } from '@/constants/planillaConstants';
 import { toast } from '@/stores/toastStore';
 import { mensajeDeError } from '@/lib/errores';
+import { fmtDia } from '@/utils/fechaDia';
 
 interface Planilla {
   id: string;
@@ -33,10 +34,8 @@ interface Planilla {
 
 
 function formatPeriodo(inicio: string, fin: string): string {
-  const d1 = new Date(inicio);
-  const d2 = new Date(fin);
   const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric' };
-  return `${d1.toLocaleDateString('es-AR', opts)} — ${d2.toLocaleDateString('es-AR', opts)}`;
+  return `${fmtDia(inicio, opts)} — ${fmtDia(fin, opts)}`;
 }
 
 // ─── Shared sub-components ───────────────────────

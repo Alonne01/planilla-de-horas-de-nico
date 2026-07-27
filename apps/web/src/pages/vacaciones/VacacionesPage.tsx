@@ -17,6 +17,7 @@ import {
 import PeriodSelector from '@/components/layout/PeriodSelector';
 import { usePeriodoActual, AVISO_PERIODO_POR_DEFECTO } from '@/hooks/usePeriodoConfig';
 import ScopeToggle from '@/components/layout/ScopeToggle';
+import { fmtDia } from '@/utils/fechaDia';
 
 
 interface Vacacion {
@@ -114,7 +115,7 @@ function VacacionCard({
             </span>
             <span className="font-medium text-sm flex items-center gap-1">
               <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-              {new Date(v.fechaInicio).toLocaleDateString('es-AR')} — {new Date(v.fechaFin).toLocaleDateString('es-AR')}
+              {fmtDia(v.fechaInicio)} — {fmtDia(v.fechaFin)}
             </span>
             <span className="text-xs text-muted-foreground">{v.diasHabiles} háb. / {v.diasTotales} corrido{v.diasTotales !== 1 ? 's' : ''}</span>
             {hasFlow && (

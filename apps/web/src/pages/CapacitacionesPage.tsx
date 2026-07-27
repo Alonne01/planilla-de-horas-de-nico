@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
+import { diaLocal, fmtDia } from '@/utils/fechaDia';
 import { useState, useCallback } from 'react';
 import {
   Loader2, GraduationCap, Plus, Trash2, Pencil, X, Save,
@@ -331,7 +332,7 @@ export default function CapacitacionesPage() {
     const now = new Date();
     let statusCap: string = 'sin_vencimiento';
     if (r.fechaVencimiento) {
-      const diff = Math.ceil((new Date(r.fechaVencimiento).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      const diff = Math.ceil((diaLocal(r.fechaVencimiento).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       if (diff < 0) statusCap = 'vencida';
       else if (diff <= (r.tipo?.alertaDias ?? 30)) statusCap = 'proxima';
       else statusCap = 'vigente';
@@ -552,11 +553,11 @@ export default function CapacitacionesPage() {
                           </span>
                         )}
                         <span className="text-xs text-muted-foreground">
-                          {new Date(r.fechaRealizacion).toLocaleDateString('es-AR')}
+                          {fmtDia(r.fechaRealizacion)}
                         </span>
                         {r.fechaVencimiento && (
                           <span className={cn('text-[10px] px-2 py-0.5 rounded', st.bg, st.text)}>
-                            Vence: {new Date(r.fechaVencimiento).toLocaleDateString('es-AR')}
+                            Vence: {fmtDia(r.fechaVencimiento)}
                           </span>
                         )}
                         {r.institucion && (
@@ -598,7 +599,7 @@ export default function CapacitacionesPage() {
               {misInvitaciones.map((inv) => {
                 const s = inv.sesion;
                 const isPending = inv.estado === 'PENDIENTE';
-                const isFuture = new Date(s.fecha) >= new Date(new Date().toDateString());
+                const isFuture = diaLocal(s.fecha) >= new Date(new Date().toDateString());
                 return (
                   <div key={inv.id} className="rounded-xl border border-border bg-card p-5 space-y-3">
                     <div className="flex items-start justify-between">
@@ -616,7 +617,7 @@ export default function CapacitacionesPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-                      <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{new Date(s.fecha).toLocaleDateString('es-AR')}</span>
+                      <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{fmtDia(s.fecha)}</span>
                       {s.horaInicio && <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{s.horaInicio}{s.horaFin ? `–${s.horaFin}` : ''}</span>}
                       {s.lugar && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{s.lugar}</span>}
                       <span>Organiza: {s.organizador.nombre} {s.organizador.apellido}</span>
@@ -786,7 +787,7 @@ export default function CapacitacionesPage() {
                       <span className={cn('px-2 py-1 rounded text-[10px] font-medium', est.bg, est.text)}>{est.label}</span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-                      <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{new Date(s.fecha).toLocaleDateString('es-AR')}</span>
+                      <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{fmtDia(s.fecha)}</span>
                       {s.horaInicio && <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{s.horaInicio}{s.horaFin ? `–${s.horaFin}` : ''}</span>}
                       {s.lugar && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{s.lugar}</span>}
                       <span>Vacantes: {s.vacantes}</span>

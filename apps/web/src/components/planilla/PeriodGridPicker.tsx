@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { diaLocal } from '@/utils/fechaDia';
 
 const MESES_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
@@ -28,14 +29,14 @@ export default function PeriodGridPicker({
   onPick: (id: string) => void;
   onClose: () => void;
 }) {
-  const curFin = new Date(currentFin);
+  const curFin = diaLocal(currentFin);
   const [year, setYear] = useState(curFin.getFullYear());
   const [closing, setClosing] = useState(false);
 
   // Mapa mes-de-cierre → planilla (del año visible).
   const byMonth = new Map<number, PeriodoItem>();
   for (const p of planillas) {
-    const f = new Date(p.periodoFin);
+    const f = diaLocal(p.periodoFin);
     if (f.getFullYear() === year) byMonth.set(f.getMonth(), p);
   }
   const curMonth = curFin.getMonth();

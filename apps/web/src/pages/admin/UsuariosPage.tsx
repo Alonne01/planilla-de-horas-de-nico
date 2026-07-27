@@ -11,6 +11,7 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { useDialogStore } from '@/stores/dialogStore';
 import { toast } from '@/stores/toastStore';
+import { diaKey, fmtDia } from '@/utils/fechaDia';
 
 interface User {
   id: string;
@@ -253,7 +254,7 @@ export default function UsuariosPage() {
                     </div>
                     <div>
                       <span className="text-muted-foreground">Ingreso:</span>
-                      <p className="font-medium">{new Date(u.fechaIngreso).toLocaleDateString('es-AR')}</p>
+                      <p className="font-medium">{fmtDia(u.fechaIngreso)}</p>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Primer login:</span>
@@ -377,7 +378,7 @@ function UserFormModal({
         setOriginalDiagramaId(data.diagramaActual.id);
       }
       if (data.diagramas?.[0]?.fechaInicio) {
-        const fi = new Date(data.diagramas[0].fechaInicio).toISOString().split('T')[0];
+        const fi = diaKey(data.diagramas[0].fechaInicio);
         setDiagramaFechaInicio(fi);
         setOriginalFechaInicio(fi);
       }
@@ -396,7 +397,7 @@ function UserFormModal({
     sectorId: user?.sector?.id ?? '',
     legajo: user?.legajo ?? '',
     tipoContrato: user?.tipoContrato ?? 'INDEFINIDO',
-    fechaIngreso: user?.fechaIngreso ? new Date(user.fechaIngreso).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+    fechaIngreso: user?.fechaIngreso ? diaKey(user.fechaIngreso) : new Date().toISOString().split('T')[0],
     diagramaColor: user?.diagramaColor ?? '',
   });
 
@@ -407,9 +408,9 @@ function UserFormModal({
     setFieldErrors({});
 
     // El input de fecha no tiene `required`, solo `disabled={!diagramaId}`: se
-    // puede elegir un diagrama y después borrar la fecha. Sin este chequeo,
-    // `new Date('' + 'T00:00:00').toISOString()` más abajo tira un RangeError
-    // que el catch disfraza de "Error de conexión".
+    // puede elegir un diagrama y después borrar la fecha. Sin este chequeo se
+    // mandaría `fechaInicio: ''` al PATCH del diagrama y el 400 del servidor
+    // llegaría como un error suelto, en vez de marcar el campo que falta.
     if (diagramaId && !diagramaFechaInicio) {
       setFieldErrors({ diagramaFechaInicio: ['Elegí la fecha de inicio del ciclo'] });
       setError('Falta la fecha de inicio del ciclo del diagrama');
@@ -426,7 +427,10 @@ function UserFormModal({
         sectorId: form.sectorId || null,
         legajo: form.legajo || null,
         tipoContrato: form.tipoContrato,
-        fechaIngreso: new Date(form.fechaIngreso).toISOString(),
+        // Se manda la clave 'YYYY-MM-DD' pelada: el schema `fechaDia` del API la
+        // normaliza. Construir un Date acá la mandaba como medianoche LOCAL, o sea
+        // 03:00Z en Argentina (la convención vieja).
+        fechaIngreso: form.fechaIngreso,
         diagramaColor: form.diagramaColor || null,
       };
 
@@ -441,7 +445,7 @@ function UserFormModal({
         if (diagramaId && diagramChanged) {
           await api.patch(`/usuarios/${user.id}/diagrama`, {
             diagramaId,
-            fechaInicio: new Date(diagramaFechaInicio + 'T00:00:00').toISOString(),
+            fechaInicio: diagramaFechaInicio,
           });
         }
       } else {
@@ -454,7 +458,7 @@ function UserFormModal({
           try {
             await api.patch(`/usuarios/${creado.data.id}/diagrama`, {
               diagramaId,
-              fechaInicio: new Date(diagramaFechaInicio + 'T00:00:00').toISOString(),
+              fechaInicio: diagramaFechaInicio,
             });
           } catch (errDiagrama) {
             toast({

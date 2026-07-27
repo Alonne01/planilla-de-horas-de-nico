@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Users, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { diaLocal, fmtDia } from '@/utils/fechaDia';
 import {
   type GanttData, type Bloque, type Cat,
   MESES, CAT, CAT_LABEL, CAT_ORDER, ESTADO_BADGE, catOf, tipoLabel, computeOverlapPeaks,
@@ -29,8 +30,8 @@ export default function CalendarioCompacto({ data, anio, isLoading, onOverlapSel
   const totalDays = useMemo(() => months.reduce((s, m) => s + m.days, 0), [months]);
 
   const dateToDayOffset = (dateStr: string) => {
-    const d = new Date(dateStr);
-    const start = new Date(anio, 0, 1);
+    const d = diaLocal(dateStr);
+    const start = new Date(anio, 0, 1, 12, 0, 0);
     const diff = Math.max(0, Math.floor((d.getTime() - start.getTime()) / 86400000));
     return Math.min(diff, totalDays - 1);
   };
@@ -176,7 +177,7 @@ export default function CalendarioCompacto({ data, anio, isLoading, onOverlapSel
         <div className="fixed bottom-6 right-6 z-50 rounded-xl border border-border bg-card shadow-lg p-4 max-w-xs">
           <p className="font-semibold text-sm">{hovered.empNombre}</p>
           <p className="text-xs text-muted-foreground mt-1">
-            {new Date(hovered.fechaInicio).toLocaleDateString('es-AR')} — {new Date(hovered.fechaFin).toLocaleDateString('es-AR')}
+            {fmtDia(hovered.fechaInicio)} — {fmtDia(hovered.fechaFin)}
           </p>
           <div className="flex items-center gap-2 mt-1">
             <span className={cn('w-2.5 h-2.5 rounded', CAT[hovered.cat])} style={{ backgroundColor: 'currentColor' }} />

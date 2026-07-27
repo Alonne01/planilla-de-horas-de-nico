@@ -7,6 +7,7 @@ import {
   Edit3, Check, X, Users, Search, Building2
 } from 'lucide-react';
 import { useDialogStore } from '@/stores/dialogStore';
+import { diaLocal } from '@/utils/fechaDia';
 
 interface SaldoRow {
   id: string;
@@ -122,7 +123,7 @@ export default function VacacionSaldosPage() {
   }, [filteredSaldos]);
 
   function getAntiguedad(fechaIngreso: string) {
-    const ingreso = new Date(fechaIngreso);
+    const ingreso = diaLocal(fechaIngreso);
     const now = new Date();
     let y = now.getFullYear() - ingreso.getFullYear();
     if (now < new Date(now.getFullYear(), ingreso.getMonth(), ingreso.getDate())) y--;

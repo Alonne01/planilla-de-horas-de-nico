@@ -16,7 +16,7 @@ import {
   dateKey, esFeriadoNacional, nombreFeriado, cargarFeriados,
   buildCalendarDays, buildWeeks, cellStyle,
 } from '@/utils/planillaHelpers';
-import { diaKey } from '@/utils/fechaDia';
+import { diaKey, diaLocal, fmtDia } from '@/utils/fechaDia';
 import { francoDelDia, tramoDelDia, esInicioDeTramo, diagramaHeaderText, type TramoDiagrama } from '@/utils/tramosDiagrama';
 import { pasoActualDe, type PasoDocumento } from '@/utils/circuito';
 import { avisarSinCircuito } from '@/lib/avisoCircuito';
@@ -290,7 +290,7 @@ export default function PlanillaDetailPage() {
   const handleDeletePlanilla = async () => {
     const first = await dialog.confirm({
       title: '¿Eliminar planilla?',
-      message: `Vas a eliminar la planilla del período ${planilla ? new Date(planilla.periodoInicio).toLocaleDateString('es-AR') + ' — ' + new Date(planilla.periodoFin).toLocaleDateString('es-AR') : ''}. Se perderán todos los registros de horas cargados.`,
+      message: `Vas a eliminar la planilla del período ${planilla ? fmtDia(planilla.periodoInicio) + ' — ' + fmtDia(planilla.periodoFin) : ''}. Se perderán todos los registros de horas cargados.`,
       confirmLabel: 'Continuar',
       cancelLabel: 'Cancelar',
       variant: 'danger',
@@ -670,7 +670,7 @@ export default function PlanillaDetailPage() {
 
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
-        const periodoStr = `${new Date(planilla.periodoInicio).toLocaleDateString('es-AR')} — ${new Date(planilla.periodoFin).toLocaleDateString('es-AR')}`;
+        const periodoStr = `${fmtDia(planilla.periodoInicio)} — ${fmtDia(planilla.periodoFin)}`;
         doc.text(`Empleado: ${planilla.usuario.apellido.toUpperCase()} ${planilla.usuario.nombre.toUpperCase()}`, 14, 22);
         doc.text(`Legajo: ${planilla.usuario.legajo || '—'}`, 14, 27);
         doc.text(`Sector: ${planilla.usuario.sector?.nombre || '—'}`, 80, 22);
@@ -848,7 +848,7 @@ export default function PlanillaDetailPage() {
 
   /** Contexto del día seleccionado (no editable): franco por diagrama y feriado nacional */
   const selFranco = selectedDate
-    ? (() => { const [y, m, d] = selectedDate.split('-').map(Number); return isFranco(new Date(y, m - 1, d, 12, 0, 0)); })()
+    ? isFranco(diaLocal(selectedDate))
     : false;
   const selFeriado = selectedDate ? esFeriadoNacional(selectedDate) : false;
   const selFeriadoNombre = selectedDate ? nombreFeriado(selectedDate) : null;
@@ -935,7 +935,7 @@ export default function PlanillaDetailPage() {
               title="Cambiar de período"
             >
               <CalendarDays className="h-3.5 w-3.5" />
-              {new Date(planilla.periodoInicio).toLocaleDateString('es-AR')} — {new Date(planilla.periodoFin).toLocaleDateString('es-AR')}
+              {fmtDia(planilla.periodoInicio)} — {fmtDia(planilla.periodoFin)}
               <ChevronDown className="h-3.5 w-3.5" />
             </button>
             {planilla.usuario.sector && <span>• {planilla.usuario.sector.nombre}</span>}
@@ -1409,7 +1409,7 @@ export default function PlanillaDetailPage() {
               <div className="min-w-0">
                 <h2 className="text-lg font-semibold flex items-center gap-2 capitalize">
                   <Clock className="h-5 w-5 text-primary shrink-0" />
-                  <span className="truncate">{new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+                  <span className="truncate">{fmtDia(selectedDate, { weekday: 'long', day: 'numeric', month: 'long' })}</span>
                 </h2>
                 {formHasWork && (
                   <span className={cn(
@@ -1876,7 +1876,7 @@ export default function PlanillaDetailPage() {
             <div>
               <h3 className="text-base font-semibold">Confirmar ausencia</h3>
               <p className="text-sm text-muted-foreground mt-1">
-                {marcaPendiente.label} — {new Date(`${selectedDate}T00:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit' })}
+                {marcaPendiente.label} — {fmtDia(selectedDate, { weekday: 'long', day: '2-digit', month: '2-digit' })}
               </p>
             </div>
 

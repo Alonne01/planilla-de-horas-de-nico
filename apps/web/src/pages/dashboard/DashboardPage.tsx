@@ -9,6 +9,7 @@ import {
   ArrowRight, MapPin, Send, CalendarCheck2, Shield, BarChart3
 } from 'lucide-react';
 import { ESTADO_STYLES } from '@/constants/planillaConstants';
+import { diaLocal, fmtDia } from '@/utils/fechaDia';
 
 interface DashboardData {
   planillaActual: {
@@ -71,7 +72,7 @@ export default function DashboardPage() {
       const horasTrend = planillas.slice(0, 6).reverse().map((p: {
         periodoInicio: string; totalHorasNormales: string; totalHorasExtra50: string; totalHorasExtra100: string;
       }) => {
-        const d = new Date(p.periodoInicio);
+        const d = diaLocal(p.periodoInicio);
         return {
           label: d.toLocaleDateString('es-AR', { month: 'short' }),
           normales: Number(p.totalHorasNormales),
@@ -290,7 +291,7 @@ export default function DashboardPage() {
                     <FileText className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium">
-                        {new Date(p.periodoInicio).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })} — {new Date(p.periodoFin).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' })}
+                        {fmtDia(p.periodoInicio, { day: '2-digit', month: 'short' })} — {fmtDia(p.periodoFin, { day: '2-digit', month: 'short', year: '2-digit' })}
                       </p>
                       <p className="text-xs text-muted-foreground">{Number(p.totalHorasNormales).toFixed(0)}h normales</p>
                     </div>
