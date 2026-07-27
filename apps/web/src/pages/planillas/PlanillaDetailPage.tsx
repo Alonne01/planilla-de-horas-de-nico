@@ -16,7 +16,7 @@ import {
   dateKey, esFeriadoNacional, nombreFeriado, cargarFeriados,
   buildCalendarDays, buildWeeks, cellStyle,
 } from '@/utils/planillaHelpers';
-import { francoDelDia, tramoDelDia, esInicioDeTramo, type TramoDiagrama } from '@/utils/tramosDiagrama';
+import { francoDelDia, tramoDelDia, esInicioDeTramo, diagramaHeaderText, type TramoDiagrama } from '@/utils/tramosDiagrama';
 import { pasoActualDe, type PasoDocumento } from '@/utils/circuito';
 import { avisarSinCircuito } from '@/lib/avisoCircuito';
 import SuccessOverlay from '@/components/planilla/SuccessOverlay';
@@ -675,7 +675,25 @@ export default function PlanillaDetailPage() {
         doc.text(`Legajo: ${planilla.usuario.legajo || '—'}`, 14, 27);
         doc.text(`Sector: ${planilla.usuario.sector?.nombre || '—'}`, 80, 22);
         doc.text(`Período: ${periodoStr}`, 160, 22);
-        doc.text(`Diagrama: ${planilla.usuario.diagramas[0]?.diagrama?.nombre || '—'}`, 160, 27);
+
+        // Con un cambio de diagrama a mitad de período, `planilla.usuario.diagramas[0]`
+        // (la asignación `activo: true`) sólo tenía el diagrama nuevo: el PDF mentía
+        // sobre la primera mitad del período mientras el calendario de esta misma
+        // pantalla y el Excel del backend ya mostraban el corte. `tramosDiagrama` viene
+        // pre-armado por el backend (mismo criterio que el Excel, ver diagramaHeaderText).
+        const diagramaTexto = `Diagrama: ${diagramaHeaderText(tramosDiagrama)}`;
+        // El texto de dos tramos ("X hasta DD/MM · Y desde DD/MM") puede no entrar en
+        // el ancho disponible desde x=160 con la fuente de 10pt: se achica hasta que
+        // entre (piso 6pt) en vez de dejarlo desbordar sobre el margen derecho.
+        const anchoDisponibleDiagrama = pageWidth - 14 - 160;
+        let fontSizeDiagrama = 10;
+        doc.setFontSize(fontSizeDiagrama);
+        while (doc.getTextWidth(diagramaTexto) > anchoDisponibleDiagrama && fontSizeDiagrama > 6) {
+          fontSizeDiagrama -= 1;
+          doc.setFontSize(fontSizeDiagrama);
+        }
+        doc.text(diagramaTexto, 160, 27);
+        doc.setFontSize(10); // restaurar: lo que sigue en el encabezado asume 10pt
 
         // Table data
         const days = buildCalendarDays(planilla.periodoInicio, planilla.periodoFin);

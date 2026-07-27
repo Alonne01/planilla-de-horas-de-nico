@@ -63,3 +63,21 @@ export function esInicioDeTramo(tramos: TramoDiagrama[], fecha: Date): boolean {
   const ordenados = [...tramos].sort((a, b) => claveIso(a.fechaInicio).localeCompare(claveIso(b.fechaInicio)));
   return ordenados.slice(1).some((t) => claveIso(t.fechaInicio) === k);
 }
+
+/**
+ * Texto para el encabezado del PDF cuando el período tiene un corte de
+ * diagrama: mismo criterio que arma `diagramaNombre` en `export.routes.ts`
+ * (backend) para el Excel, así el PDF del front dice lo mismo que la planilla
+ * que ya liquidó esos días. `tramos` llega pre-ordenado por `fechaInicio` (lo
+ * garantiza `tramosDeUsuario` en el backend), así que no hace falta reordenar.
+ */
+export function diagramaHeaderText(tramos: TramoDiagrama[]): string {
+  if (tramos.length === 0) return '—';
+  if (tramos.length === 1) return tramos[0]!.diagrama.nombre || '—';
+  const fmt = (iso: string) => claveIso(iso).split('-').reverse().join('/');
+  return tramos
+    .map((t, i) => (i === 0 && t.fechaFin
+      ? `${t.diagrama.nombre || '—'} hasta ${fmt(t.fechaFin)}`
+      : `${t.diagrama.nombre || '—'} desde ${fmt(t.fechaInicio)}`))
+    .join(' · ');
+}
