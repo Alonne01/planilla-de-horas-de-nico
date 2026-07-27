@@ -200,9 +200,15 @@ export function diaDesdeEntrada(valor: string | Date): Date {
   return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()));
 }
 
-/** ¿Las dos fechas caen en el mismo día calendario? */
+/**
+ * ¿Las dos fechas caen en el mismo día calendario?
+ *
+ * Normaliza antes de comparar: si midiera el día con `claveFecha` a secas, el
+ * módulo tendría DOS nociones de "día" (la argentina de `diaDesdeEntrada` y la
+ * UTC de `claveFecha`), que discrepan en la ventana (00:00Z, 03:00Z).
+ */
 export function mismoDia(a: Date, b: Date): boolean {
-  return claveFecha(a) === claveFecha(b);
+  return claveFecha(diaDesdeEntrada(a)) === claveFecha(diaDesdeEntrada(b));
 }
 
 /**
@@ -210,8 +216,8 @@ export function mismoDia(a: Date, b: Date): boolean {
  * Inclusivo en ambos extremos y a prueba de fechas con horas distintas.
  */
 export function dentroDelRango(dia: Date, desde: Date, hasta: Date): boolean {
-  const clave = claveFecha(dia);
-  return clave >= claveFecha(desde) && clave <= claveFecha(hasta);
+  const clave = claveFecha(diaDesdeEntrada(dia));
+  return clave >= claveFecha(diaDesdeEntrada(desde)) && clave <= claveFecha(diaDesdeEntrada(hasta));
 }
 
 /**
@@ -269,8 +275,12 @@ Borrar de `contexto-dia.utils.ts` el bloque que va desde el comentario `/** Clav
 ```ts
 // La convención de fecha-día (y su documentación) vive en fecha-dia.utils.ts.
 // Se re-exporta acá porque medio código ya la importa desde este módulo.
-export { claveFecha, hoyLocalEmpresa, diaDesdeEntrada, mismoDia, dentroDelRango } from './fecha-dia.utils.js';
+export { claveFecha, hoyLocalEmpresa } from './fecha-dia.utils.js';
 ```
+
+Sólo esos dos: son los únicos que alguien importa desde acá. Cada re-export de más
+es un segundo camino sancionado para llegar a la API nueva, justo en contra de
+tener una sola autoridad.
 
 Agregar arriba, junto al resto de los imports del archivo:
 
@@ -378,7 +388,18 @@ Agregar después de `fechaFlexible`:
  * entrada/salida de un registro (`horaOpcional` en planillas.routes.ts), que son
  * instantes reales y conservan su hora.
  */
-export const fechaDia = fechaFlexible.transform((s) => diaDesdeEntrada(s));
+export const fechaDia = fechaFlexible.transform((s, ctx) => {
+  try {
+    return diaDesdeEntrada(s);
+  } catch {
+    // `fechaFlexible` valida con Date.parse, que acepta días que no existen
+    // rodándolos al mes siguiente ('2026-02-29' → 1 de marzo). El guard de
+    // round-trip de `diaDesdeEntrada` los caza, pero si el throw sale de acá se
+    // escapa de `safeParse` (que sólo atrapa ZodError) y la ruta contesta 500.
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Fecha inválida (use formato YYYY-MM-DD o ISO 8601)' });
+    return z.NEVER;
+  }
+});
 ```
 
 Y reemplazar `spanDiasCalendario` para que acepte los dos tipos:
@@ -539,7 +560,9 @@ Reemplazar en `inyectarDiasBloqueados` la búsqueda de planilla (líneas 42-44) 
     );
 ```
 
-Y ampliar el pre-filtro del `findMany` que trae las planillas (líneas 33-39). Sin
+Y ampliar el pre-filtro del `findMany` que trae las planillas (líneas 33-39) con
+`rangoConsultaDia(desde, hasta)` — un helper puro que vive en `fecha-dia.utils.ts`
+y ensancha el rango al día completo. Sin
 esto el arreglo no sirve: el filtro SQL compara timestamps, así que con una
 ausencia que arranca `2026-07-31T03:00:00Z` y un `periodoFin` en
 `2026-07-31T00:00:00Z` la planilla nunca entra al array y `dentroDelRango` no
@@ -548,14 +571,13 @@ llega a compararla. Mismo patrón que `tramosDeUsuario`
 hace la comparación por clave.
 
 ```ts
-  const desdeDia = diaDesdeEntrada(range.fechaInicio);
-  const hastaDia = new Date(diaDesdeEntrada(range.fechaFin).getTime() + 86_400_000 - 1);
+  const rango = rangoConsultaDia(range.fechaInicio, range.fechaFin);
 
   const planillas = await prisma.planilla.findMany({
     where: {
       usuarioId: range.usuarioId,
-      periodoInicio: { lte: hastaDia },
-      periodoFin: { gte: desdeDia },
+      periodoInicio: { lte: rango.hasta },
+      periodoFin: { gte: rango.desde },
     },
     select: { id: true, periodoInicio: true, periodoFin: true },
   });
