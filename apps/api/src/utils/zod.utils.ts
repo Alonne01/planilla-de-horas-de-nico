@@ -33,7 +33,15 @@ export const fechaDia = fechaFlexible.transform((s) => diaDesdeEntrada(s));
  * que devuelve `fechaDia`.
  */
 export function spanDiasCalendario(fechaInicio: string | Date, fechaFin: string | Date): number {
-  const ini = diaDesdeEntrada(fechaInicio);
-  const fin = diaDesdeEntrada(fechaFin);
-  return Math.round((fin.getTime() - ini.getTime()) / 86_400_000) + 1;
+  try {
+    const ini = diaDesdeEntrada(fechaInicio);
+    const fin = diaDesdeEntrada(fechaFin);
+    return Math.round((fin.getTime() - ini.getTime()) / 86_400_000) + 1;
+  } catch {
+    // Entrada inválida → NaN, que hace fallar el refine que la consume y termina
+    // en un 400. Si esto lanzara, la excepción se escaparía de `safeParse` (zod
+    // corre los refine de objeto aunque un campo interno ya haya fallado) y la
+    // ruta contestaría 500.
+    return NaN;
+  }
 }

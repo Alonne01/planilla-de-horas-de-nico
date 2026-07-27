@@ -75,7 +75,11 @@ async function run() {
     1,
   );
 
-  console.log('✓ fecha-dia: 15/15 OK');
+  // 16. Una fecha malformada NO puede hacer explotar el refine que la usa: el
+  //     endpoint tiene que contestar 400 (validación), no 500 (excepción).
+  assert.ok(Number.isNaN(spanDiasCalendario('31/07/2026', '31/07/2026')));
+
+  console.log('✓ fecha-dia: 16/16 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
