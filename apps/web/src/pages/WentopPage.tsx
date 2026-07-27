@@ -28,7 +28,7 @@ import { useDialogStore } from '@/stores/dialogStore';
 import { toast } from '@/stores/toastStore';
 import { cn } from '@/lib/utils';
 import { mensajeDeError } from '@/lib/errores';
-import { fmtDia } from '@/utils/fechaDia';
+import { diaKey, fmtDia, hoyKey } from '@/utils/fechaDia';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -505,7 +505,10 @@ export default function WentopPage() {
           onEstadoChange={(estado, accionCierre) => {
             const body: Record<string, string> = { estado };
             if (accionCierre) body.accionCierre = accionCierre;
-            if (estado === 'CERRADA') body.fechaCierre = new Date().toISOString().split('T')[0];
+            // `hoyKey()`, no `new Date().toISOString()`: esto se PERSISTE. El día
+            // UTC ya es el siguiente entre las 21:00 y las 24:00 en Argentina, así
+            // que cerrar una tarjeta de noche grababa mañana como fecha de cierre.
+            if (estado === 'CERRADA') body.fechaCierre = hoyKey();
             estadoMutation.mutate({ id: selectedTarjeta.id, body });
           }}
           onDeletePhoto={async (fotoId) => {
@@ -1529,7 +1532,7 @@ function TarjetaFormModal({
 
   // Form state
   const [fechaReporte, setFechaReporte] = useState(
-    inicial?.fechaReporte?.split('T')[0] ?? new Date().toISOString().split('T')[0],
+    inicial?.fechaReporte ? diaKey(inicial.fechaReporte) : hoyKey(),
   );
   const [tipoTarjeta, setTipoTarjeta] = useState(inicial?.tipoTarjeta ?? '');
   const [sectorObservacionId, setSectorObservacionId] = useState(inicial?.sectorObservacionId ?? '');

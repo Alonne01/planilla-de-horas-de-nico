@@ -11,7 +11,7 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { useDialogStore } from '@/stores/dialogStore';
 import { toast } from '@/stores/toastStore';
-import { diaKey, fmtDia } from '@/utils/fechaDia';
+import { diaKey, fmtDia, hoyKey } from '@/utils/fechaDia';
 
 interface User {
   id: string;
@@ -362,9 +362,7 @@ function UserFormModal({
 
   // Diagram state — loaded from GET /usuarios/:id when editing
   const [diagramaId, setDiagramaId] = useState('');
-  const [diagramaFechaInicio, setDiagramaFechaInicio] = useState(
-    new Date().toISOString().split('T')[0]
-  );
+  const [diagramaFechaInicio, setDiagramaFechaInicio] = useState(hoyKey());
   const [originalDiagramaId, setOriginalDiagramaId] = useState('');
   const [originalFechaInicio, setOriginalFechaInicio] = useState('');
 
@@ -397,7 +395,7 @@ function UserFormModal({
     sectorId: user?.sector?.id ?? '',
     legajo: user?.legajo ?? '',
     tipoContrato: user?.tipoContrato ?? 'INDEFINIDO',
-    fechaIngreso: user?.fechaIngreso ? diaKey(user.fechaIngreso) : new Date().toISOString().split('T')[0],
+    fechaIngreso: user?.fechaIngreso ? diaKey(user.fechaIngreso) : hoyKey(),
     diagramaColor: user?.diagramaColor ?? '',
   });
 

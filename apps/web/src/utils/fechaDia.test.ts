@@ -49,7 +49,22 @@ async function run() {
   // Año bisiesto: 2028 tiene 29 de febrero.
   assert.strictEqual(diasEntre('2028-03-01', '2028-02-28'), 2);
 
-  console.log('✓ fechaDia: 8/8 OK');
+  // 9. La ventana que rompía: 21:00–24:00 en Argentina, donde el día UTC ya es el
+  //    siguiente. Ahí `new Date().toISOString().split('T')[0]` grababa MAÑANA —
+  //    era el bug de la fecha de cierre de una tarjeta WENTOP y de los defaults
+  //    de fecha de los formularios.
+  //    El instante se arma con componentes LOCALES (22:00 del 26/7), así que el
+  //    primer assert vale en cualquier huso; el segundo sólo corre en los husos
+  //    donde el día UTC efectivamente difiere (Argentina entre ellos) y es el que
+  //    fija que hoyKey sigue al día local y no al UTC.
+  const nocheLocal = new Date(2026, 6, 26, 22, 0, 0);
+  assert.strictEqual(hoyKey(nocheLocal), '2026-07-26');
+  const diaUtc = nocheLocal.toISOString().slice(0, 10);
+  if (diaUtc !== '2026-07-26') {
+    assert.notStrictEqual(hoyKey(nocheLocal), diaUtc, 'hoyKey debe seguir el día local, no el UTC');
+  }
+
+  console.log('✓ fechaDia: 9/9 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
