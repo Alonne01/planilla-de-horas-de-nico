@@ -14,7 +14,7 @@ import {
 import { ESTADO_STYLES, ESTADO_LABELS } from '@/constants/planillaConstants';
 import {
   dateKey, esFeriadoNacional, nombreFeriado, cargarFeriados,
-  buildCalendarDays, buildWeeks, cellStyle,
+  buildCalendarDays, buildWeeks, cellStyle, etiquetaTipoSolicitud,
 } from '@/utils/planillaHelpers';
 import { diaKey, diaLocal, fmtDia, hoyKey } from '@/utils/fechaDia';
 import { francoDelDia, tramoDelDia, esInicioDeTramo, diagramaHeaderText, type TramoDiagrama } from '@/utils/tramosDiagrama';
@@ -60,6 +60,23 @@ interface Registro {
   } | null;
 }
 
+/**
+ * Ausencia o vacación PENDIENTE / EN_REVISION que toca el período.
+ *
+ * No hay `RegistroHoras` para estos días —el bloqueo se materializa recién al
+ * aprobar—, así que la marca del calendario se recalcula desde acá en cada carga:
+ * no se persiste nada, y por eso sobrevive a borrar y recrear la planilla.
+ */
+interface SolicitudPendiente {
+  id: string;
+  clase: 'AUSENCIA' | 'VACACION';
+  tipo: string;
+  estado: string;
+  fechaInicio: string;
+  fechaFin: string;
+  descripcion: string | null;
+}
+
 interface PlanillaDetalle {
   id: string;
   periodoInicio: string;
@@ -86,6 +103,8 @@ interface PlanillaDetalle {
   circuitoSnapshot: unknown;
   /** Tramos de diagrama que cubren el período (uno por cada cambio aprobado). */
   tramosDiagrama?: TramoDiagrama[];
+  /** Pedidos sin firmar que se solapan con el período (no bloquean el día). */
+  solicitudesPendientes?: SolicitudPendiente[];
   flujo?: {
     nombre: string;
     pasos: PasoDocumento[];
@@ -337,6 +356,23 @@ export default function PlanillaDetailPage() {
     if (planilla) {
       for (const r of planilla.registros) {
         map[diaKey(r.fecha)] = r;
+      }
+    }
+    return map;
+  }, [planilla]);
+
+  // Índice día → solicitud en revisión. La marca no se persiste: se recalcula
+  // desde la solicitud en cada carga, así que sobrevive a borrar la planilla.
+  // El recorrido va por `Date` local (`diaLocal` posiciona el día correcto sin
+  // depender del huso) y la clave sale de `dateKey`, que es `claveLocal`.
+  const pendientePorDia = useMemo(() => {
+    const map: Record<string, SolicitudPendiente> = {};
+    for (const s of planilla?.solicitudesPendientes ?? []) {
+      const cur = diaLocal(s.fechaInicio);
+      const fin = diaLocal(s.fechaFin);
+      while (cur <= fin) {
+        map[dateKey(cur)] = s;
+        cur.setDate(cur.getDate() + 1);
       }
     }
     return map;
@@ -1139,6 +1175,9 @@ export default function PlanillaDetailPage() {
               const hasData = !!reg;
               const francoDay = isFranco(day);
               const isLocked = reg?.bloqueado === true;
+              // Pedido en revisión: se marca, pero el día sigue siendo editable.
+              // El bloqueado gana: si ya está aprobado, manda el candado.
+              const pendiente = !isLocked ? pendientePorDia[key] : undefined;
               const isFaltante = diasFaltantes.includes(key);
               const isFeriado = esFeriadoNacional(key);
               // Franco trabajado para la vista: se deriva del diagrama y de las horas cargadas,
@@ -1210,6 +1249,7 @@ export default function PlanillaDetailPage() {
                     isLocked && 'cursor-not-allowed',
                     !isLocked && isWeekend && !hasData && !francoDay && !isFeriado && 'bg-muted/10',
                     isToday && paintMode === 'none' && 'ring-2 ring-inset ring-primary/50',
+                    pendiente && 'bg-amber-500/[0.07]',
                     isFaltante && 'border-l-[3px] border-l-red-500/80',
                     dimmedByPaint && 'opacity-30',
                     isCopySource && 'ring-2 ring-inset ring-sky-400 z-10',
@@ -1245,6 +1285,12 @@ export default function PlanillaDetailPage() {
                         style={{ color: paint.c, boxShadow: '0 0 0 1.5px currentColor, 0 0 12px 1px currentColor' }}
                       />
                     </>
+                  )}
+                  {/* Contorno punteado del pedido en revisión. Va como overlay y no
+                      como borde de la celda para no correr el contenido 1px ni pelear
+                      con el `focus:outline-none` del botón. */}
+                  {pendiente && (
+                    <span className="pointer-events-none absolute inset-0 z-20 border border-dashed border-cal-amber/70" />
                   )}
                   {/* Day number + badges row */}
                   <div className="relative z-10 flex items-start justify-between gap-0.5">
@@ -1361,6 +1407,16 @@ export default function PlanillaDetailPage() {
                           {reg.observaciones}
                         </p>
                       )}
+                    </div>
+                  )}
+
+                  {/* Pedido en revisión (no bloquea: el día se puede cargar) */}
+                  {pendiente && (
+                    <div className="relative z-10 mt-1.5 flex items-center gap-1">
+                      <Clock className="h-3 w-3 shrink-0 text-cal-amber/80" />
+                      <span className="text-[10px] font-semibold text-cal-amber leading-tight truncate">
+                        {etiquetaTipoSolicitud(pendiente.tipo)} · en revisión
+                      </span>
                     </div>
                   )}
 

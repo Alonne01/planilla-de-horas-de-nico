@@ -213,6 +213,19 @@ export function cellStyle(reg: CellRegistro | undefined, ctx: CellCtx): CellVisu
   return { bgClass: '', label: '', labelClass: '' };
 }
 
+/** Etiqueta corta de un tipo de ausencia/vacación, para la celda del calendario. */
+export function etiquetaTipoSolicitud(tipo: string): string {
+  switch (tipo) {
+    case 'VACACION': return 'Vacac.';
+    case 'CERTIFICADO_MEDICO': return 'Cert. Méd.';
+    case 'FALTA_JUSTIFICADA': return 'Falta Just.';
+    case 'FALTA_INJUSTIFICADA': return 'Falta Inj.';
+    case 'LICENCIA_ESPECIAL': return 'Licencia';
+    case 'FRANCO_COMPENSATORIO': return 'F.Comp';
+    default: return 'Ausencia';
+  }
+}
+
 /** Build all calendar days for a 21→20 period */
 export function buildCalendarDays(periodoInicio: string, periodoFin: string): Date[] {
   // Las puntas son fechas-DÍA: se toman del string. `new Date(iso)` las correría
