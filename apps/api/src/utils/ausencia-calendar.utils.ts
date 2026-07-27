@@ -30,11 +30,12 @@ export async function inyectarDiasBloqueados(range: AusenciaRange): Promise<void
   const days = buildDaysBetween(range.fechaInicio, range.fechaFin);
 
   // Find all planillas that overlap the range for this user
+  const { desde: desdeDia, hasta: hastaDia } = rangoConsultaDia(range.fechaInicio, range.fechaFin);
   const planillas = await prisma.planilla.findMany({
     where: {
       usuarioId: range.usuarioId,
-      periodoInicio: { lte: range.fechaFin },
-      periodoFin: { gte: range.fechaInicio },
+      periodoInicio: { lte: hastaDia },
+      periodoFin: { gte: desdeDia },
     },
     select: { id: true, periodoInicio: true, periodoFin: true },
   });
@@ -94,13 +95,18 @@ export async function backfillAusenciasEnPlanilla(
   periodoInicio: Date,
   periodoFin: Date,
 ): Promise<void> {
+  // El filtro en SQL compara timestamps, pero `periodoInicio`/`periodoFin` (y las
+  // fechas de ausencias/vacaciones que se comparan contra ellos) pueden traer
+  // hora — mismo ensanche que en inyectarDiasBloqueados.
+  const { desde: desdeDia, hasta: hastaDia } = rangoConsultaDia(periodoInicio, periodoFin);
+
   // Approved ausencias in period
   const ausencias = await prisma.ausencia.findMany({
     where: {
       usuarioId,
       estado: 'APROBADA',
-      fechaInicio: { lte: periodoFin },
-      fechaFin: { gte: periodoInicio },
+      fechaInicio: { lte: hastaDia },
+      fechaFin: { gte: desdeDia },
     },
   });
 
@@ -109,8 +115,8 @@ export async function backfillAusenciasEnPlanilla(
     where: {
       usuarioId,
       estado: 'APROBADA',
-      fechaInicio: { lte: periodoFin },
-      fechaFin: { gte: periodoInicio },
+      fechaInicio: { lte: hastaDia },
+      fechaFin: { gte: desdeDia },
     },
   });
 
@@ -229,6 +235,21 @@ export function clampDia(dia: Date, borde: Date, esTecho = false): Date {
   const b = diaDesdeEntrada(borde);
   if (esTecho) return d > b ? b : d;
   return d < b ? b : d;
+}
+
+/**
+ * Amplía [desde, hasta] al día completo en UTC, para usarlo en el `where` de
+ * Prisma. El filtro en SQL compara timestamps, pero las puntas del rango y los
+ * períodos/registros contra los que se comparan pueden traer hora (medianoche
+ * argentina, mediodía, la hora de una aprobación) — mismo problema que ya
+ * resuelve `tramosDeUsuario` en diagrama-vigencia.utils.ts. Se ensancha el
+ * filtro al día completo; el recorte fino por día lo hace `dentroDelRango` /
+ * `clampDia` después, sobre cada día ya resuelto.
+ */
+export function rangoConsultaDia(desde: Date, hasta: Date): { desde: Date; hasta: Date } {
+  const desdeDia = diaDesdeEntrada(desde);
+  const hastaDia = new Date(diaDesdeEntrada(hasta).getTime() + 86_400_000 - 1);
+  return { desde: desdeDia, hasta: hastaDia };
 }
 
 export function formatTipoAusencia(tipo: string): string {

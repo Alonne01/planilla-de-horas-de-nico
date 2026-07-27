@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { buildDaysBetween, clampDia } from '../src/utils/ausencia-calendar.utils.js';
+import { buildDaysBetween, clampDia, rangoConsultaDia } from '../src/utils/ausencia-calendar.utils.js';
 
 const d = (iso: string) => new Date(iso);
 
@@ -39,7 +39,23 @@ async function run() {
     '2026-08-15T00:00:00.000Z',
   );
 
-  console.log('✓ ausencia-calendar: 6/6 OK');
+  // 7. rangoConsultaDia amplía [desde, hasta] al día completo en UTC: el piso baja
+  //    a medianoche del día de "desde" y el techo sube a 1 ms antes de la
+  //    medianoche siguiente a "hasta". Es lo que hay que usar en el `where` de
+  //    Prisma para no perder registros guardados con hora (medianoche argentina,
+  //    mediodía, la hora de una aprobación) que caen en esos mismos días.
+  const rango = rangoConsultaDia(d('2026-07-31T03:00:00.000Z'), d('2026-08-15T03:00:00.000Z'));
+  assert.strictEqual(rango.desde.toISOString(), '2026-07-31T00:00:00.000Z');
+  assert.strictEqual(rango.hasta.toISOString(), '2026-08-15T23:59:59.999Z');
+
+  // 8. Reproduce el bug reportado: una ausencia que arranca a las 03:00Z (medianoche
+  //    argentina) y una planilla cuyo periodoFin es 00:00Z del mismo día calendario.
+  //    El filtro crudo compara "00:00 >= 03:00" (false) y pierde la planilla; con
+  //    el piso ensanchado a 00:00Z del mismo día, la comparación pasa.
+  const periodoFinPlanilla = d('2026-07-31T00:00:00.000Z');
+  assert.ok(periodoFinPlanilla.getTime() >= rango.desde.getTime());
+
+  console.log('✓ ausencia-calendar: 8/8 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
