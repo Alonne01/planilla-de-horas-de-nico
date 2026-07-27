@@ -70,6 +70,12 @@ async function run() {
   // 14. fechaDia rechaza basura con el mismo mensaje que fechaFlexible.
   assert.strictEqual(fechaDia.safeParse('31/07/2026').success, false);
 
+  // 14b. Un día que no existe pero que Date.parse acepta rodando al mes siguiente
+  //      ('2026-02-29' → 1 de marzo) tiene que dar error de validación, no una
+  //      excepción: si el transform lanza, se escapa de safeParse y la ruta da 500.
+  assert.strictEqual(fechaDia.safeParse('2026-02-29').success, false);
+  assert.strictEqual(fechaDia.safeParse('2026-04-31').success, false);
+
   // 15. spanDiasCalendario acepta Date (además de string) y es inclusivo.
   assert.strictEqual(spanDiasCalendario('2026-07-28', '2026-07-29'), 2);
   assert.strictEqual(

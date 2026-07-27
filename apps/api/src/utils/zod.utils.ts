@@ -25,7 +25,20 @@ export const fechaFlexible = z.string().refine(
  * entrada/salida de un registro (`horaOpcional` en planillas.routes.ts), que son
  * instantes reales y conservan su hora.
  */
-export const fechaDia = fechaFlexible.transform((s) => diaDesdeEntrada(s));
+export const fechaDia = fechaFlexible.transform((s, ctx) => {
+  try {
+    return diaDesdeEntrada(s);
+  } catch {
+    // fechaFlexible valida con Date.parse, que en V8 acepta '2026-02-29' rodándolo
+    // al 1 de marzo: pasa el refine y llega acá, donde diaDesdeEntrada SÍ lo
+    // rechaza (round-trip por claveFecha). Si dejáramos escapar ese throw, se
+    // saldría de `safeParse` — que sólo atrapa ZodError — y la ruta contestaría
+    // 500 en vez de 400. `ctx.addIssue` + `z.NEVER` es la forma correcta de fallar
+    // un `transform` de zod.
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Fecha inválida (use formato YYYY-MM-DD o ISO 8601)' });
+    return z.NEVER;
+  }
+});
 
 /**
  * Cantidad de días-calendario entre dos fechas, inclusive en ambos extremos
