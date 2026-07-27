@@ -5,6 +5,7 @@ import {
   mismoDia,
   dentroDelRango,
   hoyLocalEmpresa,
+  diaLocalEmpresaDe,
 } from '../src/utils/fecha-dia.utils.js';
 import { fechaDia, spanDiasCalendario } from '../src/utils/zod.utils.js';
 
@@ -53,7 +54,12 @@ async function run() {
   assert.strictEqual(dentroDelRango(new Date('2026-07-15T00:00:00.000Z'), ini, fin), false);
   assert.strictEqual(dentroDelRango(new Date('2026-08-16T00:00:00.000Z'), ini, fin), false);
 
-  // 12. hoyLocalEmpresa devuelve medianoche UTC exacta (invariante de la convención).
+  // 12. El día de negocio de un instante: a las 00:00Z en Argentina todavía es
+  //     ayer. Este borde se rompía cuando hoyLocalEmpresa reusaba diaDesdeEntrada.
+  assert.strictEqual(claveFecha(diaLocalEmpresaDe(new Date('2026-07-31T00:00:00.000Z'))), '2026-07-30');
+  assert.strictEqual(claveFecha(diaLocalEmpresaDe(new Date('2026-07-31T00:00:00.001Z'))), '2026-07-30');
+  assert.strictEqual(claveFecha(diaLocalEmpresaDe(new Date('2026-07-31T02:59:59.999Z'))), '2026-07-30');
+  assert.strictEqual(claveFecha(diaLocalEmpresaDe(new Date('2026-07-31T03:00:00.000Z'))), '2026-07-31');
   assert.strictEqual(hoyLocalEmpresa().getTime() % 86_400_000, 0);
 
   // 13. fechaDia devuelve un Date ya normalizado, no un string.

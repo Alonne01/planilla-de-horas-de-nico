@@ -66,6 +66,19 @@ export function dentroDelRango(dia: Date, desde: Date, hasta: Date): boolean {
 }
 
 /**
+ * Día calendario argentino de un instante dado, como medianoche UTC.
+ *
+ * NO pasa por `diaDesdeEntrada`: el atajo de "medianoche UTC ya normalizada" que
+ * esa función aplica vale para fechas-día guardadas, pero acá el argumento es un
+ * instante real, y a las 00:00:00Z en Argentina todavía son las 21:00 del día
+ * anterior.
+ */
+export function diaLocalEmpresaDe(instante: Date): Date {
+  const local = new Date(instante.getTime() - OFFSET_ARGENTINA_MS);
+  return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()));
+}
+
+/**
  * Medianoche UTC del día calendario de HOY en el huso de la empresa (Argentina),
  * NO en el huso del servidor.
  *
@@ -75,9 +88,5 @@ export function dentroDelRango(dia: Date, desde: Date, hasta: Date): boolean {
  * argentino durante las últimas 3 horas de cada día en Argentina (21:00–24:00).
  */
 export function hoyLocalEmpresa(): Date {
-  // El -1 ms cubre un borde: a las 00:00:00.000Z exactas (21:00 AR del día
-  // anterior), `diaDesdeEntrada` devolvería el día UTC tal cual —que en Argentina
-  // todavía es mañana—. Corriendo un milisegundo, ese instante cae en la rama que
-  // mide el día argentino. En cualquier otro momento restar 1 ms no cambia el día.
-  return diaDesdeEntrada(new Date(Date.now() - 1));
+  return diaLocalEmpresaDe(new Date());
 }
