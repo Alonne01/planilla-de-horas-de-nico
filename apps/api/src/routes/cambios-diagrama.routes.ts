@@ -52,6 +52,37 @@ function hoyUTC(): Date {
   return new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate()));
 }
 
+// Argentina es UTC-3 todo el año (sin horario de verano desde 2009), así que un
+// desplazamiento fijo alcanza sin tirar de una librería de zonas horarias.
+const OFFSET_ARGENTINA_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * Medianoche UTC del día calendario de HOY **en Argentina** (no el día calendario
+ * UTC: para eso ya está `hoyUTC()`).
+ *
+ * Por qué hace falta un "hoy" distinto acá: entre las 21:00 y las 24:00 hora
+ * Argentina, el reloj UTC ya rodó al día siguiente. `hoyUTC()` (componentes UTC
+ * crudos de "ahora") adelanta un día entero durante esas 3 horas, y ese
+ * adelanto coincide EXACTAMENTE con "mañana" en hora local: `manana()` en
+ * CambiosDiagramaPage.tsx (que usa componentes LOCALES del navegador) calcula el
+ * día siguiente al hoy argentino, que es el mismo día que `hoyUTC()` ya cree que
+ * es "hoy". Con `hoyUTC()` como piso, un usuario en Argentina que a las 21:05
+ * elige el mínimo que el propio date picker le ofrece manda exactamente ese día,
+ * y la comparación lo rechaza por igualdad ("no es posterior a hoy") pese a que
+ * en Argentina ese día TODAVÍA no llegó. Envolver la comparación en `claveFecha`
+ * sin corregir esto no alcanza: `hoyUTC()` ya está anclado a medianoche UTC, así
+ * que su clave de día es la misma con o sin el `.toISOString().slice(0,10)` de
+ * por medio — el problema no es de granularidad (día vs. timestamp), es que
+ * `hoyUTC()` mide el día equivocado durante esas 3 horas.
+ *
+ * Nota: esto NO toca `hoyUTC()`, que sigue usando la guardia de vencimiento de
+ * `/avanzar` (línea ~424) — ese caso queda fuera del alcance de este arreglo.
+ */
+function hoyEnArgentina(): Date {
+  const ahoraEnAR = new Date(Date.now() - OFFSET_ARGENTINA_MS);
+  return new Date(Date.UTC(ahoraEnAR.getUTCFullYear(), ahoraEnAR.getUTCMonth(), ahoraEnAR.getUTCDate()));
+}
+
 const createSolicitudSchema = z.object({
   usuarioId: z.string().uuid(),
   diagramaNuevoId: z.string().uuid(),
@@ -61,7 +92,22 @@ const createSolicitudSchema = z.object({
   // cambio aplicándose retroactivo sobre días ya cargados.
   fechaEfectiva: fechaFlexible,
 }).refine(
-  (d) => new Date(d.fechaEfectiva) > hoyUTC(),
+  (d) => {
+    // Comparación por CLAVE DE DÍA (`claveFecha`, mismo criterio que la guardia de
+    // vencimiento en /avanzar) contra el HOY ARGENTINO (`hoyEnArgentina()`, no
+    // `hoyUTC()`: ver el comentario de esa función para el porqué). "Posterior a
+    // hoy" exige que la clave de la fecha recibida sea estrictamente mayor.
+    //
+    // Caso límite: un string con hora explícita que cruza medianoche en UTC
+    // dentro del mismo día en Argentina, p. ej. '2026-07-27T23:00:00-03:00'
+    // (=2026-07-28T02:00:00Z), da clave '2026-07-28' en vez de '27'. Se acepta
+    // así a propósito: es la misma convención que ya usa `claveFecha` en todo
+    // este módulo (día = día calendario UTC) y que `fechaEfectiva` ya asume en la
+    // guardia de vencimiento de /avanzar. El form del front sólo manda
+    // 'YYYY-MM-DD' sin hora (nunca este caso); un cliente de API que sí mande
+    // hora explícita queda sujeto a la misma regla que el resto del sistema.
+    return claveFecha(new Date(d.fechaEfectiva)) > claveFecha(hoyEnArgentina());
+  },
   { message: 'La fecha de inicio del diagrama debe ser posterior a hoy', path: ['fechaEfectiva'] },
 );
 
