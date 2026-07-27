@@ -127,6 +127,21 @@ async function main() {
   const QAROL = `QAMENS_${TS}`;
   const ingreso = new Date().toISOString();
 
+  // El rol tiene que EXISTIR antes de asignarlo. `POST /usuarios` lo valida
+  // contra RolConfig desde 4ecc71f (2026-06-26), como parte de la guardia
+  // anti-escalada de privilegios: un código suelto da 400 "Rol inexistente".
+  // Esta suite es del 2026-07-13, o sea que nació después de esa validación y
+  // nunca la contempló: reventaba en el setup, antes de la primera aserción.
+  // Nivel 10 = operador raso, para que A/B/C sean destinatarios y no
+  // aprobadores. Se pushea el cleanup ANTES de crear los usuarios porque el
+  // array se recorre con `.reverse()`: así el rol se borra después que ellos.
+  const rolRes = await post('/admin/roles', {
+    codigo: QAROL, nombre: `QA Mensajes ${TS}`, nivel: 10,
+  }, admin.token);
+  assertStatus(rolRes.status, 201, `create rol: ${JSON.stringify(rolRes.body)}`);
+  const rolId: string = rolRes.body.id;
+  cleanup.push(async () => { await del(`/admin/roles/${rolId}`, admin.token); });
+
   async function makeUser(prefix: string, rol: string, sId: string | null): Promise<Session> {
     const email = `qa.${KEY}.${prefix}.${TS}@demo.com`;
     const r = await post('/usuarios', {
