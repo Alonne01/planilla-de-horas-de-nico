@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { diaDesdeEntrada } from './fecha-dia.utils.js';
+import { diaDesdeEntrada, MS_POR_DIA } from './fecha-dia.utils.js';
 
 /**
  * Schema de fecha flexible: acepta fecha-sola "YYYY-MM-DD" o ISO 8601 datetime
@@ -44,17 +44,21 @@ export const fechaDia = fechaFlexible.transform((s, ctx) => {
  * Cantidad de días-calendario entre dos fechas, inclusive en ambos extremos
  * (el mismo día da 1). Acepta strings validados por `fechaFlexible` o los `Date`
  * que devuelve `fechaDia`.
+ *
+ * Política de errores (a propósito distinta de `diaDesdeEntrada` y del resto de
+ * los helpers puros de `fecha-dia.utils.ts`, que lanzan ante entrada inválida):
+ * ESTA función no lanza. La consume un `.refine()` de zod, y zod corre los
+ * refine de nivel objeto aunque un campo interno ya haya fallado la validación
+ * (queda "dirty", no "aborted") — un throw acá se escaparía de `safeParse` y la
+ * ruta contestaría 500 en vez de 400. Entrada inválida → `NaN`, que hace fallar
+ * el refine que la consume.
  */
 export function spanDiasCalendario(fechaInicio: string | Date, fechaFin: string | Date): number {
   try {
     const ini = diaDesdeEntrada(fechaInicio);
     const fin = diaDesdeEntrada(fechaFin);
-    return Math.round((fin.getTime() - ini.getTime()) / 86_400_000) + 1;
+    return Math.round((fin.getTime() - ini.getTime()) / MS_POR_DIA) + 1;
   } catch {
-    // Entrada inválida → NaN, que hace fallar el refine que la consume y termina
-    // en un 400. Si esto lanzara, la excepción se escaparía de `safeParse` (zod
-    // corre los refine de objeto aunque un campo interno ya haya fallado) y la
-    // ruta contestaría 500.
     return NaN;
   }
 }

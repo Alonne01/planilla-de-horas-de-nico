@@ -96,7 +96,29 @@ async function run() {
   assert.throws(() => diaDesdeEntrada('2026-13-45'), RangeError);
   assert.throws(() => diaDesdeEntrada('2026-02-30'), RangeError);
 
-  console.log('✓ fecha-dia: 17/17 OK');
+  // 18. Entrada inválida también con un Date (antes sólo se probaba con string).
+  assert.throws(() => diaDesdeEntrada(new Date('no-es-fecha')), RangeError);
+
+  // 19. diaDesdeEntrada nunca devuelve el mismo objeto que recibió: buildDaysBetween
+  //     depende de esto para poder mutar el resultado con setUTCDate sin alterar
+  //     el Date que le pasaron.
+  const original = new Date('2026-07-31T00:00:00.000Z');
+  assert.notStrictEqual(diaDesdeEntrada(original), original);
+
+  // 20. Las tres comparaciones del módulo miden el día de la misma manera, también
+  //     en la ventana (00:00Z, 03:00Z) donde el día UTC (lo que mide claveFecha
+  //     cruda) y el día argentino (lo que mide diaDesdeEntrada) discrepan.
+  //     mismoDia/dentroDelRango normalizan antes de comparar para no mezclar las
+  //     dos nociones dentro del mismo módulo.
+  const enVentana = new Date('2026-08-01T02:00:00.000Z'); // 31/7 23:00 en AR
+  assert.strictEqual(claveFecha(diaDesdeEntrada(enVentana)), '2026-07-31');
+  assert.strictEqual(mismoDia(enVentana, new Date('2026-07-31T00:00:00.000Z')), true);
+  assert.strictEqual(
+    dentroDelRango(enVentana, new Date('2026-07-31T00:00:00.000Z'), new Date('2026-07-31T00:00:00.000Z')),
+    true,
+  );
+
+  console.log('✓ fecha-dia: 20/20 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

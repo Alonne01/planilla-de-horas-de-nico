@@ -39,6 +39,31 @@ async function run() {
     '2026-08-15T00:00:00.000Z',
   );
 
+  // 6b. clampDia con techo y un valor que ya está adentro: no se toca.
+  assert.strictEqual(
+    clampDia(d('2026-08-10T00:00:00.000Z'), d('2026-08-15T03:00:00.000Z'), true).toISOString(),
+    '2026-08-10T00:00:00.000Z',
+  );
+
+  // 6c. buildDaysBetween con start > end: rango vacío, no explota.
+  assert.deepStrictEqual(
+    buildDaysBetween(d('2026-07-31T00:00:00.000Z'), d('2026-07-30T00:00:00.000Z')),
+    [],
+  );
+
+  // 6d. buildDaysBetween cruzando fin de mes.
+  assert.deepStrictEqual(
+    buildDaysBetween(d('2026-07-31T00:00:00.000Z'), d('2026-08-01T00:00:00.000Z')).map((x) => x.toISOString()),
+    ['2026-07-31T00:00:00.000Z', '2026-08-01T00:00:00.000Z'],
+  );
+
+  // 6e. El piso de buildDaysBetween es el día calendario ARGENTINO, no el UTC:
+  //     ambas puntas caen en la ventana (00:00Z, 03:00Z), que en Argentina
+  //     todavía es el día anterior.
+  const enVentana = buildDaysBetween(d('2026-08-01T02:00:00.000Z'), d('2026-08-01T02:30:00.000Z'));
+  assert.strictEqual(enVentana.length, 1);
+  assert.strictEqual(enVentana[0]!.toISOString(), '2026-07-31T00:00:00.000Z');
+
   // 7. rangoConsultaDia amplía [desde, hasta] al día completo en UTC: el piso baja
   //    a medianoche del día de "desde" y el techo sube a 1 ms antes de la
   //    medianoche siguiente a "hasta". Es lo que hay que usar en el `where` de

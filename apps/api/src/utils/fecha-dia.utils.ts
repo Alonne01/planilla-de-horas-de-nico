@@ -18,11 +18,28 @@
 // guardado por empresa) en vez de un desplazamiento constante.
 const OFFSET_ARGENTINA_MS = 3 * 60 * 60 * 1000;
 
-const MS_POR_DIA = 86_400_000;
+/**
+ * Milisegundos por día. Exportada porque el ensanche de rangos y de cálculos de
+ * días-calendario (`zod.utils.ts`, `ausencia-calendar.utils.ts`) la necesitaba
+ * retipeada como literal en más de un lugar.
+ */
+export const MS_POR_DIA = 86_400_000;
 
 const SOLO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Clave YYYY-MM-DD de una fecha, en UTC. */
+/**
+ * Clave YYYY-MM-DD del día UTC.
+ *
+ * Pensada para fechas-día ya normalizadas (donde el día UTC y el día argentino
+ * coinciden por construcción, porque ya pasaron por `diaDesdeEntrada`). NO mide
+ * el día calendario argentino de un instante real: `claveFecha` de un instante
+ * cualquiera puede discrepar de `diaDesdeEntrada` del mismo instante en la
+ * ventana `(00:00Z, 03:00Z)` (`2026-08-01T02:00:00Z` es `'2026-08-01'` en UTC
+ * pero 31/7 en Argentina). Para medir el día calendario argentino de un
+ * instante real, usá `diaLocalEmpresaDe`. Es a propósito que esta función no
+ * cambie: la usan `diagrama-vigencia.utils.ts`, `export.routes.ts` y
+ * `cambios-diagrama.routes.ts` asumiendo que ya reciben fechas-día normalizadas.
+ */
 export function claveFecha(fecha: Date): string {
   return fecha.toISOString().slice(0, 10);
 }
@@ -37,6 +54,14 @@ export function claveFecha(fecha: Date): string {
  *   3. Cualquier otro instante → se mide su día calendario en Argentina. Así
  *      `03:00Z` (medianoche AR) y `15:00Z` (mediodía AR) caen en el mismo día, y
  *      las últimas 3 h del día argentino no se van al día siguiente.
+ *
+ * Entrada inválida: lanza `RangeError` (política de los helpers puros de este
+ * módulo; ver `spanDiasCalendario` en zod.utils.ts para el contrario).
+ *
+ * Garantía de no-aliasing: nunca devuelve el mismo objeto que recibió — siempre
+ * un `Date` nuevo, incluso en el atajo de medianoche UTC exacta (caso 2). Código
+ * como `buildDaysBetween` depende de esto para poder mutar el resultado con
+ * `setUTCDate` sin alterar el `Date` que le pasaron.
  */
 export function diaDesdeEntrada(valor: string | Date): Date {
   if (typeof valor === 'string' && SOLO_FECHA.test(valor.trim())) {
@@ -58,18 +83,27 @@ export function diaDesdeEntrada(valor: string | Date): Date {
   return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()));
 }
 
-/** ¿Las dos fechas caen en el mismo día calendario? */
+/**
+ * ¿Las dos fechas caen en el mismo día calendario argentino?
+ *
+ * Normaliza con `diaDesdeEntrada` antes de comparar por clave: comparar
+ * `claveFecha` directo mide el día UTC, que discrepa del argentino en la
+ * ventana `(00:00Z, 03:00Z)`. Este módulo se declara autoridad única de la
+ * convención de fecha-día, así que sus propias funciones de comparación no
+ * pueden medir "día" de dos maneras distintas.
+ */
 export function mismoDia(a: Date, b: Date): boolean {
-  return claveFecha(a) === claveFecha(b);
+  return claveFecha(diaDesdeEntrada(a)) === claveFecha(diaDesdeEntrada(b));
 }
 
 /**
- * ¿`dia` cae dentro de [desde, hasta], comparando por día calendario?
- * Inclusivo en ambos extremos y a prueba de fechas con horas distintas.
+ * ¿`dia` cae dentro de [desde, hasta], comparando por día calendario argentino?
+ * Inclusivo en ambos extremos y a prueba de fechas con horas distintas (ver
+ * nota de normalización en `mismoDia`).
  */
 export function dentroDelRango(dia: Date, desde: Date, hasta: Date): boolean {
-  const clave = claveFecha(dia);
-  return clave >= claveFecha(desde) && clave <= claveFecha(hasta);
+  const clave = claveFecha(diaDesdeEntrada(dia));
+  return clave >= claveFecha(diaDesdeEntrada(desde)) && clave <= claveFecha(diaDesdeEntrada(hasta));
 }
 
 /**

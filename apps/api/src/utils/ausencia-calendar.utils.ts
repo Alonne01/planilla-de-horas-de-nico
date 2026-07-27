@@ -4,7 +4,7 @@
  * created to back-fill any previously-approved absences/vacations.
  */
 import { PrismaClient, Prisma } from '@prisma/client';
-import { diaDesdeEntrada, dentroDelRango } from './fecha-dia.utils.js';
+import { diaDesdeEntrada, dentroDelRango, MS_POR_DIA } from './fecha-dia.utils.js';
 
 const { Decimal } = Prisma;
 
@@ -209,7 +209,14 @@ export async function backfillAusenciasEnPlanilla(
 /**
  * Días calendario entre dos fechas, inclusive. Normaliza las puntas: da lo mismo
  * si vienen a medianoche UTC, a medianoche argentina o con la hora de la
- * aprobación.
+ * aprobación. El piso de cada punta es el día calendario ARGENTINO (vía
+ * `diaDesdeEntrada`), no el día UTC — importa en la ventana `(00:00Z, 03:00Z)`,
+ * donde discrepan.
+ *
+ * Política de errores: lanza `RangeError` ante un `Date`/string inválido (la
+ * misma política que el resto de los helpers puros de `fecha-dia.utils.ts`; ver
+ * `spanDiasCalendario` en zod.utils.ts para el contrario, que existe porque a
+ * ESA función la consume un `refine` de zod).
  *
  * Exportada para poder testearla sin base de datos.
  */
@@ -225,7 +232,8 @@ export function buildDaysBetween(start: Date, end: Date): Date[] {
 }
 
 /**
- * Recorta un día contra un borde del período, comparando por día calendario.
+ * Recorta un día contra un borde del período, comparando por día calendario
+ * ARGENTINO (vía `diaDesdeEntrada`, igual que `buildDaysBetween`).
  *
  * Antes comparaba timestamps: con el período guardado a las 03:00Z y el día a
  * las 00:00Z, el primer día del período quedaba afuera.
@@ -248,7 +256,7 @@ export function clampDia(dia: Date, borde: Date, esTecho = false): Date {
  */
 export function rangoConsultaDia(desde: Date, hasta: Date): { desde: Date; hasta: Date } {
   const desdeDia = diaDesdeEntrada(desde);
-  const hastaDia = new Date(diaDesdeEntrada(hasta).getTime() + 86_400_000 - 1);
+  const hastaDia = new Date(diaDesdeEntrada(hasta).getTime() + MS_POR_DIA - 1);
   return { desde: desdeDia, hasta: hastaDia };
 }
 
