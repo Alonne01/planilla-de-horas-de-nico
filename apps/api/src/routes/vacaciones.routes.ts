@@ -7,7 +7,7 @@ import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
 import { notificarVacacion, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import { puedeVerCalendario } from '../utils/calendario-access.utils.js';
-import { fechaDia } from '../utils/zod.utils.js';
+import { fechaDia, spanDiasCalendario } from '../utils/zod.utils.js';
 import { hoyLocalEmpresa, rangoConsultaDia } from '../utils/fecha-dia.utils.js';
 import { periodoQuerySchema, filtroFechaInicioEnPeriodo } from '../utils/periodo-query.utils.js';
 import {
@@ -452,7 +452,11 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
     const fechaInicio = parsed.data.fechaInicio;
     const fechaFin = parsed.data.fechaFin;
-    const diasTotales = Math.ceil((fechaFin.getTime() - fechaInicio.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    // Por el helper, no a mano: el `Math.ceil(...) + 1` que había acá redondeaba
+    // para arriba, así que con datos mixtos pre/post migración (inicio ya en
+    // `00:00Z`, fin todavía en `03:00Z`) un rango de 3 días daba
+    // `ceil(2.125) + 1 = 4` y ese día de más se descontaba del saldo.
+    const diasTotales = spanDiasCalendario(fechaInicio, fechaFin);
 
     // El circuito se resuelve y se CONGELA acá, y no en /enviar, porque en
     // vacaciones el alta ES el envío: la solicitud nace PENDIENTE en el paso 1 y

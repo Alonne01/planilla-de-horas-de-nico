@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { tramosDeUsuario, esFrancoEnFecha } from './diagrama-vigencia.utils.js';
-import { claveFecha } from './fecha-dia.utils.js';
+import { claveFecha, MS_POR_DIA } from './fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 
@@ -188,7 +188,6 @@ export function esDiaFrancoSegunDiagrama(
   if (diagrama.tipo === 'ROTATIVO') {
     const ciclo = (diagrama.diasTrabajo ?? 0) + (diagrama.diasDescanso ?? 0);
     if (ciclo === 0) return false;
-    const MS_POR_DIA = 86400000;
     const inicioMs = Date.parse(`${claveFecha(fechaInicio)}T00:00:00Z`);
     const fechaMs = Date.parse(`${claveFecha(fecha)}T00:00:00Z`);
     const dias = Math.round((fechaMs - inicioMs) / MS_POR_DIA);
