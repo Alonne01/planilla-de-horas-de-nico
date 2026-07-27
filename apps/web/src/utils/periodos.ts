@@ -15,6 +15,17 @@ const MESES_ES = [
 export const DIA_INICIO_POR_DEFECTO = 21;
 export const DIA_FIN_POR_DEFECTO = 20;
 
+/**
+ * Cuántos ciclos ofrece el desplegable de período.
+ *
+ * Vive acá y no como un literal dentro de `PeriodSelector` porque la pantalla de
+ * Cierre necesita generar EXACTAMENTE la misma lista para poder avisar por las
+ * planillas cuyo período no anida en ninguno de los ciclos ofrecidos. Si los dos
+ * números se desincronizan, el aviso pasa a hablar de ciclos que el selector no
+ * muestra (o a callarse por ciclos que sí muestra).
+ */
+export const CICLOS_OFRECIDOS = 12;
+
 export interface Cycle {
   inicio: string;
   fin: string;

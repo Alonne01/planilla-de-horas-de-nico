@@ -6,7 +6,9 @@
  * Run: cd "C:/dev/planilla de horas/apps/api" && npx tsx tests/qa/audit.qa.ts
  */
 
-const BASE = 'http://localhost:4000/api/v1';
+// `QA_BASE` permite apuntar la suite a otra instancia (p. ej. una levantada en
+// :4001 para no reiniciar la que esta en uso). Por defecto, la de siempre.
+const BASE = process.env.QA_BASE ?? 'http://localhost:4000/api/v1';
 const KEY = 'audit';
 const TS = Date.now();
 
@@ -75,6 +77,26 @@ function isoDay(y: number, m: number, d: number) {
  */
 function isoDayAr(y: number, m: number, d: number) {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T03:00:00.000Z`;
+}
+
+/**
+ * Un día del mes `mes0` (0-11, admite valores fuera de rango) SIN desbordar al
+ * mes siguiente: el día 31 de febrero es el 28, no el 3 de marzo. Es el mismo
+ * `fechaEnMes` que usa `generateCycles` en el front (apps/web/src/utils/periodos.ts),
+ * porque los ciclos de este test tienen que ser exactamente los que ofrece el
+ * selector: el día de inicio/fin lo elige el usuario y el backend acepta hasta 31.
+ *
+ * Todo en getters UTC, que es la convención de fecha-día del sistema.
+ */
+function diaEnMes(anio: number, mes0: number, dia: number): { y: number; m: number; d: number } {
+  const base = new Date(Date.UTC(anio, mes0, 1));
+  const ultimo = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0)).getUTCDate();
+  return { y: base.getUTCFullYear(), m: base.getUTCMonth() + 1, d: Math.min(dia, ultimo) };
+}
+
+/** Clave 'YYYY-MM-DD' de un día devuelto por `diaEnMes`. */
+function claveDia({ y, m, d }: { y: number; m: number; d: number }) {
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -498,6 +520,159 @@ async function main() {
         + 'chequeo de pendientes dejaron de mirar la misma ventana',
       );
     }
+  });
+
+  // ── Períodos que no anidan en NINGÚN ciclo ofrecido ───────────────────────
+  //
+  // `filtroPeriodoPlanilla` exige anidamiento (`periodoInicio >= X` y
+  // `periodoFin <= Y`), y está bien que así sea: con solapamiento una misma
+  // planilla caería en dos ciclos y se contaría/cerraría dos veces. El efecto
+  // colateral es que una planilla guardada bajo OTRA configuración de ciclo
+  // (esta empresa pasó de 21/20 a 16/15) no anida en ninguno de los ciclos que
+  // la pantalla de Cierre ofrece: no se lista, no entra al Excel y su dueño
+  // cuenta como pendiente en el 409 que bloquea el cierre — todo en silencio.
+  //
+  // `GET /export/periodos` es lo que rompe el silencio: devuelve los pares
+  // (periodoInicio, periodoFin) que existen de verdad, con cuántas planillas
+  // hay en cada uno y en qué estado, para que el front los compare contra los
+  // ciclos que ya genera y avise por los que no están.
+  let huerfanaId = '';
+  let hInicioKey = '';
+  let hFinKey = '';
+  const claveDe = (p: { periodoInicio: string; periodoFin: string }) =>
+    `${p.periodoInicio.slice(0, 10)}|${p.periodoFin.slice(0, 10)}`;
+
+  await scenario('EX19 GET /export/periodos (RRHH) → 200 con el período del test bed y su estado', 'Export', async () => {
+    assert(!!pInicioIso, 'test bed incomplete');
+    const { status, body } = await get('/export/periodos', rrhh.token);
+    assertStatus(status, 200, JSON.stringify(body).slice(0, 200));
+    const arr = body as Array<{ periodoInicio: string; periodoFin: string; total: number; porEstado: Record<string, number> }>;
+    assert(Array.isArray(arr), 'not array');
+    const buscada = `${pInicioIso.slice(0, 10)}|${pFinIso.slice(0, 10)}`;
+    const mio = arr.find(p => claveDe(p) === buscada);
+    assert(!!mio, `el período del test bed (${buscada}) no figura en /export/periodos`);
+    assert(mio!.total >= 1, `total=${mio!.total}, se esperaba al menos la planilla del test bed`);
+    const firmadas = (mio!.porEstado.APROBADA ?? 0) + (mio!.porEstado.CERRADA ?? 0);
+    assert(firmadas >= 1, `porEstado no cuenta la planilla aprobada del test bed: ${JSON.stringify(mio!.porEstado)}`);
+    // Las puntas salen normalizadas a medianoche UTC del día argentino: el
+    // front las compara con `diaKey`, que saca la clave del STRING. Si
+    // volvieran con `03:00:00.000Z` (la convención vieja que todavía convive en
+    // la base) la clave sería la misma, pero un `15:00:00.000Z` correría el día.
+    assert(
+      mio!.periodoInicio.endsWith('T00:00:00.000Z') && mio!.periodoFin.endsWith('T00:00:00.000Z'),
+      `período sin normalizar: ${mio!.periodoInicio} .. ${mio!.periodoFin}`,
+    );
+  });
+
+  await scenario('EX20 GET /export/periodos: permisos (nivel < RRHH → 403, sin token → 401)', 'Export', async () => {
+    for (const [etiqueta, s] of [['OPERADOR', operador], ['SUPERVISOR', supervisor], ['COORDINADOR', coord]] as const) {
+      const { status } = await get('/export/periodos', s.token);
+      assertStatus(status, 403, `${etiqueta} (nivel ${s.user.rolNivel}) no debería ver los períodos de toda la empresa`);
+    }
+    const { status: sinToken } = await get('/export/periodos');
+    assertStatus(sinToken, 401, 'sin token');
+    const { status: adminStatus } = await get('/export/periodos', admin.token);
+    assertStatus(adminStatus, 200, 'ADMIN');
+  });
+
+  await scenario('EX21 un período que NO anida en ningún ciclo aparece en /export/periodos', 'Export', async () => {
+    assert(!!opSession, 'test bed incomplete');
+    // La configuración REAL de ciclo de la empresa: el escenario tiene que valer
+    // con 16/15, con 21/20 o con lo que haya configurado en el momento.
+    const { status: cs, body: cb } = await get('/config/periodo', rrhh.token);
+    assertStatus(cs, 200, JSON.stringify(cb).slice(0, 200));
+    const { periodoDiaInicio: di, periodoDiaFin: df } = cb as { periodoDiaInicio: number; periodoDiaFin: number };
+
+    // Año 2073: fuera de los rangos que ocupan las otras suites (2070, 2078,
+    // 2080-2099). `mes0` ≤ 8 para que el ciclo B termine como mucho en
+    // noviembre y no haya que cruzar de año.
+    const anio = 2073;
+    const mes0 = TS % 9;
+    const cicloA = { ini: diaEnMes(anio, mes0, di), fin: diaEnMes(anio, mes0 + 1, df) };
+    const cicloB = { ini: diaEnMes(anio, mes0 + 1, di), fin: diaEnMes(anio, mes0 + 2, df) };
+
+    // El período huérfano abarca los DOS ciclos: no anida en A (termina
+    // después) ni en B (empieza antes), y tampoco en ningún otro — un ciclo que
+    // lo contuviera tendría que empezar en el mes M o antes y terminar en el
+    // mes M+2 o después, y todos los ciclos van de un mes al siguiente. Vale
+    // para cualquier (diaInicio, diaFin) configurado.
+    const hIni = cicloA.ini;
+    const hFin = cicloB.fin;
+    hInicioKey = claveDia(hIni);
+    hFinKey = claveDia(hFin);
+
+    const { status: ps, body: pb } = await post('/planillas', {
+      periodoInicio: isoDayAr(hIni.y, hIni.m, hIni.d),
+      periodoFin: isoDayAr(hFin.y, hFin.m, hFin.d),
+    }, opSession!.token);
+    assertStatus(ps, 201, JSON.stringify(pb));
+    huerfanaId = (pb as any).id;
+    cleanup.push(async () => { await del(`/planillas/${huerfanaId}`, opSession!.token); });
+
+    // (a) Los dos ciclos que la rozan NO la traen. Es literalmente lo que ve la
+    //     pantalla de Cierre, que lista con GET /planillas?periodoInicio=&periodoFin=.
+    for (const [etiqueta, c] of [['ciclo A', cicloA], ['ciclo B', cicloB]] as const) {
+      const ini = isoDayAr(c.ini.y, c.ini.m, c.ini.d);
+      const fin = isoDayAr(c.fin.y, c.fin.m, c.fin.d);
+      const { status, body } = await get(
+        `/planillas?periodoInicio=${encodeURIComponent(ini)}&periodoFin=${encodeURIComponent(fin)}`,
+        rrhh.token,
+      );
+      assertStatus(status, 200, JSON.stringify(body).slice(0, 200));
+      assert(
+        !(body as Array<{ id: string }>).some(p => p.id === huerfanaId),
+        `${etiqueta} (${claveDia(c.ini)}..${claveDia(c.fin)}) devolvió la planilla huérfana: `
+        + 'el filtro de período dejó de exigir anidamiento',
+      );
+    }
+
+    // (b) …pero /export/periodos SÍ la muestra, con la MISMA ventana que pide
+    //     el front (el tramo que cubre el selector). Sin esto la planilla es
+    //     inalcanzable y nadie se entera.
+    const { status, body } = await get(
+      `/export/periodos?desde=${claveDia(cicloA.ini)}&hasta=${claveDia(cicloB.fin)}`,
+      rrhh.token,
+    );
+    assertStatus(status, 200, JSON.stringify(body).slice(0, 200));
+    const arr = body as Array<{ periodoInicio: string; periodoFin: string; total: number; porEstado: Record<string, number> }>;
+    const encontrado = arr.find(p => claveDe(p) === `${hInicioKey}|${hFinKey}`);
+    assert(!!encontrado, `/export/periodos no devolvió el período huérfano ${hInicioKey}..${hFinKey}: ${JSON.stringify(arr).slice(0, 300)}`);
+    assert(
+      (encontrado!.porEstado.BORRADOR ?? 0) >= 1,
+      `porEstado no cuenta el borrador huérfano: ${JSON.stringify(encontrado!.porEstado)}`,
+    );
+  });
+
+  await scenario('EX22 GET /export/periodos: la ventana acota por SOLAPAMIENTO, no por anidamiento', 'Export', async () => {
+    assert(!!huerfanaId, 'EX21 no dejó la planilla huérfana');
+    const clave = `${hInicioKey}|${hFinKey}`;
+    // Una ventana que sólo toca el primer día del período huérfano igual lo
+    // trae. Si acotara por anidamiento, el endpoint se callaría justo por los
+    // períodos que se salen del tramo del selector, que son los que importan.
+    const { status, body } = await get(`/export/periodos?desde=${hInicioKey}&hasta=${hInicioKey}`, rrhh.token);
+    assertStatus(status, 200, JSON.stringify(body).slice(0, 200));
+    assert(
+      (body as Array<{ periodoInicio: string; periodoFin: string }>).some(p => claveDe(p) === clave),
+      'una ventana que solapa el período huérfano no lo devolvió',
+    );
+    // Y una ventana disjunta no lo trae: la ventana filtra de verdad.
+    const { status: s2, body: b2 } = await get('/export/periodos?desde=2072-01-01&hasta=2072-12-31', rrhh.token);
+    assertStatus(s2, 200, JSON.stringify(b2).slice(0, 200));
+    assert(
+      !(b2 as Array<{ periodoInicio: string; periodoFin: string }>).some(p => claveDe(p) === clave),
+      'una ventana disjunta devolvió el período huérfano',
+    );
+  });
+
+  await scenario('EX23 GET /export/periodos con ventana inválida → 400 (no 500)', 'Export', async () => {
+    const { status: s1, body: b1 } = await get('/export/periodos?desde=no-es-fecha', rrhh.token);
+    assertStatus(s1, 400, JSON.stringify(b1).slice(0, 200));
+    const { status: s2, body: b2 } = await get('/export/periodos?desde=2073-05-01&hasta=2073-04-01', rrhh.token);
+    assertStatus(s2, 400, JSON.stringify(b2).slice(0, 200));
+    // Parámetro presente pero vacío = sin filtro, igual que el resto de los
+    // filtros de período del sistema. No 400.
+    const { status: s3, body: b3 } = await get('/export/periodos?desde=&hasta=', rrhh.token);
+    assertStatus(s3, 200, `desde/hasta vacíos deberían ignorarse: ${JSON.stringify(b3).slice(0, 200)}`);
   });
 
   // ════════════════════════════════════════════════════════════════════════

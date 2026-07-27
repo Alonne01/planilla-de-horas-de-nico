@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -11,7 +11,8 @@ import {
 import { toast } from '@/stores/toastStore';
 import { mensajeDeError } from '@/lib/errores';
 import PeriodSelector from '@/components/layout/PeriodSelector';
-import { usePeriodoActual, AVISO_PERIODO_POR_DEFECTO } from '@/hooks/usePeriodoConfig';
+import { usePeriodoActual, usePeriodoConfig, AVISO_PERIODO_POR_DEFECTO } from '@/hooks/usePeriodoConfig';
+import { CICLOS_OFRECIDOS, generateCycles } from '@/utils/periodos';
 import { fmtDia, diaKey } from '@/utils/fechaDia';
 
 interface Sector {
@@ -36,6 +37,22 @@ interface PendienteUser {
   sector: string;
   rol: string;
 }
+
+/** Un par (periodoInicio, periodoFin) que existe de verdad en la base. */
+interface PeriodoExistente {
+  periodoInicio: string;
+  periodoFin: string;
+  total: number;
+  porEstado: Record<string, number>;
+}
+
+/**
+ * Los estados que hacen que una planilla huérfana sea un problema y no ruido.
+ * Un BORRADOR de un ciclo viejo no le falta a nadie; una APROBADA o CERRADA que
+ * no entra en ningún ciclo ofrecido es trabajo firmado que no va a salir en
+ * ningún Excel de cierre.
+ */
+const ESTADOS_DE_CIERRE = ['APROBADA', 'CERRADA'];
 
 type TabKey = 'exportar' | 'pendientes' | 'aprobadas';
 
@@ -75,6 +92,66 @@ export default function CierrePage() {
 
   const isRRHH = ['RRHH', 'ADMIN'].includes(user?.rol ?? '');
   const isAdmin = user?.rol === 'ADMIN';
+
+  // ─── Planillas que no caen en ningún ciclo ofrecido ───────────────────────
+  //
+  // Las exportaciones (y el listado de esta pantalla) exigen que la planilla
+  // ANIDE en el ciclo pedido: `periodoInicio >= X` y `periodoFin <= Y`. Es lo
+  // correcto —con solapamiento una misma planilla caería en dos ciclos y se
+  // contaría/cerraría dos veces—, pero deja un agujero silencioso: los ciclos
+  // que ofrece el selector salen de la configuración VIGENTE, así que una
+  // planilla guardada cuando el ciclo era otro (esta empresa pasó de 21/20 a
+  // 16/15) no anida en ninguno. No se lista, no entra al Excel, y su dueño
+  // aparece como "pendiente" en el 409 que bloquea el cierre.
+  //
+  // No se arregla cambiando el filtro: se avisa. De ahí este bloque.
+  const { diaInicio, diaFin, listo: listoConfig } = usePeriodoConfig();
+
+  // Los MISMOS ciclos que muestra el desplegable (de ahí CICLOS_OFRECIDOS): el
+  // aviso tiene que hablar exactamente de lo que el usuario puede elegir.
+  // `generateCycles` los devuelve del más reciente al más viejo.
+  const ciclosOfrecidos = useMemo(
+    () => (listoConfig ? generateCycles(CICLOS_OFRECIDOS, diaInicio, diaFin) : []),
+    [listoConfig, diaInicio, diaFin],
+  );
+
+  const cicloMasViejo = ciclosOfrecidos[ciclosOfrecidos.length - 1];
+  const cicloMasNuevo = ciclosOfrecidos[0];
+
+  const { data: periodosExistentes = [] } = useQuery<PeriodoExistente[]>({
+    // La ventana va en la clave: si cambia la configuración de ciclo, los
+    // períodos a comparar son otros.
+    queryKey: ['periodos-existentes', cicloMasViejo?.inicio, cicloMasNuevo?.fin],
+    queryFn: async () => {
+      // Se pide sólo el tramo que cubre el selector. Un período de hace cinco
+      // años tampoco anida en ningún ciclo ofrecido, pero no es lo que esta
+      // pantalla está por cerrar: listarlo convertiría el aviso en ruido.
+      // `diaKey` saca la clave del STRING (nunca `new Date(iso)`: en Argentina
+      // eso da el día anterior).
+      const qs = new URLSearchParams({
+        desde: diaKey(cicloMasViejo!.inicio),
+        hasta: diaKey(cicloMasNuevo!.fin),
+      });
+      return (await api.get(`/export/periodos?${qs}`)).data;
+    },
+    enabled: isRRHH && ciclosOfrecidos.length > 0,
+  });
+
+  // Anidamiento, la misma condición que aplica el backend (`filtroPeriodoPlanilla`).
+  // Se compara por clave de día ('YYYY-MM-DD'), que ordena lexicográficamente
+  // igual que cronológicamente.
+  const periodosHuerfanos = useMemo(
+    () => periodosExistentes.filter((p) => !ciclosOfrecidos.some(
+      (c) => diaKey(c.inicio) <= diaKey(p.periodoInicio) && diaKey(p.periodoFin) <= diaKey(c.fin),
+    )),
+    [periodosExistentes, ciclosOfrecidos],
+  );
+
+  const totalHuerfanas = periodosHuerfanos.reduce((s, p) => s + p.total, 0);
+  const totalHuerfanasFirmadas = periodosHuerfanos.reduce(
+    (s, p) => s + ESTADOS_DE_CIERRE.reduce((n, e) => n + (p.porEstado[e] ?? 0), 0),
+    0,
+  );
 
   const { data: sectores = [] } = useQuery<Sector[]>({
     queryKey: ['sectores-cierre'],
@@ -247,6 +324,69 @@ export default function CierrePage() {
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
           <p className="text-xs text-amber-400">{AVISO_PERIODO_POR_DEFECTO}</p>
+        </div>
+      )}
+
+      {/* Planillas cuyo período no anida en ningún ciclo ofrecido. Advertencia,
+          no error: hoy no se está rompiendo nada, pero si alguna está APROBADA o
+          CERRADA es trabajo firmado que ningún Excel de cierre va a incluir. */}
+      {periodosHuerfanos.length > 0 && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-amber-400">
+                {totalHuerfanas} planilla(s) fuera de los períodos que ofrece el selector
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Su período no coincide con ningún ciclo de la configuración vigente (del {diaInicio} al {diaFin}),
+                así que no se listan acá ni entran en el Excel de cierre, y sus dueños figuran como pendientes.
+                Suele pasar cuando se cambió el día de inicio o de fin del ciclo y quedaron planillas del corte anterior.
+              </p>
+            </div>
+          </div>
+
+          <ul className="space-y-1.5 pl-6">
+            {periodosHuerfanos.map((p) => (
+              <li key={`${p.periodoInicio}|${p.periodoFin}`} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                {/* `fmtDia` y no `toLocaleDateString`: estas son fechas-DÍA
+                    (medianoche UTC del día argentino) y leerlas con getters
+                    locales muestra el día anterior. */}
+                <span className="font-medium text-foreground">
+                  {fmtDia(p.periodoInicio)} — {fmtDia(p.periodoFin)}
+                </span>
+                <span className="text-muted-foreground">{p.total} planilla(s):</span>
+                {Object.entries(p.porEstado)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([estado, cantidad]) => (
+                    <span
+                      key={estado}
+                      className={cn(
+                        'px-2 py-0.5 rounded-full text-[10px] font-medium',
+                        ESTADOS_DE_CIERRE.includes(estado)
+                          ? 'bg-amber-500/20 text-amber-400'
+                          : 'bg-zinc-500/20 text-zinc-400',
+                      )}
+                    >
+                      {cantidad} {estado}
+                    </span>
+                  ))}
+              </li>
+            ))}
+          </ul>
+
+          <p className="pl-6 text-xs">
+            {totalHuerfanasFirmadas > 0 ? (
+              <span className="text-amber-400">
+                <strong>{totalHuerfanasFirmadas}</strong> está(n) APROBADA o CERRADA: es trabajo ya firmado que
+                no va a salir en ningún Excel de cierre. Revisalas antes de dar el período por cerrado.
+              </span>
+            ) : (
+              <span className="text-muted-foreground">
+                Ninguna está aprobada ni cerrada, así que al Excel de cierre no le falta nada.
+              </span>
+            )}
+          </p>
         </div>
       )}
       {/* Header */}

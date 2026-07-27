@@ -6,7 +6,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 // Todo de fecha-dia.utils.js, la autoridad de la convención: `claveFecha` venía
 // de contexto-dia.utils.js, que sólo la re-exporta por compatibilidad.
-import { claveFecha, fmtFechaDia, fmtFechaDiaCorta } from '../utils/fecha-dia.utils.js';
+import { claveFecha, diaDesdeEntrada, finDelDia, fmtFechaDia, fmtFechaDiaCorta } from '../utils/fecha-dia.utils.js';
 import { fechaDia } from '../utils/zod.utils.js';
 import { periodoQuerySchema, filtroPeriodoPlanilla } from '../utils/periodo-query.utils.js';
 import { getPeriodoActual } from '../utils/calculo.utils.js';
@@ -67,6 +67,117 @@ function nombreArchivoSeguro(texto: string): string {
 }
 
 router.use(authMiddleware);
+
+// ─── GET /export/periodos ────────────────────────
+//
+// Los períodos que EXISTEN de verdad en la base, con cuántas planillas hay en
+// cada uno y en qué estado.
+//
+// Para qué: las tres exportaciones acotan por `filtroPeriodoPlanilla`, que exige
+// que la planilla ANIDE en el ciclo pedido (`periodoInicio >= X` y
+// `periodoFin <= Y`). Eso es lo correcto —filtrar por solapamiento haría que una
+// misma planilla caiga en dos ciclos y se cuente/cierre dos veces—, pero tiene
+// un efecto que hay que hacer visible: la pantalla de Cierre ofrece los ciclos
+// derivados de la configuración VIGENTE, así que una planilla guardada bajo una
+// configuración anterior (esta empresa pasó de 21/20 a 16/15, y quedaron
+// planillas de `2026-01-21 → 2026-02-20`) no anida en ninguno de los ciclos
+// ofrecidos: no se lista, no entra al Excel y su dueño cuenta como "pendiente"
+// en el 409 que bloquea el cierre. Sin este endpoint eso pasa EN SILENCIO.
+//
+// El front ya sabe generar los ciclos (`generateCycles`); lo único que le
+// faltaba era saber qué períodos hay. La comparación queda de su lado a
+// propósito: así el aviso habla exactamente de los ciclos que el selector
+// ofrece, sin que el servidor tenga que replicar (y desincronizar) esa
+// generación.
+//
+// `desde`/`hasta` son OPCIONALES y acotan por SOLAPAMIENTO —no por anidamiento,
+// que es justo lo que este endpoint viene a diagnosticar—: el front manda el
+// tramo que cubre el selector para no traerse (ni gritar por) historia de hace
+// años, que no es lo que esta pantalla está por cerrar.
+const fechaDiaQueryOpcional = z.preprocess(
+  (v) => (v === '' ? undefined : v),
+  fechaDia.optional(),
+);
+const periodosExistentesQuerySchema = z.object({
+  desde: fechaDiaQueryOpcional,
+  hasta: fechaDiaQueryOpcional,
+});
+
+router.get('/periodos', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const parsed = periodosExistentesQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'desde/hasta inválido', details: parsed.error.flatten() });
+      return;
+    }
+    const { desde, hasta } = parsed.data;
+    if (desde && hasta && hasta < desde) {
+      res.status(400).json({ error: 'hasta debe ser mayor o igual a desde' });
+      return;
+    }
+
+    // Solape con [desde, hasta]: el período empieza antes de que termine la
+    // ventana y termina después de que empiece. Las dos puntas se ensanchan al
+    // día completo por la misma razón que en `filtroPeriodoPlanilla`: mientras
+    // la migración de datos no corra, en la base conviven `00:00Z`, `03:00Z` y
+    // `15:00Z` para el mismo día calendario.
+    const where: {
+      usuario: { empresaId: string };
+      periodoFin?: { gte: Date };
+      periodoInicio?: { lte: Date };
+    } = { usuario: { empresaId: req.user!.empresaId } };
+    if (desde) where.periodoFin = { gte: diaDesdeEntrada(desde) };
+    if (hasta) where.periodoInicio = { lte: finDelDia(hasta) };
+
+    const grupos = await prisma.planilla.groupBy({
+      by: ['periodoInicio', 'periodoFin', 'estado'],
+      where,
+      _count: { _all: true },
+    });
+
+    // Se reagrupa por CLAVE DE DÍA y no por el timestamp que devuelve el
+    // groupBy: dos filas del mismo ciclo escritas con convenciones distintas
+    // (`00:00Z` y `03:00Z`) son grupos separados en SQL y el front las vería
+    // como dos períodos distintos que además no anidan en el mismo ciclo.
+    const porPeriodo = new Map<string, {
+      periodoInicio: Date;
+      periodoFin: Date;
+      total: number;
+      porEstado: Record<string, number>;
+    }>();
+    for (const g of grupos) {
+      const periodoInicio = diaDesdeEntrada(g.periodoInicio);
+      const periodoFin = diaDesdeEntrada(g.periodoFin);
+      const clave = `${claveFecha(periodoInicio)}|${claveFecha(periodoFin)}`;
+      let entrada = porPeriodo.get(clave);
+      if (!entrada) {
+        entrada = { periodoInicio, periodoFin, total: 0, porEstado: {} };
+        porPeriodo.set(clave, entrada);
+      }
+      const n = g._count._all;
+      entrada.total += n;
+      entrada.porEstado[g.estado] = (entrada.porEstado[g.estado] ?? 0) + n;
+    }
+
+    const periodos = [...porPeriodo.values()]
+      .sort((a, b) =>
+        b.periodoInicio.getTime() - a.periodoInicio.getTime()
+        || b.periodoFin.getTime() - a.periodoFin.getTime())
+      .map((p) => ({
+        // Ya normalizados a medianoche UTC del día argentino: el front los
+        // compara con `diaKey`, que saca la clave del STRING.
+        periodoInicio: p.periodoInicio.toISOString(),
+        periodoFin: p.periodoFin.toISOString(),
+        total: p.total,
+        porEstado: p.porEstado,
+      }));
+
+    res.json(periodos);
+  } catch (error) {
+    console.error('Error listing periodos:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
 
 // ─── GET /export/planilla/:id ────────────────────
 // Generates an XLSX export of a single planilla matching the company template format

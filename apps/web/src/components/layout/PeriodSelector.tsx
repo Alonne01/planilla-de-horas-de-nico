@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { Calendar, ChevronDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { generateCycles, getCurrentPeriod, type Cycle } from '../../utils/periodos';
+import { CICLOS_OFRECIDOS, generateCycles, getCurrentPeriod, type Cycle } from '../../utils/periodos';
 import { usePeriodoConfig } from '../../hooks/usePeriodoConfig';
 
 // Re-exportadas por compatibilidad: las 5 páginas las importan desde acá.
@@ -26,7 +26,7 @@ export default function PeriodSelector({
   const { diaInicio, diaFin } = usePeriodoConfig();
 
   const cycles = useMemo(
-    () => generateCycles(12, diaInicio, diaFin),
+    () => generateCycles(CICLOS_OFRECIDOS, diaInicio, diaFin),
     [diaInicio, diaFin],
   );
 
