@@ -28,6 +28,7 @@ import { useDialogStore } from '@/stores/dialogStore';
 import { toast } from '@/stores/toastStore';
 import { cn } from '@/lib/utils';
 import { mensajeDeError } from '@/lib/errores';
+import { fmtDia } from '@/utils/fechaDia';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -223,10 +224,18 @@ const WIZARD_STEPS = [
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Formatea una fecha-DÍA (`fechaReporte`, `fechaCierre`): el API las normaliza a
+ * medianoche UTC (`wentop.routes.ts`, schema `fechaDia`), así que leerlas con
+ * `new Date(iso)` y getters locales las corría un día para atrás en Argentina —
+ * una tarjeta reportada el 31/7 se mostraba como 30/07/2026.
+ *
+ * NO usar para instantes (`createdAt`, `updatedAt`, `savedAt`): esos conservan
+ * su hora y se leen con `new Date(iso)`.
+ */
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—';
-  const d = new Date(iso);
-  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return fmtDia(iso, { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function truncate(text: string, max: number): string {

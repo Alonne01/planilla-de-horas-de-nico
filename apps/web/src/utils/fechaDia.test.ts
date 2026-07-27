@@ -20,7 +20,14 @@ async function run() {
   // 5. El formateo muestra el día pedido, no el anterior.
   assert.strictEqual(fmtDia('2026-07-31T00:00:00.000Z'), '31/7/2026');
 
-  console.log('✓ fechaDia: 5/5 OK');
+  // 6. Con opciones: el formato que usa WentopPage (`formatDate`) para
+  //    fechaReporte/fechaCierre. Antes daba '30/07/2026'.
+  assert.strictEqual(
+    fmtDia('2026-07-31T00:00:00.000Z', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+    '31/07/2026',
+  );
+
+  console.log('✓ fechaDia: 6/6 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
