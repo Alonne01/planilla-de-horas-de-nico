@@ -78,7 +78,10 @@ router.get('/usuario/:uid', async (req: AuthRequest, res: Response): Promise<voi
 
     // Monthly trend
     const trend = planillas.map((p) => ({
-      periodo: `${new Date(p.periodoInicio).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' })}`,
+      // timeZone: 'UTC' lee el mes/año ya codificados en la fecha-día (medianoche
+      // UTC), no los que resultan de aplicar TZ=America/Argentina/Buenos_Aires
+      // (ver Dockerfile): sin esto, el 1° de un mes se etiqueta con el anterior.
+      periodo: `${new Date(p.periodoInicio).toLocaleDateString('es-AR', { month: 'short', year: '2-digit', timeZone: 'UTC' })}`,
       normales: Number(p.totalHorasNormales),
       extra50: Number(p.totalHorasExtra50),
       extra100: Number(p.totalHorasExtra100),
@@ -506,7 +509,8 @@ router.get('/empresa', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
 
     const trendMap: Record<string, { normales: number; extra50: number; extra100: number; viaje: number }> = {};
     for (const p of trendPlanillas) {
-      const label = new Date(p.periodoInicio).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' });
+      // Ver el comentario del mismo patrón en el trend de /usuario/:uid.
+      const label = new Date(p.periodoInicio).toLocaleDateString('es-AR', { month: 'short', year: '2-digit', timeZone: 'UTC' });
       if (!trendMap[label]) trendMap[label] = { normales: 0, extra50: 0, extra100: 0, viaje: 0 };
       trendMap[label].normales += Number(p.totalHorasNormales ?? 0);
       trendMap[label].extra50 += Number(p.totalHorasExtra50 ?? 0);
