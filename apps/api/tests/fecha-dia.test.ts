@@ -134,7 +134,15 @@ async function run() {
   assert.strictEqual(unDia.desde.toISOString(), '2026-07-31T00:00:00.000Z');
   assert.strictEqual(unDia.hasta.toISOString(), '2026-07-31T23:59:59.999Z');
 
-  console.log('✓ fecha-dia: 22/22 OK');
+  // 23. El año de una fecha-día sale del día calendario argentino, no del huso
+  //     del proceso: con el server en Argentina, getFullYear() sobre la
+  //     medianoche UTC del 1 de enero devuelve el año anterior y desalinea el
+  //     saldo de compensatorios (reserva en un año, la aprobación/el
+  //     revocado/la devolución de saldo caen en el año anterior).
+  const primeroDeEnero = diaDesdeEntrada('2026-01-01');
+  assert.strictEqual(primeroDeEnero.getUTCFullYear(), 2026);
+
+  console.log('✓ fecha-dia: 23/23 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

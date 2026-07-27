@@ -714,7 +714,7 @@ router.post('/:id/enviar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReque
         // Re-submitting a rejected FRANCO_COMPENSATORIO: re-reserve the pending balance.
         // (Rejection released compensatoriosPendientes; we must re-reserve before re-entering the flow.)
         if (ausencia.tipo === 'FRANCO_COMPENSATORIO' && ausencia.estado === 'RECHAZADA') {
-          const anio = new Date(ausencia.fechaInicio).getFullYear();
+          const anio = new Date(ausencia.fechaInicio).getUTCFullYear();
           const saldo = await tx.vacacionSaldo.findUnique({
             where: { usuarioId_anio: { usuarioId: ausencia.usuarioId, anio } },
           });
@@ -876,7 +876,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
 
         // FRANCO_COMPENSATORIO: balance mutation inside transaction
         if (nuevoEstado === 'APROBADA' && ausencia.tipo === 'FRANCO_COMPENSATORIO') {
-          const anio = new Date(ausencia.fechaInicio).getFullYear();
+          const anio = new Date(ausencia.fechaInicio).getUTCFullYear();
           await tx.vacacionSaldo.update({
             where: { usuarioId_anio: { usuarioId: ausencia.usuario.id, anio } },
             data: {
@@ -1032,7 +1032,7 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
 
         // FRANCO_COMPENSATORIO: restore pending balance atomically
         if (ausencia.tipo === 'FRANCO_COMPENSATORIO') {
-          const anio = new Date(ausencia.fechaInicio).getFullYear();
+          const anio = new Date(ausencia.fechaInicio).getUTCFullYear();
           await tx.vacacionSaldo.update({
             where: { usuarioId_anio: { usuarioId: ausencia.usuarioId, anio } },
             data: { compensatoriosPendientes: { decrement: ausencia.diasAusencia } },
@@ -1100,7 +1100,7 @@ router.post('/:id/revocar', async (req: AuthRequest, res: Response): Promise<voi
     }
 
     const wasApproved = ausencia.estado === 'APROBADA';
-    const anio = new Date(ausencia.fechaInicio).getFullYear();
+    const anio = new Date(ausencia.fechaInicio).getUTCFullYear();
 
     // CANCELADA y no RECHAZADA: el dueño no debería ver su propia devolución como
     // un rechazo. `revocar` conserva su semántica propia (compensatorio ya APROBADA

@@ -209,7 +209,6 @@ router.put('/:id', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: any = { ...data };
-    if (data.fecha) updateData.fecha = data.fecha;
 
     const sesion = await prisma.sesionCapacitacion.update({
       where: { id: req.params.id },

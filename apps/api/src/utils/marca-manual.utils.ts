@@ -14,16 +14,19 @@ export interface MarcaSaldo {
  * consumido (APROBADA). No hace nada para los otros tipos ni para marcas ya
  * canceladas/rechazadas, que no tienen nada reservado.
  *
- * El año se toma con getFullYear() LOCAL a propósito: es el mismo criterio que usan
- * la acumulación en `avanzar` y el flujo formal de compensatorios. Mezclarlo con UTC
- * acá desalinearía esta operación del resto del sistema de saldos.
+ * El año se toma con getUTCFullYear() a propósito: `fechaInicio` ya llega
+ * normalizada por `fechaDia` a medianoche UTC del día calendario argentino, así
+ * que el año UTC ES el año de ese día. Es el mismo criterio que usan la
+ * acumulación en `avanzar` y el flujo formal de compensatorios; usar el año
+ * LOCAL acá desalinearía el saldo apenas el proceso no corra en UTC (con el
+ * servidor en Argentina, el 1° de enero da el año anterior).
  */
 export async function devolverSaldoDeMarca(
   tx: Prisma.TransactionClient,
   marca: MarcaSaldo,
 ): Promise<void> {
   if (marca.tipo !== 'FRANCO_COMPENSATORIO') return;
-  const anio = new Date(marca.fechaInicio).getFullYear();
+  const anio = new Date(marca.fechaInicio).getUTCFullYear();
   if (marca.estado === 'APROBADA') {
     await tx.vacacionSaldo.updateMany({
       where: { usuarioId: marca.usuarioId, anio },

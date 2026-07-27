@@ -342,7 +342,7 @@ async function cancelarAusencia(res: Response, id: string, userId: string, empre
     });
     if (count === 0) throw new Error('CONCURRENT_MODIFICATION');
     if (aus.tipo === 'FRANCO_COMPENSATORIO') {
-      const anio = new Date(aus.fechaInicio).getFullYear();
+      const anio = new Date(aus.fechaInicio).getUTCFullYear();
       await tx.vacacionSaldo.updateMany({
         where: { usuarioId: userId, anio },
         data: { compensatoriosPendientes: { decrement: aus.diasAusencia } },

@@ -649,7 +649,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
           const compensatoriosUsados = registros.filter(r => r.esFrancoCompensatorio).length;
 
           if (francosTrabajados > 0 || compensatoriosUsados > 0) {
-            const anio = new Date(planilla.periodoInicio).getFullYear();
+            const anio = new Date(planilla.periodoInicio).getUTCFullYear();
             await tx.vacacionSaldo.upsert({
               where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
               create: {
@@ -692,7 +692,7 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
               },
             });
             if (m.tipo === 'FRANCO_COMPENSATORIO') {
-              const anioMarca = new Date(m.fechaInicio).getFullYear();
+              const anioMarca = new Date(m.fechaInicio).getUTCFullYear();
               await tx.vacacionSaldo.update({
                 where: { usuarioId_anio: { usuarioId: m.usuarioId, anio: anioMarca } },
                 data: { compensatoriosPendientes: { decrement: 1 }, compensatoriosUsados: { increment: 1 } },
@@ -1242,7 +1242,7 @@ router.patch('/:id/registros/:rid/compensatorio', async (req: AuthRequest, res: 
 
       // Increment compensatoriosPendientes sólo si no era ya compensatorio (idempotente)
       if (!wasComp) {
-        const anio = new Date(registro.fecha).getFullYear();
+        const anio = new Date(registro.fecha).getUTCFullYear();
         await prisma.vacacionSaldo.upsert({
           where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
           create: {
@@ -1271,7 +1271,7 @@ router.patch('/:id/registros/:rid/compensatorio', async (req: AuthRequest, res: 
 
       // Decrement sólo si el registro ERA compensatorio (idempotente: evita saldo negativo)
       if (wasComp) {
-        const anio = new Date(registro.fecha).getFullYear();
+        const anio = new Date(registro.fecha).getUTCFullYear();
         const saldo = await prisma.vacacionSaldo.findUnique({
           where: { usuarioId_anio: { usuarioId: planilla.usuarioId, anio } },
         });
