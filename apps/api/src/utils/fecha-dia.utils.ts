@@ -45,6 +45,32 @@ export function claveFecha(fecha: Date): string {
 }
 
 /**
+ * Fecha-día en formato es-AR (D/M/YYYY) para textos que ve el usuario.
+ *
+ * Formatea desde la clave UTC, no con `toLocaleDateString()`: el proceso corre
+ * con TZ=America/Argentina/Buenos_Aires (ver Dockerfile), así que leer una
+ * medianoche UTC con getters locales devuelve el día anterior en cada string.
+ */
+export function fmtFechaDia(fecha: Date): string {
+  const [anio, mes, dia] = claveFecha(fecha).split('-');
+  return `${Number(dia)}/${Number(mes)}/${anio}`;
+}
+
+/**
+ * Fecha-día corta, DD/MM con ceros a la izquierda y sin año, para textos que
+ * ya traían ese formato (rangos "del X al Y", filas de un Excel).
+ *
+ * Igual que `fmtFechaDia`: formatea desde la clave UTC, nunca con
+ * `toLocaleDateString()` — el proceso corre con TZ=America/Argentina/
+ * Buenos_Aires (ver Dockerfile), y además `{ day: '2-digit', month: '2-digit' }`
+ * no siempre zero-paddea según el build de ICU de Node.
+ */
+export function fmtFechaDiaCorta(fecha: Date): string {
+  const [, mes, dia] = claveFecha(fecha).split('-');
+  return `${dia}/${mes}`;
+}
+
+/**
  * Medianoche UTC del día calendario argentino que corresponde a `valor`.
  *
  * Tres casos, en este orden:

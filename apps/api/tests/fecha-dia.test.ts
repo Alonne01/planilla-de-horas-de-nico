@@ -7,6 +7,8 @@ import {
   hoyLocalEmpresa,
   diaLocalEmpresaDe,
   rangoConsultaDia,
+  fmtFechaDia,
+  fmtFechaDiaCorta,
 } from '../src/utils/fecha-dia.utils.js';
 import { fechaDia, spanDiasCalendario } from '../src/utils/zod.utils.js';
 
@@ -135,14 +137,37 @@ async function run() {
   assert.strictEqual(unDia.hasta.toISOString(), '2026-07-31T23:59:59.999Z');
 
   // 23. El año de una fecha-día sale del día calendario argentino, no del huso
-  //     del proceso: con el server en Argentina, getFullYear() sobre la
-  //     medianoche UTC del 1 de enero devuelve el año anterior y desalinea el
-  //     saldo de compensatorios (reserva en un año, la aprobación/el
-  //     revocado/la devolución de saldo caen en el año anterior).
+  //     del proceso. Éste es el invariante que hace falta usar getUTCFullYear()
+  //     en vez de getFullYear(): el test tiene que demostrar la DIVERGENCIA que
+  //     el bug explota, no sólo un valor que también daría un getFullYear()
+  //     corriendo en UTC (eso pasaría igual con el código viejo y no cazaría la
+  //     regresión). Se simula a mano cómo leería esa misma medianoche UTC un
+  //     proceso con TZ=America/Argentina/Buenos_Aires (el huso real, ver
+  //     Dockerfile) en vez de depender del TZ de la máquina que corre el test:
+  //     restar el offset y leer los componentes UTC del resultado es
+  //     exactamente lo que hacen los getters locales bajo ese huso.
   const primeroDeEnero = diaDesdeEntrada('2026-01-01');
+  const OFFSET_ARGENTINA_MS = 3 * 60 * 60 * 1000;
+  const comoLoLeeriaUnProcesoEnArgentina = new Date(primeroDeEnero.getTime() - OFFSET_ARGENTINA_MS);
   assert.strictEqual(primeroDeEnero.getUTCFullYear(), 2026);
+  assert.strictEqual(comoLoLeeriaUnProcesoEnArgentina.getUTCFullYear(), 2025);
+  assert.notStrictEqual(primeroDeEnero.getUTCFullYear(), comoLoLeeriaUnProcesoEnArgentina.getUTCFullYear());
 
-  console.log('✓ fecha-dia: 23/23 OK');
+  // 24. fmtFechaDia formatea desde la clave UTC (D/M/YYYY, sin ceros a la
+  //     izquierda), no con toLocaleDateString(): bajo TZ=America/Argentina/
+  //     Buenos_Aires, toLocaleDateString() leería un día antes.
+  assert.strictEqual(fmtFechaDia(diaDesdeEntrada('2026-07-31')), '31/7/2026');
+  assert.strictEqual(fmtFechaDia(diaDesdeEntrada('2026-01-05')), '5/1/2026');
+  // Acepta también una fecha-día que llegó con hora (medianoche o mediodía
+  // argentino), no sólo la medianoche UTC exacta.
+  assert.strictEqual(fmtFechaDia(diaDesdeEntrada('2026-07-31T15:00:00.000Z')), '31/7/2026');
+
+  // 25. fmtFechaDiaCorta: DD/MM con ceros a la izquierda, sin año — el formato
+  //     que ya usaban mis-solicitudes.routes.ts y export.routes.ts para rangos.
+  assert.strictEqual(fmtFechaDiaCorta(diaDesdeEntrada('2026-07-05')), '05/07');
+  assert.strictEqual(fmtFechaDiaCorta(diaDesdeEntrada('2026-01-31')), '31/01');
+
+  console.log('✓ fecha-dia: 25/25 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
