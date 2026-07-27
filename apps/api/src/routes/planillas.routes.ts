@@ -187,8 +187,8 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     let periodoFin: Date;
 
     if (parsed.data.periodoInicio && parsed.data.periodoFin) {
-      periodoInicio = new Date(parsed.data.periodoInicio);
-      periodoFin = new Date(parsed.data.periodoFin);
+      periodoInicio = parsed.data.periodoInicio;
+      periodoFin = parsed.data.periodoFin;
       if (periodoFin < periodoInicio) {
         res.status(400).json({ error: 'El fin del período no puede ser anterior al inicio' });
         return;
