@@ -85,7 +85,42 @@ async function run() {
   assert.strictEqual(esFrancoEnFecha(dosRotativos, d('2026-07-01')), false);
   assert.strictEqual(esFrancoEnFecha(dosRotativos, d('2026-07-08')), true);
 
-  console.log('✓ diagrama-vigencia: 11/11 OK');
+  // 12. Timestamps reales del mismo día: las rutas que aprueban un cambio cierran
+  //     y abren con `new Date()` (la hora de la aprobación), no medianoche UTC.
+  //     Con comparación cruda de Date, el tramo nuevo (fechaInicio 15:32:10.150)
+  //     queda excluido al preguntar por el día 26/07 a medianoche porque
+  //     t.fechaInicio > fecha; el día del cambio se iría con el diagrama VIEJO,
+  //     al revés de lo que promete el desempate. Por clave de día, ambos tramos
+  //     cubren el 26/07 y gana el nuevo, como en el caso 4.
+  const timestampsMismoDia: TramoDiagrama[] = [
+    { diagrama: LUN_VIE, fechaInicio: d('2026-01-01'), fechaFin: new Date('2026-07-26T15:32:10.100Z') },
+    { diagrama: SIETE_X_SIETE, fechaInicio: new Date('2026-07-26T15:32:10.150Z'), fechaFin: null },
+  ];
+  assert.strictEqual(tramoDelDia(timestampsMismoDia, d('2026-07-26'))?.diagrama.id, 'diag-77');
+
+  // 13. Cruce de medianoche UTC (~21 hs en Buenos Aires): el cierre viejo y la
+  //     apertura nueva caen en días de calendario distintos. Con Date crudo, el
+  //     26/07 pierde el tramo nuevo (fechaInicio 27/07 > fecha) y el 27/07 pierde
+  //     el viejo (fechaFin 26/07 < fecha): ningún tramo cubre el 27, que es
+  //     exactamente el bug de "día sin diagrama" que este módulo vino a arreglar.
+  //     Por clave de día, cada fecha cae del lado que le corresponde.
+  const cruceMedianoche: TramoDiagrama[] = [
+    { diagrama: LUN_VIE, fechaInicio: d('2026-01-01'), fechaFin: new Date('2026-07-26T23:59:59.900Z') },
+    { diagrama: SIETE_X_SIETE, fechaInicio: new Date('2026-07-27T00:00:00.100Z'), fechaFin: null },
+  ];
+  assert.notStrictEqual(tramoDelDia(cruceMedianoche, d('2026-07-26')), null);
+  assert.notStrictEqual(tramoDelDia(cruceMedianoche, d('2026-07-27')), null);
+  assert.strictEqual(tramoDelDia(cruceMedianoche, d('2026-07-26'))?.diagrama.id, 'diag-lv');
+  assert.strictEqual(tramoDelDia(cruceMedianoche, d('2026-07-27'))?.diagrama.id, 'diag-77');
+
+  // 14. El borde superior no se ensancha de más: un día posterior al cierre del
+  //     único tramo (con hora, no medianoche) sigue sin diagrama.
+  const cierreConHora: TramoDiagrama[] = [
+    { diagrama: LUN_VIE, fechaInicio: d('2026-01-01'), fechaFin: new Date('2026-07-26T15:32:10.100Z') },
+  ];
+  assert.strictEqual(tramoDelDia(cierreConHora, d('2026-07-27')), null);
+
+  console.log('✓ diagrama-vigencia: 14/14 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
