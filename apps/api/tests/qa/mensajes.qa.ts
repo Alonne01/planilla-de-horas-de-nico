@@ -10,7 +10,9 @@
  * Run: cd apps/api && npx tsx tests/qa/mensajes.qa.ts
  */
 
-const BASE = 'http://localhost:4000/api/v1';
+// `QA_BASE` permite apuntar la suite a otra instancia (p. ej. una levantada en
+// :4001 para no reiniciar la que esta en uso). Por defecto, la de siempre.
+const BASE = process.env.QA_BASE ?? 'http://localhost:4000/api/v1';
 const KEY = 'mensajes';
 const TS = Date.now();
 
