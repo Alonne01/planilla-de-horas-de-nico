@@ -2,10 +2,12 @@
 
 import { ymd } from './fechaDia';
 
-/** Format a date as YYYY-MM-DD */
-export function dateKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+/**
+ * Format a date as YYYY-MM-DD. La implementación vive en utils/fechaDia.ts
+ * (autoridad única de la convención); acá sólo se re-exporta con el nombre que
+ * ya usaba el calendario de la planilla.
+ */
+export { claveLocal as dateKey } from './fechaDia';
 
 /**
  * Feriados — SOLO inamovibles y trasladables (se pagan al 100% si se trabajan).

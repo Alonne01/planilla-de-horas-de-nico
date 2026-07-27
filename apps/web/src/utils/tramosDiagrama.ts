@@ -1,4 +1,5 @@
 import { esDiaFranco, type DiagramaInfo } from './planillaHelpers';
+import { claveLocal, diaKey } from './fechaDia';
 
 /**
  * Un período de vigencia de un diagrama, tal como lo manda el backend en
@@ -13,27 +14,19 @@ export interface TramoDiagrama {
   fechaFin: string | null;
 }
 
-/**
- * Día calendario de una fecha, comparable entre un `Date` local (los que arma el
- * calendario) y un ISO del backend (medianoche UTC). Se compara por componentes
- * de día, nunca por timestamp: en UTC-3 la medianoche UTC del 01/08 es el 31/07
- * a las 21:00 local, y el corte se correría un día.
- */
-function claveLocal(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-function claveIso(iso: string): string {
-  return iso.slice(0, 10);
-}
+// El día calendario se compara por componentes, nunca por timestamp: en UTC-3 la
+// medianoche UTC del 01/08 es el 31/07 a las 21:00 local, y el corte se correría
+// un día. `claveLocal` toma el día de un `Date` (los que arma el calendario) y
+// `diaKey` el de un ISO del backend; las dos viven en utils/fechaDia.ts.
 
 /** El tramo vigente ese día: el que lo cubre y, si hay varios, el que arrancó más tarde. */
 export function tramoDelDia(tramos: TramoDiagrama[], fecha: Date): TramoDiagrama | null {
   const k = claveLocal(fecha);
   let elegido: TramoDiagrama | null = null;
   for (const t of tramos) {
-    if (claveIso(t.fechaInicio) > k) continue;
-    if (t.fechaFin && claveIso(t.fechaFin) < k) continue;
-    if (!elegido || claveIso(t.fechaInicio) >= claveIso(elegido.fechaInicio)) elegido = t;
+    if (diaKey(t.fechaInicio) > k) continue;
+    if (t.fechaFin && diaKey(t.fechaFin) < k) continue;
+    if (!elegido || diaKey(t.fechaInicio) >= diaKey(elegido.fechaInicio)) elegido = t;
   }
   return elegido;
 }
@@ -49,7 +42,7 @@ export function tramoDelDia(tramos: TramoDiagrama[], fecha: Date): TramoDiagrama
 export function francoDelDia(tramos: TramoDiagrama[], fecha: Date): boolean {
   const tramo = tramoDelDia(tramos, fecha);
   if (!tramo) return false;
-  const [y, m, d] = claveIso(tramo.fechaInicio).split('-').map(Number);
+  const [y, m, d] = diaKey(tramo.fechaInicio).split('-').map(Number);
   return esDiaFranco(fecha, tramo.diagrama, new Date(y!, m! - 1, d!));
 }
 
@@ -60,8 +53,8 @@ export function francoDelDia(tramos: TramoDiagrama[], fecha: Date): boolean {
 export function esInicioDeTramo(tramos: TramoDiagrama[], fecha: Date): boolean {
   if (tramos.length < 2) return false;
   const k = claveLocal(fecha);
-  const ordenados = [...tramos].sort((a, b) => claveIso(a.fechaInicio).localeCompare(claveIso(b.fechaInicio)));
-  return ordenados.slice(1).some((t) => claveIso(t.fechaInicio) === k);
+  const ordenados = [...tramos].sort((a, b) => diaKey(a.fechaInicio).localeCompare(diaKey(b.fechaInicio)));
+  return ordenados.slice(1).some((t) => diaKey(t.fechaInicio) === k);
 }
 
 /**
@@ -74,7 +67,7 @@ export function esInicioDeTramo(tramos: TramoDiagrama[], fecha: Date): boolean {
 export function diagramaHeaderText(tramos: TramoDiagrama[]): string {
   if (tramos.length === 0) return '—';
   if (tramos.length === 1) return tramos[0]!.diagrama.nombre || '—';
-  const fmt = (iso: string) => claveIso(iso).split('-').reverse().join('/');
+  const fmt = (iso: string) => diaKey(iso).split('-').reverse().join('/');
   return tramos
     .map((t, i) => (i === 0 && t.fechaFin
       ? `${t.diagrama.nombre || '—'} hasta ${fmt(t.fechaFin)}`

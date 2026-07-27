@@ -37,6 +37,19 @@ export function fmtDia(iso: string, opts?: Intl.DateTimeFormatOptions): string {
 }
 
 /**
+ * Clave 'YYYY-MM-DD' del día que un `Date` representa en el huso del navegador.
+ *
+ * Es la contracara de `diaKey`: ésta parte de un `Date` (los que arma el
+ * calendario), `diaKey` parte de un ISO del backend. Nunca uses
+ * `.toISOString().slice(0, 10)` para esto — eso da el día **UTC**.
+ */
+export function claveLocal(fecha: Date): string {
+  const mes = String(fecha.getMonth() + 1).padStart(2, '0');
+  const dia = String(fecha.getDate()).padStart(2, '0');
+  return `${fecha.getFullYear()}-${mes}-${dia}`;
+}
+
+/**
  * Clave 'YYYY-MM-DD' del día de HOY en el huso del navegador.
  *
  * Es el reemplazo de `new Date().toISOString().slice(0, 10)`, que devuelve el día
@@ -45,9 +58,7 @@ export function fmtDia(iso: string, opts?: Intl.DateTimeFormatOptions): string {
  * `ahora` es un parámetro sólo para poder testearlo con un instante fijo.
  */
 export function hoyKey(ahora: Date = new Date()): string {
-  const mes = String(ahora.getMonth() + 1).padStart(2, '0');
-  const dia = String(ahora.getDate()).padStart(2, '0');
-  return `${ahora.getFullYear()}-${mes}-${dia}`;
+  return claveLocal(ahora);
 }
 
 /**
