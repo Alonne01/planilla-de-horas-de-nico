@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import routes from './routes/index.js';
 import { startBackupScheduler, stopBackupScheduler } from './utils/backup.service.js';
+import { startCambiosDiagramaScheduler, stopCambiosDiagramaScheduler } from './utils/cambios-diagrama.service.js';
 import { pruneExpiredRefreshTokens, verifyRefreshToken } from './utils/jwt.utils.js';
 import { puedeVerUpload, type ActorUpload } from './utils/upload-access.utils.js';
 import { DEBUG_AUTH, avisarModoDebug } from './utils/debug-auth.utils.js';
@@ -342,6 +343,10 @@ app.listen(PORT, '0.0.0.0', () => {
   // Start backup scheduler with DB health monitoring
   startBackupScheduler(prisma);
 
+  // Barrido diario: cierra las solicitudes de cambio de diagrama que llegaron a
+  // su fecha de inicio sin terminar de aprobarse (ver cambios-diagrama.service.ts).
+  startCambiosDiagramaScheduler();
+
   // Feriados nacionales al día: sin esto el recargo del 100% depende de una lista
   // escrita a mano que envejece con cada año nuevo.
   startFeriadosSync();
@@ -355,6 +360,7 @@ app.listen(PORT, '0.0.0.0', () => {
 // Graceful shutdown
 function apagar(codigo: number): void {
   stopBackupScheduler();
+  stopCambiosDiagramaScheduler();
   stopFeriadosSync();
   prisma.$disconnect();
   process.exit(codigo);

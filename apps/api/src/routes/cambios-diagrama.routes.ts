@@ -20,17 +20,10 @@ import {
 } from '../utils/circuito.utils.js';
 import { cierreDeAsignacion } from '../utils/diagrama-vigencia.utils.js';
 import { claveFecha } from '../utils/contexto-dia.utils.js';
+import { MOTIVO_VENCIDA } from '../utils/cambios-diagrama.service.js';
 
 const prisma = new PrismaClient();
 const router = Router();
-
-/**
- * Motivo con el que se cierra una solicitud que llegó a su fecha de inicio sin
- * terminar de aprobarse. No se usa un estado nuevo: RECHAZADA + motivo evita
- * tocar el enum y todas las pantallas que lo interpretan.
- */
-export const MOTIVO_VENCIDA =
-  'Vencida: la fecha de inicio del diagrama pasó sin completarse la aprobación';
 
 router.use(authMiddleware);
 
