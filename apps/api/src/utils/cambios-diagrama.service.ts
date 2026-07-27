@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { crearNotificacion } from './notificacion.utils.js';
+import { hoyLocalEmpresa } from './contexto-dia.utils.js';
 
 const prisma = new PrismaClient();
 
@@ -12,23 +13,26 @@ export const MOTIVO_VENCIDA =
   'Vencida: la fecha de inicio del diagrama pasó sin completarse la aprobación';
 
 /**
- * Fin del día de hoy en UTC (23:59:59.999). El corte tiene que ser el FINAL del
- * día, no su comienzo: una `fechaEfectiva` de hoy a las 15:00 ya llegó a su día
- * y tiene que vencer igual que si fuera hoy a las 00:00. Filtrar con la
- * medianoche de hoy como límite (`lte` a las 00:00:00) dejaba pasar hasta
- * mañana cualquier fecha de inicio de hoy con hora distinta de cero.
+ * Fin del día de HOY DE NEGOCIO (23:59:59.999 del día que da `hoyLocalEmpresa()`
+ * en contexto-dia.utils.ts — el día calendario en Argentina, no en el huso del
+ * servidor). El corte tiene que ser el FINAL del día, no su comienzo: una
+ * `fechaEfectiva` de hoy a las 15:00 ya llegó a su día y tiene que vencer igual
+ * que si fuera hoy a las 00:00. Filtrar con la medianoche de hoy como límite
+ * (`lte` a las 00:00:00) dejaba pasar hasta mañana cualquier fecha de inicio de
+ * hoy con hora distinta de cero.
  *
- * Esto expresa en una query de Prisma el mismo criterio que la ruta aplica
- * comparando por `claveFecha` (clave de día, en `/avanzar`): los dos caminos
- * tienen que decidir lo mismo para la misma solicitud, o una podría vencer por
- * un lado y aprobarse por el otro según cuál corra primero.
+ * Antes esto partía de los componentes UTC crudos de `new Date()`, que miden el
+ * día calendario UTC: entre las 21:00 y las 24:00 hora Argentina ese día ya es
+ * "mañana" en UTC aunque en Argentina siga siendo hoy, así que el barrido vencía
+ * solicitudes hasta 3 horas antes de que su fecha de inicio llegara de verdad.
+ * Partir de `hoyLocalEmpresa()` expresa en una query de Prisma el mismo criterio
+ * que la ruta aplica comparando por `claveFecha` (clave de día, en `/avanzar`):
+ * los dos caminos tienen que decidir lo mismo para la misma solicitud, o una
+ * podría vencer por un lado y aprobarse por el otro según cuál corra primero.
  */
-function finDeHoyUTC(): Date {
-  const ahora = new Date();
-  return new Date(Date.UTC(
-    ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate(),
-    23, 59, 59, 999,
-  ));
+function finDeHoyLocalEmpresa(): Date {
+  const inicioDelDia = hoyLocalEmpresa();
+  return new Date(inicioDelDia.getTime() + 24 * 60 * 60 * 1000 - 1); // 23:59:59.999 después del inicio
 }
 
 /**
@@ -42,7 +46,7 @@ export async function vencerCambiosDiagrama(): Promise<number> {
   const candidatas = await prisma.solicitudCambioDiagrama.findMany({
     where: {
       estado: { in: ['PENDIENTE', 'EN_REVISION'] },
-      fechaEfectiva: { not: null, lte: finDeHoyUTC() },
+      fechaEfectiva: { not: null, lte: finDeHoyLocalEmpresa() },
     },
     select: { id: true, usuarioId: true, solicitanteId: true, fechaEfectiva: true, estado: true },
   });
