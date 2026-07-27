@@ -16,6 +16,12 @@
  *    (`activo: false`) no puede borrarle el recargo del 100% a los días
  *    anteriores al corte. `esFrancoPorDiagrama` (contexto-dia.utils.ts) tiene
  *    que seguir viendo el franco de un tramo viejo aunque ya no esté activo.
+ *  - Al aprobar un cambio de diagrama, `recalcularDesde()`
+ *    (recalculo-diagrama.utils.ts) recalcula los registros con fecha >= la
+ *    fecha de corte: sólo toca planillas BORRADOR/RECHAZADA, congela (no
+ *    toca) las demás y actualiza los totales de la planilla recalculada. Un
+ *    día que era laborable pasa a franco trabajado (100%) si el diagrama
+ *    nuevo lo marca franco; un día anterior al corte no se toca nunca.
  *
  * Black-box HTTP contra la API viva, más acceso directo a Prisma para los
  * escenarios que la propia API ya no deja producir por HTTP (fechas pasadas,
@@ -340,12 +346,208 @@ async function main() {
     assert(esFranco === true, `esFrancoPorDiagrama(${diaFranco.toISOString().slice(0, 10)}) = ${esFranco}, esperaba true (tramo viejo, activo:false)`);
   });
 
+  // ═══ 8-12. recalcularDesde(): recálculo al aprobar un cambio de diagrama ═══
+  //
+  // El escenario se arma una sola vez (8) y las siguientes 4 sólo leen lo que
+  // dejó: separarlo así evita levantar dos veces el mismo historial de
+  // diagramas/planillas/registros para probar cuatro aristas de un mismo
+  // llamado a recalcularDesde().
+
+  const planillasRawCreadas: string[] = [];
+  cleanupQueue.push(async () => {
+    if (!rawPrisma) return;
+    // Los registros y el historial cuelgan de la planilla con onDelete: Cascade.
+    for (const id of planillasRawCreadas) await rawPrisma.planilla.delete({ where: { id } }).catch(() => {});
+  });
+
+  let rPlanillaBorradorId: string | null = null;
+  let rPlanillaAprobadaId: string | null = null;
+  let rRegistroAntesId: string | null = null;
+  let rRegistroDespuesBorradorId: string | null = null;
+  let rRegistroDespuesAprobadaId: string | null = null;
+  let rResultado: any = null;
+  let rHorasExtra100Despues: number | null = null;
+
+  await scenario('8. recalculo: arma el escenario (empleado sin historial + 2 diagramas reales con francos distintos)', async () => {
+    const prisma = await getPrisma();
+    const empresaId = rrhh.user.empresaId;
+
+    // Empleado real sin asignaciones de diagrama ni planillas previas: así el
+    // historial que arma este escenario es el único que puede afectarlo (se
+    // verifica con la propia base, no se asume).
+    const empleado = await prisma.usuario.findFirst({
+      where: {
+        empresaId, activo: true,
+        id: { notIn: [rrhh.user.id, ope.user.id] },
+        diagramas: { none: {} },
+        planillas: { none: {} },
+      },
+    });
+    if (!empleado) { info('no hay ningún empleado sin diagramas/planillas previas: escenario no aplicable'); return; }
+
+    // Dos diagramas reales: uno ROTATIVO (para tener francos previsibles por
+    // ciclo) y uno FIJO_SEMANA, activos en la empresa.
+    const diagramaNuevo = await prisma.diagrama.findFirst({
+      where: { empresaId, activo: true, tipo: 'ROTATIVO', diasTrabajo: { gt: 0 }, diasDescanso: { gt: 0 } },
+    });
+    const diagramaViejo = await prisma.diagrama.findFirst({
+      where: { empresaId, activo: true, tipo: 'FIJO_SEMANA', id: { not: diagramaNuevo?.id ?? '' } },
+    });
+    if (!diagramaNuevo || !diagramaViejo) { info('no hay un ROTATIVO y un FIJO_SEMANA activos para armar el contraste: no aplicable'); return; }
+
+    const { esDiaFrancoSegunDiagrama } = await import('../../src/utils/contexto-dia.utils.js');
+    const { diaAnterior } = await import('../../src/utils/diagrama-vigencia.utils.js');
+
+    // Fechas lejanas (2028) para no chocar con datos reales del seed.
+    const periodoInicio = new Date(Date.UTC(2028, 0, 1));
+    const periodoFin = new Date(Date.UTC(2028, 0, 31));
+    const corte = new Date(Date.UTC(2028, 0, 15)); // fecha efectiva del cambio de diagrama
+
+    // Un día posterior al corte que sea LABORABLE en el diagrama viejo y
+    // FRANCO en el nuevo: se calcula con las funciones reales (no se adivina),
+    // recorriendo un ciclo completo del ROTATIVO desde la fecha del corte —el
+    // mismo `fechaInicio` que va a tener la asignación nueva más abajo—.
+    const ciclo = (diagramaNuevo.diasTrabajo as number) + (diagramaNuevo.diasDescanso as number);
+    let diaDespues: Date | null = null;
+    for (let offset = 1; offset <= ciclo; offset++) {
+      const candidato = new Date(corte);
+      candidato.setUTCDate(candidato.getUTCDate() + offset);
+      if (candidato > periodoFin) break;
+      const francoEnNuevo = esDiaFrancoSegunDiagrama(candidato, diagramaNuevo, corte);
+      const francoEnViejo = esDiaFrancoSegunDiagrama(candidato, diagramaViejo, periodoInicio);
+      if (francoEnNuevo && !francoEnViejo) { diaDespues = candidato; break; }
+    }
+    if (!diaDespues) { info('ningún día del ciclo combina laborable-viejo/franco-nuevo dentro del período: no aplicable'); return; }
+
+    // Un día previo al corte, laborable en el diagrama viejo: control de que
+    // el recálculo no lo toca.
+    let diaAntes: Date | null = null;
+    for (let offset = 1; offset <= 13; offset++) {
+      const candidato = new Date(corte);
+      candidato.setUTCDate(candidato.getUTCDate() - offset);
+      if (candidato < periodoInicio) break;
+      if (!esDiaFrancoSegunDiagrama(candidato, diagramaViejo, periodoInicio)) { diaAntes = candidato; break; }
+    }
+    if (!diaAntes) { info('no se encontró un día previo al corte laborable en el diagrama viejo: no aplicable'); return; }
+
+    // Historial de diagramas: el viejo cierra el día antes de que abra el
+    // nuevo, igual que hace la aprobación real (cierreDeAsignacion).
+    const asigVieja = await prisma.usuarioDiagrama.create({
+      data: { usuarioId: empleado.id, diagramaId: diagramaViejo.id, fechaInicio: periodoInicio, fechaFin: diaAnterior(corte), activo: false },
+    });
+    usuarioDiagramaRawCreados.push(asigVieja.id);
+    const asigNueva = await prisma.usuarioDiagrama.create({
+      data: { usuarioId: empleado.id, diagramaId: diagramaNuevo.id, fechaInicio: corte, fechaFin: null, activo: true },
+    });
+    usuarioDiagramaRawCreados.push(asigNueva.id);
+
+    // Una planilla BORRADOR y otra ya APROBADA, las dos cubriendo el corte:
+    // el recálculo tiene que tratarlas distinto (escenarios 9 vs. 10).
+    const planillaBorrador = await prisma.planilla.create({
+      data: { usuarioId: empleado.id, periodoInicio, periodoFin, estado: 'BORRADOR' },
+    });
+    planillasRawCreadas.push(planillaBorrador.id);
+    const planillaAprobada = await prisma.planilla.create({
+      data: { usuarioId: empleado.id, periodoInicio, periodoFin, estado: 'APROBADA' },
+    });
+    planillasRawCreadas.push(planillaAprobada.id);
+
+    // Un día de 8hs "normales" (07:00–15:00 ART), como si se hubiera cargado
+    // cuando sólo regía el diagrama viejo (que en ese momento no era franco).
+    // Se escriben los campos ya calculados directamente por Prisma (no vía
+    // calcularConContexto): lo que importa acá es el estado PREVIO al
+    // recálculo, no cómo se hubiera llegado a él en producción.
+    const jornada = (dia: Date) => ({
+      entradaTurno1: new Date(Date.UTC(dia.getUTCFullYear(), dia.getUTCMonth(), dia.getUTCDate(), 10, 0, 0)),
+      salidaTurno1: new Date(Date.UTC(dia.getUTCFullYear(), dia.getUTCMonth(), dia.getUTCDate(), 18, 0, 0)),
+      lugarTrabajo: 'BASE' as const,
+      esFrancoTrabajado: false,
+      esFeriado: false,
+      horasTrabajadas: 8,
+      horasNormales: 8,
+      horasExtra50: 0,
+      horasExtra100: 0,
+    });
+
+    const regAntes = await prisma.registroHoras.create({
+      data: { planillaId: planillaBorrador.id, fecha: diaAntes, ...jornada(diaAntes) },
+    });
+    const regDespuesBorrador = await prisma.registroHoras.create({
+      data: { planillaId: planillaBorrador.id, fecha: diaDespues, ...jornada(diaDespues) },
+    });
+    const regDespuesAprobada = await prisma.registroHoras.create({
+      data: { planillaId: planillaAprobada.id, fecha: diaDespues, ...jornada(diaDespues) },
+    });
+
+    const { recalcularDesde } = await import('../../src/utils/recalculo-diagrama.utils.js');
+    rResultado = await recalcularDesde(empleado.id, empresaId, corte);
+
+    rPlanillaBorradorId = planillaBorrador.id;
+    rPlanillaAprobadaId = planillaAprobada.id;
+    rRegistroAntesId = regAntes.id;
+    rRegistroDespuesBorradorId = regDespuesBorrador.id;
+    rRegistroDespuesAprobadaId = regDespuesAprobada.id;
+
+    assert(!!rResultado, 'recalcularDesde no devolvió resultado');
+  });
+
+  await scenario('9. recalculo: BORRADOR — el día posterior al corte pasa a franco trabajado y al 100%', async () => {
+    if (!rResultado) { info('escenario base no aplicable: se omite'); return; }
+    const prisma = await getPrisma();
+    const reg = await prisma.registroHoras.findUnique({ where: { id: rRegistroDespuesBorradorId! } });
+    assert(!!reg, 'el registro posterior al corte (BORRADOR) desapareció');
+    assert(reg.esFrancoTrabajado === true, `esFrancoTrabajado=${reg.esFrancoTrabajado}, esperaba true`);
+    assert(Number(reg.horasNormales) === 0, `horasNormales=${reg.horasNormales}, esperaba 0 (todo se mueve al 100%)`);
+    assert(Number(reg.horasExtra50) === 0, `horasExtra50=${reg.horasExtra50}, esperaba 0`);
+    assert(Number(reg.horasExtra100) === Number(reg.horasTrabajadas), `horasExtra100=${reg.horasExtra100} debería igualar horasTrabajadas=${reg.horasTrabajadas}`);
+    assert(Number(reg.horasExtra100) > 0, 'horasExtra100 debería ser mayor a 0');
+    rHorasExtra100Despues = Number(reg.horasExtra100);
+
+    assert(rResultado.diasRecalculados === 1, `diasRecalculados=${rResultado.diasRecalculados}, esperaba 1 (sólo el día posterior al corte de la BORRADOR)`);
+  });
+
+  await scenario('10. recalculo: APROBADA — el mismo día queda intacto y aparece en planillasCongeladas', async () => {
+    if (!rResultado) { info('escenario base no aplicable: se omite'); return; }
+    const prisma = await getPrisma();
+    const reg = await prisma.registroHoras.findUnique({ where: { id: rRegistroDespuesAprobadaId! } });
+    assert(!!reg, 'el registro posterior al corte (APROBADA) desapareció');
+    assert(reg.esFrancoTrabajado === false, `esFrancoTrabajado=${reg.esFrancoTrabajado}, esperaba false (una planilla APROBADA no se toca)`);
+    assert(Number(reg.horasNormales) === 8, `horasNormales=${reg.horasNormales}, esperaba 8 (sin recalcular)`);
+    assert(Number(reg.horasExtra100) === 0, `horasExtra100=${reg.horasExtra100}, esperaba 0 (sin recalcular)`);
+
+    const congelada = (rResultado.planillasCongeladas as any[]).find((p) => p.planillaId === rPlanillaAprobadaId);
+    assert(!!congelada, `la planilla APROBADA (${rPlanillaAprobadaId}) no aparece en planillasCongeladas: ${JSON.stringify(rResultado.planillasCongeladas)}`);
+    assert(congelada.estado === 'APROBADA', `estado en planillasCongeladas=${congelada.estado}`);
+    assert(congelada.dias === 1, `dias en planillasCongeladas=${congelada.dias}, esperaba 1`);
+  });
+
+  await scenario('11. recalculo: los totales de la planilla BORRADOR se actualizaron', async () => {
+    if (!rResultado) { info('escenario base no aplicable: se omite'); return; }
+    const prisma = await getPrisma();
+    const planilla = await prisma.planilla.findUnique({ where: { id: rPlanillaBorradorId! } });
+    assert(!!planilla, 'la planilla BORRADOR desapareció');
+    assert(Number(planilla.totalHorasNormales) === 8, `totalHorasNormales=${planilla.totalHorasNormales}, esperaba 8 (sólo el día anterior al corte, sin tocar)`);
+    assert(Number(planilla.totalHorasExtra50) === 0, `totalHorasExtra50=${planilla.totalHorasExtra50}, esperaba 0`);
+    assert(rHorasExtra100Despues !== null, 'el escenario 9 no dejó horasExtra100Despues (¿corrió antes que éste?)');
+    assert(Number(planilla.totalHorasExtra100) === rHorasExtra100Despues, `totalHorasExtra100=${planilla.totalHorasExtra100}, esperaba ${rHorasExtra100Despues} (el día recalculado)`);
+  });
+
+  await scenario('12. recalculo: un día anterior al corte no se toca', async () => {
+    if (!rResultado) { info('escenario base no aplicable: se omite'); return; }
+    const prisma = await getPrisma();
+    const reg = await prisma.registroHoras.findUnique({ where: { id: rRegistroAntesId! } });
+    assert(!!reg, 'el registro anterior al corte desapareció');
+    assert(reg.esFrancoTrabajado === false, `esFrancoTrabajado=${reg.esFrancoTrabajado}, esperaba false (no se toca)`);
+    assert(Number(reg.horasNormales) === 8, `horasNormales=${reg.horasNormales}, esperaba 8 (valor original, sin recalcular)`);
+    assert(Number(reg.horasExtra100) === 0, `horasExtra100=${reg.horasExtra100}, esperaba 0 (sin recalcular)`);
+  });
+
   // ═══ Limpieza ═══
   console.log(col('DIM', '\nCleaning up...'));
   for (const fn of cleanupQueue.reverse()) { await fn().catch(() => {}); }
 
   // Verificación final: que no haya quedado nada de lo creado por esta suite.
-  await scenario('8. limpieza: no quedó nada de lo creado por esta suite', async () => {
+  await scenario('13. limpieza: no quedó nada de lo creado por esta suite', async () => {
     for (const id of solicitudesCreadas) {
       const { status } = await get(`/cambios-diagrama/${id}`, rrhh.token);
       assert(status === 404, `la solicitud HTTP ${id} debía haberse borrado (HTTP ${status})`);
@@ -361,6 +563,11 @@ async function main() {
       assert(notifRestantes.length === 0, `quedaron ${notifRestantes.length} notificaciones sin borrar`);
       const asigRestantes = await rawPrisma.usuarioDiagrama.findMany({ where: { id: { in: usuarioDiagramaRawCreados } } });
       assert(asigRestantes.length === 0, `quedaron ${asigRestantes.length} asignaciones de diagrama sin borrar`);
+      // Las planillas del escenario de recálculo (8-12) se borran por id directo
+      // (no vía HTTP, se armaron con Prisma): los registros cuelgan de ellas con
+      // onDelete: Cascade, así que basta con verificar la planilla.
+      const planillasRestantes = await rawPrisma.planilla.findMany({ where: { id: { in: planillasRawCreadas } } });
+      assert(planillasRestantes.length === 0, `quedaron ${planillasRestantes.length} planillas del escenario de recálculo sin borrar`);
     }
   });
 
