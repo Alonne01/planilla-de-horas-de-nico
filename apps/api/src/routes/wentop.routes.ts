@@ -13,7 +13,7 @@ import {
   MAX_BYTES_POR_TARJETA,
 } from '../middleware/upload.middleware.js';
 import { fechaDia } from '../utils/zod.utils.js';
-import { claveFecha } from '../utils/fecha-dia.utils.js';
+import { claveFecha, hoyLocalEmpresa } from '../utils/fecha-dia.utils.js';
 import { unlink } from 'fs/promises';
 import path from 'path';
 
@@ -622,7 +622,16 @@ router.patch('/:id/estado', async (req: AuthRequest, res: Response): Promise<voi
         return;
       }
       data.accionCierre = accionCierre;
-      data.fechaCierre = fechaCierre ?? new Date();
+      // `fecha_cierre` es una FECHA-DÍA (la normaliza la migración
+      // 20260727173000_normalizar_fechas_dia junto con `fecha_reporte`), así que
+      // el valor por defecto tiene que ser el DÍA de hoy en el huso de la empresa,
+      // no el instante en que se cerró. Con `new Date()`, cerrar una tarjeta entre
+      // las 21:00 y las 24:00 argentinas grababa un instante dentro de la ventana
+      // (00:00, 03:00) UTC — justo la que el encabezado de esa migración declara
+      // como precondición a revalidar, porque ahí truncar corre el día uno hacia
+      // adelante. El front siempre manda `fechaCierre`, así que sólo lo alcanza un
+      // cliente que la omita.
+      data.fechaCierre = fechaCierre ?? hoyLocalEmpresa();
     } else {
       // Clear closure data when reopening
       data.accionCierre = null;

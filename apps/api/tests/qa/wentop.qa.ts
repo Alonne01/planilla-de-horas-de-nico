@@ -6,7 +6,9 @@
  * Run: cd apps/api && npx tsx tests/qa/wentop.qa.ts
  */
 
-const BASE = 'http://localhost:4000/api/v1';
+// `QA_BASE` permite apuntar la suite a otra instancia (p. ej. una levantada en
+// :4001 para no reiniciar la que esta en uso). Por defecto, la de siempre.
+const BASE = process.env.QA_BASE ?? 'http://localhost:4000/api/v1';
 const KEY = 'wentop';
 const TS = Date.now();
 
@@ -286,6 +288,15 @@ async function main() {
     assertStatus(r.status, 200, JSON.stringify(r.body));
     assert(r.body.estado === 'CERRADA' && r.body.accionCierre === 'corregido', 'closure fields not set');
     assert(!!r.body.fechaCierre, 'fechaCierre missing on close');
+    // El PATCH de arriba NO manda `fechaCierre`, así que esto cubre el valor por
+    // defecto del servidor. `fecha_cierre` es una FECHA-DÍA (la migración
+    // 20260727173000_normalizar_fechas_dia la trunca junto con `fecha_reporte`),
+    // así que tiene que salir a medianoche UTC. Con el `new Date()` que había
+    // antes salía la hora del cierre, y cerrar entre las 21:00 y las 24:00
+    // argentinas caía en la ventana (00:00, 03:00) UTC que el encabezado de esa
+    // migración declara como precondición a revalidar.
+    assert(String(r.body.fechaCierre).endsWith('T00:00:00.000Z'),
+      `fechaCierre no es una fecha-día normalizada: ${r.body.fechaCierre}`);
   });
   await scenario('C19 PUT on CERRADA card as creator(low) -> 400', async () => {
     const r = await put(`/wentop/${cardId}`, { descripcion: 'edit-closed' }, owner.token);
