@@ -131,3 +131,23 @@ export function diaLocalEmpresaDe(instante: Date): Date {
 export function hoyLocalEmpresa(): Date {
   return diaLocalEmpresaDe(new Date());
 }
+
+/**
+ * Amplía [desde, hasta] al día completo en UTC, para usarlo en el `where` de
+ * Prisma. El filtro en SQL compara timestamps, pero las puntas del rango y los
+ * períodos/registros contra los que se comparan pueden traer hora (medianoche
+ * argentina, mediodía, la hora de una aprobación). Se ensancha el filtro al día
+ * completo; el recorte fino por día lo hace `dentroDelRango` / `clampDia`
+ * después, sobre cada día ya resuelto.
+ *
+ * Usada por `ausencia-calendar.utils.ts`. `tramosDeUsuario` (en
+ * `diagrama-vigencia.utils.ts`) y `recalcularDesde` (en
+ * `recalculo-diagrama.utils.ts`) resuelven el mismo ensanche a mano con
+ * `Date.UTC(...)` — no se tocan en este cambio (fuera de alcance), pero
+ * deberían migrar a esta función.
+ */
+export function rangoConsultaDia(desde: Date, hasta: Date): { desde: Date; hasta: Date } {
+  const desdeDia = diaDesdeEntrada(desde);
+  const hastaDia = new Date(diaDesdeEntrada(hasta).getTime() + MS_POR_DIA - 1);
+  return { desde: desdeDia, hasta: hastaDia };
+}

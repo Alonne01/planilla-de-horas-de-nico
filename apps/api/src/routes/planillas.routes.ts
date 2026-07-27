@@ -372,10 +372,7 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
 
     // Cota dura antes del recorrido día-por-día: cubre las planillas creadas antes
     // de que el schema validara la amplitud del período.
-    const diasPeriodo = spanDiasCalendario(
-      planilla.periodoInicio.toISOString(),
-      planilla.periodoFin.toISOString(),
-    );
+    const diasPeriodo = spanDiasCalendario(planilla.periodoInicio, planilla.periodoFin);
     if (diasPeriodo > MAX_DIAS_PERIODO) {
       res.status(400).json({
         error: `El período de la planilla es inválido (${diasPeriodo} días, máximo ${MAX_DIAS_PERIODO})`,

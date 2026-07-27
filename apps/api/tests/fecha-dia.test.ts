@@ -6,6 +6,7 @@ import {
   dentroDelRango,
   hoyLocalEmpresa,
   diaLocalEmpresaDe,
+  rangoConsultaDia,
 } from '../src/utils/fecha-dia.utils.js';
 import { fechaDia, spanDiasCalendario } from '../src/utils/zod.utils.js';
 
@@ -118,7 +119,22 @@ async function run() {
     true,
   );
 
-  console.log('✓ fecha-dia: 20/20 OK');
+  // 21. rangoConsultaDia amplía [desde, hasta] al día completo en UTC: el piso baja
+  //     a medianoche del día de "desde" y el techo sube a 1 ms antes de la
+  //     medianoche siguiente a "hasta". Es lo que hay que usar en el `where` de
+  //     Prisma para no perder registros guardados con hora (medianoche argentina,
+  //     mediodía, la hora de una aprobación) que caen en esos mismos días.
+  const rango = rangoConsultaDia(new Date('2026-07-31T03:00:00.000Z'), new Date('2026-08-15T03:00:00.000Z'));
+  assert.strictEqual(rango.desde.toISOString(), '2026-07-31T00:00:00.000Z');
+  assert.strictEqual(rango.hasta.toISOString(), '2026-08-15T23:59:59.999Z');
+
+  // 22. rangoConsultaDia sobre un único día: el techo queda 1 ms antes de la
+  //     medianoche del día SIGUIENTE, no del mismo día.
+  const unDia = rangoConsultaDia(new Date('2026-07-31T00:00:00.000Z'), new Date('2026-07-31T00:00:00.000Z'));
+  assert.strictEqual(unDia.desde.toISOString(), '2026-07-31T00:00:00.000Z');
+  assert.strictEqual(unDia.hasta.toISOString(), '2026-07-31T23:59:59.999Z');
+
+  console.log('✓ fecha-dia: 22/22 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

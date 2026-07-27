@@ -67,8 +67,14 @@ const ANIOS_DEL_RESPALDO = new Set(
 );
 
 // La convención de fecha-día (y su documentación) vive en fecha-dia.utils.ts.
-// Se re-exporta acá porque medio código ya la importa desde este módulo.
-export { claveFecha, hoyLocalEmpresa, diaDesdeEntrada, mismoDia, dentroDelRango } from './fecha-dia.utils.js';
+// Se re-exportan sólo claveFecha y hoyLocalEmpresa porque son las dos que medio
+// código ya importa desde este módulo (cambios-diagrama.routes.ts,
+// export.routes.ts, diagrama-vigencia.utils.ts, cambios-diagrama.service.ts).
+// diaDesdeEntrada/mismoDia/dentroDelRango NO se re-exportan aunque también viven
+// en fecha-dia.utils.ts: nadie las importa desde acá, y sumarlas sería abrir un
+// segundo camino sancionado para llegar a la API nueva — justo lo opuesto de
+// "una sola autoridad".
+export { claveFecha, hoyLocalEmpresa } from './fecha-dia.utils.js';
 
 const CACHE_FERIADOS_MS = 5 * 60 * 1000;
 

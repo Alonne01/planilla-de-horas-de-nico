@@ -1,5 +1,6 @@
 import assert from 'node:assert';
-import { buildDaysBetween, clampDia, rangoConsultaDia } from '../src/utils/ausencia-calendar.utils.js';
+import { buildDaysBetween, clampDia } from '../src/utils/ausencia-calendar.utils.js';
+import { dentroDelRango, rangoConsultaDia } from '../src/utils/fecha-dia.utils.js';
 
 const d = (iso: string) => new Date(iso);
 
@@ -64,23 +65,35 @@ async function run() {
   assert.strictEqual(enVentana.length, 1);
   assert.strictEqual(enVentana[0]!.toISOString(), '2026-07-31T00:00:00.000Z');
 
-  // 7. rangoConsultaDia amplía [desde, hasta] al día completo en UTC: el piso baja
-  //    a medianoche del día de "desde" y el techo sube a 1 ms antes de la
-  //    medianoche siguiente a "hasta". Es lo que hay que usar en el `where` de
-  //    Prisma para no perder registros guardados con hora (medianoche argentina,
-  //    mediodía, la hora de una aprobación) que caen en esos mismos días.
-  const rango = rangoConsultaDia(d('2026-07-31T03:00:00.000Z'), d('2026-08-15T03:00:00.000Z'));
-  assert.strictEqual(rango.desde.toISOString(), '2026-07-31T00:00:00.000Z');
-  assert.strictEqual(rango.hasta.toISOString(), '2026-08-15T23:59:59.999Z');
-
-  // 8. Reproduce el bug reportado: una ausencia que arranca a las 03:00Z (medianoche
-  //    argentina) y una planilla cuyo periodoFin es 00:00Z del mismo día calendario.
-  //    El filtro crudo compara "00:00 >= 03:00" (false) y pierde la planilla; con
-  //    el piso ensanchado a 00:00Z del mismo día, la comparación pasa.
+  // 7. Camino completo que usa inyectarDiasBloqueados, reproduciendo el bug
+  //    reportado: una ausencia que arranca el 31/7 a las 03:00Z (medianoche
+  //    argentina) y una planilla con periodoFin el 31/7 a las 00:00Z (mismo día
+  //    calendario, sin hora). Con el filtro CRUDO (el bug), "periodoFin >=
+  //    fechaInicio" da "00:00 >= 03:00" → false, y la planilla se pierde antes de
+  //    que dentroDelRango llegue a evaluarla — no alcanza con arreglar
+  //    dentroDelRango si el pre-filtro SQL nunca la trae. Este test verifica las
+  //    dos puntas reales: (a) el pre-filtro ensanchado no la descarta, y (b) el
+  //    día de la ausencia queda dentro del período de esa planilla según
+  //    dentroDelRango, que es la comparación que hace inyectarDiasBloqueados por
+  //    cada día del rango.
+  const inicioAusencia = d('2026-07-31T03:00:00.000Z');
+  const finAusencia = d('2026-08-05T00:00:00.000Z');
+  const periodoInicioPlanilla = d('2026-07-16T00:00:00.000Z');
   const periodoFinPlanilla = d('2026-07-31T00:00:00.000Z');
-  assert.ok(periodoFinPlanilla.getTime() >= rango.desde.getTime());
 
-  console.log('✓ ausencia-calendar: 8/8 OK');
+  // Sanity: el filtro CRUDO (sin ensanchar) SÍ perdía esta planilla.
+  assert.ok(!(periodoFinPlanilla.getTime() >= inicioAusencia.getTime()));
+
+  // (a) El pre-filtro SQL ensanchado (rangoConsultaDia) no la descarta.
+  const { desde: desdePreFiltro } = rangoConsultaDia(inicioAusencia, finAusencia);
+  assert.ok(periodoFinPlanilla.getTime() >= desdePreFiltro.getTime());
+
+  // (b) El día real de la ausencia (el que arma buildDaysBetween) cae dentro del
+  //     período de la planilla según dentroDelRango.
+  const [primerDiaAusencia] = buildDaysBetween(inicioAusencia, inicioAusencia);
+  assert.strictEqual(dentroDelRango(primerDiaAusencia!, periodoInicioPlanilla, periodoFinPlanilla), true);
+
+  console.log('✓ ausencia-calendar: 7/7 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

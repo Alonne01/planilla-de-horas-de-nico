@@ -4,7 +4,7 @@
  * created to back-fill any previously-approved absences/vacations.
  */
 import { PrismaClient, Prisma } from '@prisma/client';
-import { diaDesdeEntrada, dentroDelRango, MS_POR_DIA } from './fecha-dia.utils.js';
+import { diaDesdeEntrada, dentroDelRango, rangoConsultaDia } from './fecha-dia.utils.js';
 
 const { Decimal } = Prisma;
 
@@ -243,21 +243,6 @@ export function clampDia(dia: Date, borde: Date, esTecho = false): Date {
   const b = diaDesdeEntrada(borde);
   if (esTecho) return d > b ? b : d;
   return d < b ? b : d;
-}
-
-/**
- * Amplía [desde, hasta] al día completo en UTC, para usarlo en el `where` de
- * Prisma. El filtro en SQL compara timestamps, pero las puntas del rango y los
- * períodos/registros contra los que se comparan pueden traer hora (medianoche
- * argentina, mediodía, la hora de una aprobación) — mismo problema que ya
- * resuelve `tramosDeUsuario` en diagrama-vigencia.utils.ts. Se ensancha el
- * filtro al día completo; el recorte fino por día lo hace `dentroDelRango` /
- * `clampDia` después, sobre cada día ya resuelto.
- */
-export function rangoConsultaDia(desde: Date, hasta: Date): { desde: Date; hasta: Date } {
-  const desdeDia = diaDesdeEntrada(desde);
-  const hastaDia = new Date(diaDesdeEntrada(hasta).getTime() + MS_POR_DIA - 1);
-  return { desde: desdeDia, hasta: hastaDia };
 }
 
 export function formatTipoAusencia(tipo: string): string {
