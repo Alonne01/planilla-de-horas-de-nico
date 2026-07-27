@@ -21,6 +21,7 @@ import {
 import { cierreDeAsignacion } from '../utils/diagrama-vigencia.utils.js';
 import { claveFecha, hoyLocalEmpresa } from '../utils/contexto-dia.utils.js';
 import { MOTIVO_VENCIDA } from '../utils/cambios-diagrama.service.js';
+import { recalcularDesde } from '../utils/recalculo-diagrama.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -548,6 +549,48 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
 
     // Notify the affected employee and the requester (was missing entirely)
     if (nuevoEstado === 'APROBADA') {
+      // El diagrama nuevo cambia qué días son franco desde su fecha de inicio: los
+      // días ya cargados de ahí en adelante tienen el recargo calculado con el
+      // diagrama viejo. Se recalculan los que todavía se pueden tocar; los que ya
+      // se firmaron se informan a RRHH.
+      //
+      // Va FUERA de la transacción, mismo criterio que el resto de los avisos
+      // post-aprobación de este archivo ("fire-and-forget", como lo llama
+      // ausencias.routes.ts): es trabajo largo, y el cambio de diagrama ya quedó
+      // aplicado arriba, así que un fallo acá no tiene nada que revertir. A
+      // diferencia de `crearNotificacion` (que ya traga sus propios errores),
+      // `recalcularDesde` no lo hace, así que hace falta el try/catch acá para
+      // no tumbar la respuesta de /avanzar.
+      try {
+        const desdeRecalculo = solicitud.fechaEfectiva ?? new Date();
+        const { diasRecalculados, planillasCongeladas } = await recalcularDesde(
+          solicitud.usuarioId, req.user!.empresaId, desdeRecalculo,
+        );
+        if (diasRecalculados > 0) {
+          console.log(`↻ Cambio de diagrama ${solId}: ${diasRecalculados} día(s) recalculado(s)`);
+        }
+        if (planillasCongeladas.length > 0) {
+          const detalle = planillasCongeladas
+            .map((p) => `${p.periodoInicio.toISOString().slice(0, 10)} a ${p.periodoFin.toISOString().slice(0, 10)} (${p.estado}, ${p.dias} día/s)`)
+            .join('; ');
+          const rrhh = await prisma.usuario.findMany({
+            where: { empresaId: req.user!.empresaId, activo: true, rol: 'RRHH' },
+            select: { id: true },
+          });
+          for (const u of rrhh) {
+            await crearNotificacion({
+              usuarioId: u.id,
+              tipo: 'CAMBIO_DIAGRAMA',
+              titulo: 'Cambio de diagrama sobre planillas ya firmadas',
+              cuerpo: `El cambio de diagrama afecta días de planillas que ya no se editan: ${detalle}. Revisar si hay que corregirlas a mano.`,
+              link: '/aprobaciones',
+            });
+          }
+        }
+      } catch (recalcError) {
+        console.error(`Error recalculando días tras aprobar cambio de diagrama ${solId}:`, recalcError);
+      }
+
       await crearNotificacion({
         usuarioId: solicitud.usuarioId,
         tipo: 'CAMBIO_DIAGRAMA',
