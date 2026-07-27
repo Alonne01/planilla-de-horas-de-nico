@@ -385,7 +385,16 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       }
     }
 
-    res.json(planilla);
+    // Los tramos de diagrama que cubren el período: el calendario del front pinta
+    // los francos con ellos, así una planilla partida por un cambio de diagrama se
+    // ve igual que se liquida.
+    const tramosDiagrama = await tramosDeUsuario(
+      planilla.usuarioId,
+      planilla.periodoInicio,
+      planilla.periodoFin,
+    );
+
+    res.json({ ...planilla, tramosDiagrama });
   } catch (error) {
     console.error('Error getting planilla:', error);
     res.status(500).json({ error: 'Error interno' });
