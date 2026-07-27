@@ -58,6 +58,7 @@ import {
   diaDesdeEntrada,
   mismoDia,
   dentroDelRango,
+  diaLocalEmpresaDe,
   hoyLocalEmpresa,
 } from '../src/utils/fecha-dia.utils.js';
 
@@ -106,10 +107,21 @@ async function run() {
   assert.strictEqual(dentroDelRango(new Date('2026-07-15T00:00:00.000Z'), ini, fin), false);
   assert.strictEqual(dentroDelRango(new Date('2026-08-16T00:00:00.000Z'), ini, fin), false);
 
-  // 12. hoyLocalEmpresa devuelve medianoche UTC exacta (invariante de la convención).
+  // 12. El día de negocio de un instante: a las 00:00Z en Argentina todavía es
+  //     ayer. Este borde se rompe si hoyLocalEmpresa reusa diaDesdeEntrada, cuyo
+  //     atajo de medianoche-UTC-ya-normalizada no aplica a un instante real.
+  assert.strictEqual(claveFecha(diaLocalEmpresaDe(new Date('2026-07-31T00:00:00.000Z'))), '2026-07-30');
+  assert.strictEqual(claveFecha(diaLocalEmpresaDe(new Date('2026-07-31T00:00:00.001Z'))), '2026-07-30');
+  assert.strictEqual(claveFecha(diaLocalEmpresaDe(new Date('2026-07-31T02:59:59.999Z'))), '2026-07-30');
+  assert.strictEqual(claveFecha(diaLocalEmpresaDe(new Date('2026-07-31T03:00:00.000Z'))), '2026-07-31');
   assert.strictEqual(hoyLocalEmpresa().getTime() % 86_400_000, 0);
 
-  console.log('✓ fecha-dia: 12/12 OK');
+  // 13. El atajo de fecha-sola también valida: un día que no existe no puede
+  //     colarse como el día siguiente.
+  assert.throws(() => diaDesdeEntrada('2026-13-45'), RangeError);
+  assert.throws(() => diaDesdeEntrada('2026-02-30'), RangeError);
+
+  console.log('✓ fecha-dia: 13/13 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
@@ -170,7 +182,14 @@ export function claveFecha(fecha: Date): string {
  */
 export function diaDesdeEntrada(valor: string | Date): Date {
   if (typeof valor === 'string' && SOLO_FECHA.test(valor.trim())) {
-    return new Date(`${valor.trim()}T00:00:00.000Z`);
+    const soloFecha = valor.trim();
+    const dia = new Date(`${soloFecha}T00:00:00.000Z`);
+    // El round-trip caza los días que no existen: '2026-02-30' se normalizaría
+    // solo a marzo, y '2026-13-45' queda Invalid Date.
+    if (Number.isNaN(dia.getTime()) || claveFecha(dia) !== soloFecha) {
+      throw new RangeError(`Fecha inválida: ${valor}`);
+    }
+    return dia;
   }
   const d = typeof valor === 'string' ? new Date(valor) : valor;
   if (Number.isNaN(d.getTime())) {
@@ -204,12 +223,17 @@ export function dentroDelRango(dia: Date, desde: Date, hasta: Date): boolean {
  * componentes UTC crudos de "ahora" mide el día calendario UTC, que difiere del
  * argentino durante las últimas 3 horas de cada día en Argentina (21:00–24:00).
  */
+export function diaLocalEmpresaDe(instante: Date): Date {
+  // NO pasa por `diaDesdeEntrada`: el atajo de "medianoche UTC ya normalizada"
+  // que esa función aplica vale para fechas-día guardadas, pero acá el argumento
+  // es un instante real, y a las 00:00:00Z en Argentina todavía son las 21:00 del
+  // día anterior.
+  const local = new Date(instante.getTime() - OFFSET_ARGENTINA_MS);
+  return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()));
+}
+
 export function hoyLocalEmpresa(): Date {
-  // El -1 ms cubre un borde: a las 00:00:00.000Z exactas (21:00 AR del día
-  // anterior), `diaDesdeEntrada` devolvería el día UTC tal cual —que en Argentina
-  // todavía es mañana—. Corriendo un milisegundo, ese instante cae en la rama que
-  // mide el día argentino. En cualquier otro momento restar 1 ms no cambia el día.
-  return diaDesdeEntrada(new Date(Date.now() - 1));
+  return diaLocalEmpresaDe(new Date());
 }
 ```
 
@@ -219,7 +243,7 @@ export function hoyLocalEmpresa(): Date {
 cd "C:/dev/planilla de horas/apps/api" && npx tsx tests/fecha-dia.test.ts
 ```
 
-Esperado: `✓ fecha-dia: 12/12 OK`
+Esperado: `✓ fecha-dia: 13/13 OK`
 
 - [ ] **Step 5: Commit**
 
@@ -270,7 +294,7 @@ Esperado: sin errores. Si aparece `Duplicate identifier 'claveFecha'`, quedó un
 cd "C:/dev/planilla de horas/apps/api" && npx tsx tests/diagrama-vigencia.test.ts && npx tsx tests/fecha-dia.test.ts
 ```
 
-Esperado: `✓ diagrama-vigencia: 22/22 OK` y `✓ fecha-dia: 12/12 OK`
+Esperado: `✓ diagrama-vigencia: 22/22 OK` y `✓ fecha-dia: 13/13 OK`
 
 - [ ] **Step 4: Commit**
 
@@ -297,15 +321,20 @@ import { fechaDia, spanDiasCalendario } from '../src/utils/zod.utils.js';
 ```
 
 ```ts
-  // 13. fechaDia devuelve un Date ya normalizado, no un string.
+  // 14. fechaDia devuelve un Date ya normalizado, no un string.
   const parseado = fechaDia.parse('2026-07-31T03:00:00.000Z');
   assert.ok(parseado instanceof Date);
   assert.strictEqual(parseado.toISOString(), '2026-07-31T00:00:00.000Z');
 
-  // 14. fechaDia rechaza basura con el mismo mensaje que fechaFlexible.
+  // 15. fechaDia rechaza basura con el mismo mensaje que fechaFlexible.
   assert.strictEqual(fechaDia.safeParse('31/07/2026').success, false);
 
-  // 15. spanDiasCalendario acepta Date (además de string) y es inclusivo.
+  // 16. Una fecha malformada NO puede hacer explotar el refine que la consume:
+  //     zod corre los refine de objeto aunque un campo ya haya fallado, así que
+  //     un throw acá se escaparía de safeParse y la ruta contestaría 500.
+  assert.ok(Number.isNaN(spanDiasCalendario('31/07/2026', '31/07/2026')));
+
+  // 17. spanDiasCalendario acepta Date (además de string) y es inclusivo.
   assert.strictEqual(spanDiasCalendario('2026-07-28', '2026-07-29'), 2);
   assert.strictEqual(
     spanDiasCalendario(new Date('2026-07-28T00:00:00.000Z'), new Date('2026-07-29T00:00:00.000Z')),
@@ -317,7 +346,7 @@ import { fechaDia, spanDiasCalendario } from '../src/utils/zod.utils.js';
   );
 ```
 
-Y actualizar la línea final a `console.log('✓ fecha-dia: 15/15 OK');`
+Y actualizar la línea final a `console.log('✓ fecha-dia: 17/17 OK');`
 
 - [ ] **Step 2: Correr el test para verificar que falla**
 
@@ -361,9 +390,17 @@ Y reemplazar `spanDiasCalendario` para que acepte los dos tipos:
  * que devuelve `fechaDia`.
  */
 export function spanDiasCalendario(fechaInicio: string | Date, fechaFin: string | Date): number {
-  const ini = diaDesdeEntrada(fechaInicio);
-  const fin = diaDesdeEntrada(fechaFin);
-  return Math.round((fin.getTime() - ini.getTime()) / 86_400_000) + 1;
+  try {
+    const ini = diaDesdeEntrada(fechaInicio);
+    const fin = diaDesdeEntrada(fechaFin);
+    return Math.round((fin.getTime() - ini.getTime()) / 86_400_000) + 1;
+  } catch {
+    // Entrada inválida → NaN, que hace fallar el refine que la consume y termina
+    // en un 400. Si esto lanzara, la excepción se escaparía de `safeParse` (zod
+    // corre los refine de objeto aunque un campo interno ya haya fallado) y la
+    // ruta contestaría 500.
+    return NaN;
+  }
 }
 ```
 
@@ -373,7 +410,7 @@ export function spanDiasCalendario(fechaInicio: string | Date, fechaFin: string 
 cd "C:/dev/planilla de horas/apps/api" && npx tsx tests/fecha-dia.test.ts
 ```
 
-Esperado: `✓ fecha-dia: 15/15 OK`
+Esperado: `✓ fecha-dia: 17/17 OK`
 
 - [ ] **Step 5: Commit**
 
@@ -501,6 +538,31 @@ Reemplazar en `inyectarDiasBloqueados` la búsqueda de planilla (líneas 42-44) 
       (p) => dentroDelRango(day, p.periodoInicio, p.periodoFin)
     );
 ```
+
+Y ampliar el pre-filtro del `findMany` que trae las planillas (líneas 33-39). Sin
+esto el arreglo no sirve: el filtro SQL compara timestamps, así que con una
+ausencia que arranca `2026-07-31T03:00:00Z` y un `periodoFin` en
+`2026-07-31T00:00:00Z` la planilla nunca entra al array y `dentroDelRango` no
+llega a compararla. Mismo patrón que `tramosDeUsuario`
+(`diagrama-vigencia.utils.ts:47`): se amplía al día completo y el recorte fino lo
+hace la comparación por clave.
+
+```ts
+  const desdeDia = diaDesdeEntrada(range.fechaInicio);
+  const hastaDia = new Date(diaDesdeEntrada(range.fechaFin).getTime() + 86_400_000 - 1);
+
+  const planillas = await prisma.planilla.findMany({
+    where: {
+      usuarioId: range.usuarioId,
+      periodoInicio: { lte: hastaDia },
+      periodoFin: { gte: desdeDia },
+    },
+    select: { id: true, periodoInicio: true, periodoFin: true },
+  });
+```
+
+Aplicar el mismo criterio a los dos `findMany` de `backfillAusenciasEnPlanilla`
+(el de ausencias y el de vacaciones), que filtran contra `periodoInicio`/`periodoFin`.
 
 Y en `backfillAusenciasEnPlanilla`, reemplazar las cuatro llamadas a `clampDate` (líneas 119-120 y 160-161) por `clampDia`:
 
