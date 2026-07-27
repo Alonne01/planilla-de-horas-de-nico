@@ -2,6 +2,13 @@ import assert from 'node:assert';
 import { buildDaysBetween, clampDia } from '../src/utils/ausencia-calendar.utils.js';
 import { dentroDelRango, rangoConsultaDia } from '../src/utils/fecha-dia.utils.js';
 
+// Igual que en fecha-dia.test.ts (ver el encabezado de ese archivo para el
+// razonamiento): estas aserciones son aritmética UTC pura y pasarían bajo
+// cualquier TZ, pero lo que prueban sólo se rompe con getters locales bajo la TZ
+// de producción. Sin fijarla, en un runner en la nube (UTC) dejarían de servir
+// como red.
+process.env.TZ = 'America/Argentina/Buenos_Aires';
+
 const d = (iso: string) => new Date(iso);
 
 async function run() {

@@ -1,4 +1,26 @@
-import assert from 'node:assert';
+/**
+ * Suite de la convención de fecha-día.
+ *
+ * ─── Zona horaria ────────────────────────────────────────────────────────────
+ * Casi todas las aserciones de este archivo son aritmética UTC pura, así que por
+ * sí solas **pasarían bajo cualquier TZ**. Pero lo que prueban —`finDelDia`,
+ * `filtroPeriodoPlanilla`, `estadoVigencia`— son justamente las funciones cuyo
+ * bug original sólo se manifiesta con getters locales bajo la TZ de producción:
+ * implementar `finDelDia` con el `setHours(23,59,59,999)` viejo da
+ * `23:59:59.999Z` en UTC (el test pasaría con el bug adentro) y `02:59:59.999Z`
+ * en Argentina (el test falla, que es lo que queremos).
+ *
+ * Por eso la suite FIJA la TZ a la de producción en vez de heredar la de la
+ * máquina: en un runner en la nube, que por defecto corre en UTC, si no la
+ * fijáramos estos casos dejarían de distinguir el bug — y como `apps/api` no
+ * tiene ESLint, `tsc` y estos tests son toda la red.
+ *
+ * Se fija acá adentro (y no con `TZ=... npx tsx` por fuera) para que no dependa
+ * de que quien la corre se acuerde. El assert de `run()` no es redundante: si el
+ * build de ICU no conoce la zona, Node cae a UTC EN SILENCIO, y ahí la suite
+ * volvería a pasar con el bug adentro. Con el assert, eso es un fallo ruidoso.
+ */
+import nodeAssert from 'node:assert';
 import {
   claveFecha,
   diaDesdeEntrada,
@@ -20,7 +42,74 @@ import {
 } from '../src/utils/periodo-query.utils.js';
 import { estadoVigencia } from '../src/utils/capacitacion-vigencia.utils.js';
 
+// Ver el encabezado del archivo. Va acá arriba de todo (antes de que se
+// construya cualquier Date o Intl) porque Node reconstruye su caché de zona
+// horaria recién cuando se reasigna `process.env.TZ`.
+process.env.TZ = 'America/Argentina/Buenos_Aires';
+
+/**
+ * `node:assert` envuelto para llevar la cuenta REAL de aserciones ejecutadas.
+ *
+ * El total que imprime el final del archivo era un literal escrito a mano, que
+ * ya se había desalineado una vez: no verificaba nada, y si alguien borraba un
+ * `assert` seguía anunciando el mismo número. Envolver acá evita tocar las casi
+ * cien líneas de aserciones que ya existen.
+ */
+let aserciones = 0;
+const assert = {
+  strictEqual(actual: unknown, esperado: unknown, msg?: string) {
+    aserciones++; nodeAssert.strictEqual(actual, esperado, msg);
+  },
+  notStrictEqual(actual: unknown, esperado: unknown, msg?: string) {
+    aserciones++; nodeAssert.notStrictEqual(actual, esperado, msg);
+  },
+  deepStrictEqual(actual: unknown, esperado: unknown, msg?: string) {
+    aserciones++; nodeAssert.deepStrictEqual(actual, esperado, msg);
+  },
+  ok(valor: unknown, msg?: string) {
+    aserciones++; nodeAssert.ok(valor, msg);
+  },
+  throws(fn: () => unknown, error?: ErrorConstructor, msg?: string) {
+    aserciones++; nodeAssert.throws(fn, error, msg);
+  },
+};
+
+/**
+ * Evalúa un filtro `{ gte, lte }` igual que el `where` de Prisma, para poder
+ * probar los filtros de período por su COMPORTAMIENTO (qué filas sobreviven) y
+ * no sólo comparando sus bordes contra un ISO literal — que una vez fijado con
+ * `strictEqual` vuelve tautológico todo `assert.ok(fila >= filtro.gte)` que
+ * venga después.
+ */
+function pasaFiltro(valor: Date, f?: { gte?: Date; lte?: Date }): boolean {
+  if (!f) return true;
+  if (f.gte && valor < f.gte) return false;
+  if (f.lte && valor > f.lte) return false;
+  return true;
+}
+
 async function run() {
+  // 0. La suite tiene que correr bajo la TZ de producción (ver encabezado). Si
+  //    el build de ICU no conoce la zona, Node cae a UTC sin avisar y los casos
+  //    de abajo dejan de distinguir el bug que fijan.
+  //
+  //    Se verifica el COMPORTAMIENTO, no el nombre: ICU canonicaliza
+  //    'America/Argentina/Buenos_Aires' a 'America/Buenos_Aires', así que
+  //    comparar contra el string del Dockerfile fallaría con la zona correcta
+  //    puesta. Lo que estos tests necesitan es exactamente esto: UTC-3 sin
+  //    horario de verano, o sea que leer una medianoche UTC con getters locales
+  //    devuelva el día anterior.
+  const zonaResuelta = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const pista = `El proceso resolvió la zona '${zonaResuelta}'. Esta suite necesita la de producción `
+    + '(America/Argentina/Buenos_Aires, ver Dockerfile): bajo otra zona, los casos de fecha-día '
+    + 'pasan igual con el bug adentro y dejan de servir como red.';
+  // Invierno y verano del hemisferio sur: Argentina no observa horario de
+  // verano, así que las dos puntas tienen que dar el mismo offset de 180 min.
+  assert.strictEqual(new Date('2026-07-21T00:00:00.000Z').getTimezoneOffset(), 180, pista);
+  assert.strictEqual(new Date('2026-01-15T00:00:00.000Z').getTimezoneOffset(), 180, pista);
+  // La consecuencia concreta, que es lo que rompía el código viejo.
+  assert.strictEqual(new Date('2026-07-21T00:00:00.000Z').getDate(), 20, pista);
+
   // 1. Fecha-sola: el día es literal, no se le aplica ningún offset.
   assert.strictEqual(diaDesdeEntrada('2026-07-31').toISOString(), '2026-07-31T00:00:00.000Z');
 
@@ -212,27 +301,64 @@ async function run() {
   assert.strictEqual(periodoQuerySchema.safeParse({ periodoInicio: '21/07/2026' }).success, false);
   assert.strictEqual(periodoQuerySchema.safeParse({ periodoFin: 'no-es-fecha' }).success, false);
 
-  // 29. EL BUG: la ventana efectiva del filtro de planillas. Con el payload del
-  //     front, el piso era 03:00Z (una planilla del primer día del ciclo, ya
-  //     normalizada a 00:00Z, quedaba AFUERA) y el techo 02:59:59.999Z del día
-  //     siguiente (entraba un día de más).
+  // 29. EL BUG, probado por comportamiento: qué planillas sobreviven al filtro.
+  //     Con el payload del front, el piso era 03:00Z (una planilla del primer
+  //     día del ciclo, ya normalizada a 00:00Z, quedaba AFUERA) y el techo
+  //     02:59:59.999Z del día siguiente (entraba un día de más).
+  //
+  //     Se compara el CONJUNTO de ids que pasan, no cada fila por separado:
+  //     así el caso también caza que se pierda un borde, que se inviertan
+  //     `gte`/`lte`, o que se filtre por la columna equivocada — cosas que un
+  //     `assert.ok(fila >= filtro.gte)` no puede ver, porque una vez fijado
+  //     `gte` con `strictEqual` esa comparación es una tautología aritmética.
   const fPlanilla = filtroPeriodoPlanilla(q);
   assert.strictEqual(fPlanilla.periodoInicio!.gte!.toISOString(), '2026-07-21T00:00:00.000Z');
   assert.strictEqual(fPlanilla.periodoFin!.lte!.toISOString(), '2026-08-20T23:59:59.999Z');
-  // El primer día del ciclo entra…
-  assert.ok(new Date('2026-07-21T00:00:00.000Z') >= fPlanilla.periodoInicio!.gte!);
-  // …y también las filas viejas sin migrar del mismo día.
-  assert.ok(new Date('2026-07-21T03:00:00.000Z') >= fPlanilla.periodoInicio!.gte!);
-  // El día siguiente al fin del ciclo ya NO entra.
-  assert.ok(!(new Date('2026-08-21T00:00:00.000Z') <= fPlanilla.periodoFin!.lte!));
-  // El último día del ciclo entra en cualquiera de las tres convenciones.
-  assert.ok(new Date('2026-08-20T00:00:00.000Z') <= fPlanilla.periodoFin!.lte!);
-  assert.ok(new Date('2026-08-20T15:00:00.000Z') <= fPlanilla.periodoFin!.lte!);
 
-  // 30. Cada borde del filtro de planillas se aplica por separado.
+  // Planillas de prueba: el ciclo pedido en las tres convenciones que conviven
+  // en la base, el ciclo anterior y el siguiente.
+  const planillas = [
+    { id: 'ciclo-pedido-migrada', ini: '2026-07-21T00:00:00.000Z', fin: '2026-08-20T00:00:00.000Z' },
+    { id: 'ciclo-pedido-medianoche-ar', ini: '2026-07-21T03:00:00.000Z', fin: '2026-08-20T03:00:00.000Z' },
+    { id: 'ciclo-pedido-mediodia', ini: '2026-07-21T15:00:00.000Z', fin: '2026-08-20T15:00:00.000Z' },
+    { id: 'ciclo-anterior', ini: '2026-06-21T00:00:00.000Z', fin: '2026-07-20T00:00:00.000Z' },
+    { id: 'ciclo-siguiente', ini: '2026-08-21T00:00:00.000Z', fin: '2026-09-20T00:00:00.000Z' },
+  ];
+  const sobreviven = planillas
+    .filter((p) => pasaFiltro(new Date(p.ini), fPlanilla.periodoInicio)
+      && pasaFiltro(new Date(p.fin), fPlanilla.periodoFin))
+    .map((p) => p.id);
+  assert.deepStrictEqual(
+    sobreviven,
+    ['ciclo-pedido-migrada', 'ciclo-pedido-medianoche-ar', 'ciclo-pedido-mediodia'],
+    'el filtro tiene que devolver el ciclo pedido en las tres convenciones, y sólo ese',
+  );
+
+  // 30. Cada borde del filtro de planillas se aplica por separado, y el que
+  //     falta deja pasar todo de ese lado (no corta la consulta entera).
   assert.deepStrictEqual(filtroPeriodoPlanilla({}), {});
   const soloInicio = filtroPeriodoPlanilla({ periodoInicio: diaDesdeEntrada('2026-07-21') });
-  assert.ok(soloInicio.periodoInicio && soloInicio.periodoFin === undefined);
+  assert.strictEqual(soloInicio.periodoFin, undefined);
+  assert.deepStrictEqual(
+    planillas
+      .filter((p) => pasaFiltro(new Date(p.ini), soloInicio.periodoInicio)
+        && pasaFiltro(new Date(p.fin), soloInicio.periodoFin))
+      .map((p) => p.id),
+    ['ciclo-pedido-migrada', 'ciclo-pedido-medianoche-ar', 'ciclo-pedido-mediodia', 'ciclo-siguiente'],
+    'sin borde superior tiene que entrar también todo lo posterior',
+  );
+
+  // 30b. La función normaliza sus propias puntas y no depende de que el
+  //      llamador ya lo haya hecho: pasarle un `periodoInicio` leído de la base
+  //      todavía sin migrar (`03:00Z`) tiene que dar el MISMO filtro que
+  //      pasarle la fecha-día, y no perder las filas ya migradas a `00:00Z`.
+  assert.deepStrictEqual(
+    filtroPeriodoPlanilla({
+      periodoInicio: new Date('2026-07-21T03:00:00.000Z'),
+      periodoFin: new Date('2026-08-20T15:00:00.000Z'),
+    }),
+    fPlanilla,
+  );
 
   // 31. El filtro por fechaInicio (ausencias/vacaciones) necesita los dos bordes
   //     —con uno solo quedaba abierto y devolvía historia entera— y cubre el día
@@ -263,13 +389,26 @@ async function run() {
   const diaExacto = filtroDiaExacto(diaDesdeEntrada('2026-07-21T03:00:00.000Z'));
   assert.strictEqual(diaExacto.gte.toISOString(), '2026-07-21T00:00:00.000Z');
   assert.strictEqual(diaExacto.lte.toISOString(), '2026-07-21T23:59:59.999Z');
-  for (const guardado of ['2026-07-21T00:00:00.000Z', '2026-07-21T03:00:00.000Z', '2026-07-21T15:00:00.000Z']) {
-    const d = new Date(guardado);
-    assert.ok(d >= diaExacto.gte && d <= diaExacto.lte, `no matchea ${guardado}`);
-  }
-  // Y el día de al lado sigue quedando afuera: no se ensanchó la semántica.
-  assert.ok(!(new Date('2026-07-22T00:00:00.000Z') <= diaExacto.lte));
-  assert.ok(!(new Date('2026-07-20T15:00:00.000Z') >= diaExacto.gte));
+
+  // Como en el 29, se prueba por comportamiento y sobre las DOS columnas a la
+  // vez, que es como lo usa el cierre. Lo que hay que demostrar es que el rango
+  // de un día no ensanchó la semántica de la igualdad exacta que reemplazó: una
+  // planilla que arranca el mismo día pero termina otro NO es el mismo período
+  // y no se puede cerrar de arrastre.
+  const cierreIni = filtroDiaExacto(diaDesdeEntrada('2026-07-21'));
+  const cierreFin = filtroDiaExacto(diaDesdeEntrada('2026-08-20'));
+  const candidatas = [
+    ...planillas,
+    { id: 'mismo-inicio-otro-fin', ini: '2026-07-21T00:00:00.000Z', fin: '2026-08-19T00:00:00.000Z' },
+    { id: 'otro-inicio-mismo-fin', ini: '2026-07-22T03:00:00.000Z', fin: '2026-08-20T00:00:00.000Z' },
+  ];
+  assert.deepStrictEqual(
+    candidatas
+      .filter((p) => pasaFiltro(new Date(p.ini), cierreIni) && pasaFiltro(new Date(p.fin), cierreFin))
+      .map((p) => p.id),
+    ['ciclo-pedido-migrada', 'ciclo-pedido-medianoche-ar', 'ciclo-pedido-mediodia'],
+    'el cierre tiene que tomar ese período en las tres convenciones, y ningún período vecino',
+  );
 
   // 34. El estado de vigencia de una capacitación se mide por día calendario,
   //     no contra el instante `new Date()`. El caso que fallaba: el 26/7 a las
@@ -290,7 +429,7 @@ async function run() {
   assert.strictEqual(estadoVigencia(diaDesdeEntrada('2026-07-26'), 0, hoy26), 'proxima');
   assert.strictEqual(estadoVigencia(diaDesdeEntrada('2026-07-27'), 0, hoy26), 'vigente');
 
-  console.log('✓ fecha-dia: 34/34 OK');
+  console.log(`✓ fecha-dia: ${aserciones} aserciones OK (TZ=${Intl.DateTimeFormat().resolvedOptions().timeZone})`);
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

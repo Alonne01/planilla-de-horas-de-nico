@@ -7,6 +7,13 @@ import {
   type TramoDiagrama,
 } from '../src/utils/diagrama-vigencia.utils.js';
 
+// Igual que en fecha-dia.test.ts (ver el encabezado de ese archivo para el
+// razonamiento): estas aserciones son aritmética UTC pura y pasarían bajo
+// cualquier TZ, pero lo que prueban sólo se rompe con getters locales bajo la TZ
+// de producción. Sin fijarla, en un runner en la nube (UTC) dejarían de servir
+// como red.
+process.env.TZ = 'America/Argentina/Buenos_Aires';
+
 /** Medianoche UTC de un 'YYYY-MM-DD', igual que guarda la base. */
 const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
