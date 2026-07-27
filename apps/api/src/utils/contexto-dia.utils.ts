@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { tramosDeUsuario, esFrancoEnFecha } from './diagrama-vigencia.utils.js';
+import { claveFecha } from './fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 
@@ -65,54 +66,9 @@ const ANIOS_DEL_RESPALDO = new Set(
   Object.keys(FERIADOS_NACIONALES).map((k) => Number(k.slice(0, 4))),
 );
 
-/**
- * Clave YYYY-MM-DD de una fecha, en UTC.
- *
- * El front ancla cada día al mediodía local antes de mandarlo, así que el
- * componente UTC coincide con el día que vio el usuario en cualquier huso de
- * ±12 h. Usar componentes locales del servidor haría que el mismo registro
- * cambiara de día según la zona horaria del contenedor.
- */
-export function claveFecha(fecha: Date): string {
-  return fecha.toISOString().slice(0, 10);
-}
-
-// Argentina es UTC-3 todo el año (no observa horario de verano desde 2009), así
-// que un desplazamiento fijo alcanza sin tirar de una librería de zonas horarias
-// (`Intl.DateTimeFormat` con `timeZone`, etc.). Si la empresa alguna vez opera en
-// otro huso —o en uno con horario de verano—, este valor deja de alcanzar: hay
-// que resolver el offset real del huso de la empresa en el momento de la
-// consulta (por ejemplo con `Intl` y un `timeZone` guardado por empresa) en vez
-// de un desplazamiento constante.
-const OFFSET_ARGENTINA_MS = 3 * 60 * 60 * 1000;
-
-/**
- * Medianoche UTC del día calendario de HOY en el huso de la empresa (Argentina),
- * NO en el huso del servidor.
- *
- * Por qué hace falta: el servidor puede correr en cualquier huso (en producción,
- * típicamente UTC), pero quien usa el sistema elige y piensa las fechas en hora
- * argentina. Tomar los componentes UTC crudos de "ahora" mide el día calendario
- * UTC, que DIFIERE del día calendario argentino durante las últimas 3 horas de
- * cada día en Argentina (21:00–24:00 AR): a esa hora el reloj UTC ya rodó a
- * mañana, mientras que en Argentina todavía es hoy.
- *
- * Cualquier código que use "hoy" como piso o techo de una fecha de negocio
- * (mínimo de un formulario, guardia de vencimiento, barrido nocturno) tiene que
- * usar ESTA función y no los componentes UTC crudos de `new Date()`, o el
- * desfase de esas 3 horas se traduce en un día entero de error para quien
- * complete o consulte algo justo en esa ventana — ver el bug de
- * `cambios-diagrama.routes.ts` que motivó esta función: entre las 21:00 y las
- * 24:00 AR, un `hoyUTC()` basado en componentes crudos coincidía exactamente con
- * "mañana" en hora local, y esa coincidencia se filtraba en cualquier
- * comparación contra "hoy" (creación, vencimiento, barrido) sin importar si la
- * comparación era por timestamp o por clave de día — envolver la comparación en
- * `claveFecha` no alcanza si el "hoy" de base ya mide el día equivocado.
- */
-export function hoyLocalEmpresa(): Date {
-  const ahoraLocal = new Date(Date.now() - OFFSET_ARGENTINA_MS);
-  return new Date(Date.UTC(ahoraLocal.getUTCFullYear(), ahoraLocal.getUTCMonth(), ahoraLocal.getUTCDate()));
-}
+// La convención de fecha-día (y su documentación) vive en fecha-dia.utils.ts.
+// Se re-exporta acá porque medio código ya la importa desde este módulo.
+export { claveFecha, hoyLocalEmpresa, diaDesdeEntrada, mismoDia, dentroDelRango } from './fecha-dia.utils.js';
 
 const CACHE_FERIADOS_MS = 5 * 60 * 1000;
 
