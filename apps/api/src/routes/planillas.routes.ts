@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { fechaDia, fechaFlexible, spanDiasCalendario } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_SUPERVISOR, LEVEL_RRHH, LEVEL_ADMIN } from '../middleware/roles.middleware.js';
-import { notificarPlanilla, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
+import { notificarPlanilla, notificarAprobadoresPaso, crearNotificacion } from '../utils/notificacion.utils.js';
 import { getFlowVisibleUserIds } from '../utils/visibility.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import {
@@ -18,7 +18,7 @@ import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, formatTipoAusencia
 import { logAuditoria } from '../lib/auditoria.js';
 import { devolverSaldoDeMarca, borrarAdjuntosDeMarcas } from '../utils/marca-manual.utils.js';
 import { feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
-import { claveFecha, dentroDelRango, diaDesdeEntrada, rangoConsultaDia } from '../utils/fecha-dia.utils.js';
+import { claveFecha, dentroDelRango, diaDesdeEntrada, fmtFechaDia, rangoConsultaDia } from '../utils/fecha-dia.utils.js';
 import { periodoQuerySchema, filtroPeriodoPlanilla } from '../utils/periodo-query.utils.js';
 import { tramosDeUsuario, esFrancoEnFecha } from '../utils/diagrama-vigencia.utils.js';
 import {
@@ -904,10 +904,42 @@ router.post('/:id/rechazar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthReq
       },
     });
 
+    // La planilla volvió a un estado editable, así que se reponen los días de las
+    // ausencias/vacaciones que se aprobaron mientras estaba en vuelo y que
+    // `inyectarDiasBloqueados` había salteado por no tocar un documento firmado.
+    //
+    // Esto es lo que vuelve CIERTA la recomendación que recibe el dueño en esa
+    // situación ("para que los días queden bloqueados hay que rechazarla y
+    // reenviarla"): antes `backfillAusenciasEnPlanilla` tenía un solo llamador
+    // —la creación—, así que rechazar dejaba la planilla editable pero con el día
+    // igual de desbloqueado, y el único camino real era borrar la planilla y
+    // recrearla, lo que le borra al operador todas las horas del ciclo.
+    //
+    // Va después del `update`: el backfill no mira el estado (confía en el
+    // llamador), y dejarlo acá deja explícito que sólo corre sobre una planilla
+    // que ya es editable. Recalcula los totales de la cabecera por su cuenta.
+    const repuesto = await backfillAusenciasEnPlanilla(
+      planillaId, planilla.usuarioId, planilla.periodoInicio, planilla.periodoFin,
+    );
+
     // Notify planilla owner
     const aprobador = await prisma.usuario.findUnique({ where: { id: req.user!.userId }, select: { nombre: true, apellido: true } });
     const aprobadorNombre = aprobador ? `${aprobador.nombre} ${aprobador.apellido}` : 'Un aprobador';
     await notificarPlanilla(planilla.usuarioId, 'RECHAZADA', aprobadorNombre, motivo, planillaId);
+
+    // Mismo título que usa `avisarResultadoInyeccion` para el pisado: al dueño le
+    // desaparecieron horas que había cargado, y el aviso de rechazo no lo dice.
+    // No se reusa ese helper porque su texto arranca con "se aprobó", que acá no
+    // corresponde: lo que se aprobó fue hace rato, esto es la reposición.
+    if (repuesto.pisados.length > 0) {
+      await crearNotificacion({
+        usuarioId: planilla.usuarioId,
+        tipo: 'PLANILLA',
+        titulo: 'Se reemplazaron horas cargadas',
+        cuerpo: `Al rechazarse la planilla se aplicaron las ausencias/vacaciones ya aprobadas: los días ${repuesto.pisados.map((c) => fmtFechaDia(diaDesdeEntrada(c))).join(', ')} quedaron bloqueados y las horas que tenías cargadas ahí se reemplazaron.`,
+        link: '/planillas',
+      });
+    }
 
     res.json(updated);
   } catch (error) {

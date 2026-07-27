@@ -46,7 +46,9 @@ export function resultadoInyeccionVacio(): ResultadoInyeccion {
  * Si la planilla del día es editable (BORRADOR/RECHAZADA), el bloqueo **pisa** lo
  * que hubiera cargado. Si ya está ENVIADA/EN_REVISION/APROBADA no se toca nada:
  * un documento firmado no se modifica por atrás. El llamador avisa con la lista
- * de `omitidos` para que se rechace y reenvíe.
+ * de `omitidos` para que se rechace y reenvíe — y esa salida existe de verdad
+ * porque `POST /planillas/:id/rechazar` corre `backfillAusenciasEnPlanilla` al
+ * devolver la planilla a un estado editable.
  *
  * Los días sin planilla se saltean: los repone `backfillAusenciasEnPlanilla`
  * cuando la planilla se cree. Es también lo que hace que el escenario de "borro
@@ -143,15 +145,36 @@ export async function inyectarDiasBloqueados(range: AusenciaRange): Promise<Resu
 }
 
 /**
- * When a new planilla is created, check for approved ausencias and vacaciones
- * that fall within the period and create locked entries.
+ * Repone en UNA planilla los días de las ausencias y vacaciones ya APROBADAS que
+ * caen en su período.
+ *
+ * Dos llamadores, los dos con la planilla en un estado editable:
+ *   · `POST /planillas` (creación): la planilla nace con los días ya aprobados.
+ *   · `POST /planillas/:id/rechazar`: la planilla vuelve a ser editable, así que
+ *     se aplican los días que `inyectarDiasBloqueados` había salteado mientras
+ *     estaba enviada. Es lo que vuelve cierta la recomendación del aviso de
+ *     `omitidos` ("rechazala y reenviala"); sin esto el único camino era borrar
+ *     la planilla y recrearla, perdiendo todas las horas del ciclo.
+ *
+ * Es responsabilidad del llamador que la planilla esté editable: esta función NO
+ * mira el estado (a diferencia de `inyectarDiasBloqueados`, que barre varias
+ * planillas de una y tiene que decidir cuáles puede tocar).
+ *
+ * Política de pisado, la misma que `inyectarDiasBloqueados`: en una planilla
+ * editable la ausencia aprobada PISA lo que hubiera cargado. Se informa en
+ * `pisados` para que el llamador pueda avisarle al dueño.
+ *
+ * Idempotente: el upsert va por `@@unique([planillaId, fecha])` con las fechas ya
+ * normalizadas a medianoche UTC (`buildDaysBetween` + `clampDia`), así que
+ * correrla dos veces reescribe el mismo registro en vez de duplicarlo. Un día
+ * cubierto por más de una solicitud se resuelve una sola vez (ver `porDia`).
  */
 export async function backfillAusenciasEnPlanilla(
   planillaId: string,
   usuarioId: string,
   periodoInicio: Date,
   periodoFin: Date,
-): Promise<void> {
+): Promise<ResultadoInyeccion> {
   // El filtro en SQL compara timestamps, pero `periodoInicio`/`periodoFin` (y las
   // fechas de ausencias/vacaciones que se comparan contra ellos) pueden traer
   // hora — mismo ensanche que en inyectarDiasBloqueados.
@@ -177,44 +200,27 @@ export async function backfillAusenciasEnPlanilla(
     },
   });
 
+  /**
+   * Un día → el bloqueo que le corresponde. Es un mapa y no una lista porque dos
+   * solicitudes pueden cubrir el mismo día (una ausencia y una vacación
+   * solapadas): con una lista se hacían dos upserts sobre la misma fila, y el
+   * segundo leía el estado que acababa de escribir el primero, así que las horas
+   * que había antes no se podían reportar. Gana el último, que es el orden que
+   * ya tenía el código (vacaciones después de ausencias).
+   */
+  const porDia = new Map<string, { fecha: Date; motivoBloqueo: string; observaciones: string }>();
+
   for (const aus of ausencias) {
     const tipoLabel = formatTipoAusencia(aus.tipo);
     const days = buildDaysBetween(
       clampDia(aus.fechaInicio, periodoInicio),
       clampDia(aus.fechaFin, periodoFin, true),
     );
-
     for (const day of days) {
-      await prisma.registroHoras.upsert({
-        where: { planillaId_fecha: { planillaId, fecha: day } },
-        update: {
-          bloqueado: true,
-          motivoBloqueo: aus.tipo,
-          observaciones: `${tipoLabel}${aus.descripcion ? ` — ${aus.descripcion}` : ''}`,
-          horasTrabajadas: ZERO,
-          horasNormales: ZERO,
-          horasExtra50: ZERO,
-          horasExtra100: ZERO,
-          horasViajeCalc: ZERO,
-          lugarTrabajo: null,
-          entradaTurno1: null,
-          salidaTurno1: null,
-          entradaTurno2: null,
-          salidaTurno2: null,
-        },
-        create: {
-          planillaId,
-          fecha: day,
-          bloqueado: true,
-          motivoBloqueo: aus.tipo,
-          observaciones: `${tipoLabel}${aus.descripcion ? ` — ${aus.descripcion}` : ''}`,
-          horasTrabajadas: ZERO,
-          horasNormales: ZERO,
-          horasExtra50: ZERO,
-          horasExtra100: ZERO,
-          horasViajeCalc: ZERO,
-          horasViajeInput: ZERO,
-        },
+      porDia.set(claveFecha(day), {
+        fecha: day,
+        motivoBloqueo: aus.tipo,
+        observaciones: `${tipoLabel}${aus.descripcion ? ` — ${aus.descripcion}` : ''}`,
       });
     }
   }
@@ -224,41 +230,73 @@ export async function backfillAusenciasEnPlanilla(
       clampDia(vac.fechaInicio, periodoInicio),
       clampDia(vac.fechaFin, periodoFin, true),
     );
-
     for (const day of days) {
-      await prisma.registroHoras.upsert({
-        where: { planillaId_fecha: { planillaId, fecha: day } },
-        update: {
-          bloqueado: true,
-          motivoBloqueo: 'VACACION',
-          observaciones: `Vacaciones${vac.motivo ? ` — ${vac.motivo}` : ''}`,
-          horasTrabajadas: ZERO,
-          horasNormales: ZERO,
-          horasExtra50: ZERO,
-          horasExtra100: ZERO,
-          horasViajeCalc: ZERO,
-          lugarTrabajo: null,
-          entradaTurno1: null,
-          salidaTurno1: null,
-          entradaTurno2: null,
-          salidaTurno2: null,
-        },
-        create: {
-          planillaId,
-          fecha: day,
-          bloqueado: true,
-          motivoBloqueo: 'VACACION',
-          observaciones: `Vacaciones${vac.motivo ? ` — ${vac.motivo}` : ''}`,
-          horasTrabajadas: ZERO,
-          horasNormales: ZERO,
-          horasExtra50: ZERO,
-          horasExtra100: ZERO,
-          horasViajeCalc: ZERO,
-          horasViajeInput: ZERO,
-        },
+      porDia.set(claveFecha(day), {
+        fecha: day,
+        motivoBloqueo: 'VACACION',
+        observaciones: `Vacaciones${vac.motivo ? ` — ${vac.motivo}` : ''}`,
       });
     }
   }
+
+  const resultado = resultadoInyeccionVacio();
+
+  for (const [clave, bloqueo] of porDia) {
+    // Se lee ANTES del upsert, igual que en `inyectarDiasBloqueados`: después ya
+    // está en cero y no hay forma de saber si había horas que reemplazar. Un día
+    // ya bloqueado no cuenta como pisado.
+    const previo = await prisma.registroHoras.findUnique({
+      where: { planillaId_fecha: { planillaId, fecha: bloqueo.fecha } },
+      select: { entradaTurno1: true, horasTrabajadas: true, bloqueado: true },
+    });
+    const teniaHoras = !!previo && !previo.bloqueado
+      && (!!previo.entradaTurno1 || Number(previo.horasTrabajadas) > 0);
+
+    await prisma.registroHoras.upsert({
+      where: { planillaId_fecha: { planillaId, fecha: bloqueo.fecha } },
+      update: {
+        bloqueado: true,
+        motivoBloqueo: bloqueo.motivoBloqueo,
+        observaciones: bloqueo.observaciones,
+        horasTrabajadas: ZERO,
+        horasNormales: ZERO,
+        horasExtra50: ZERO,
+        horasExtra100: ZERO,
+        horasViajeCalc: ZERO,
+        lugarTrabajo: null,
+        entradaTurno1: null,
+        salidaTurno1: null,
+        entradaTurno2: null,
+        salidaTurno2: null,
+      },
+      create: {
+        planillaId,
+        fecha: bloqueo.fecha,
+        bloqueado: true,
+        motivoBloqueo: bloqueo.motivoBloqueo,
+        observaciones: bloqueo.observaciones,
+        horasTrabajadas: ZERO,
+        horasNormales: ZERO,
+        horasExtra50: ZERO,
+        horasExtra100: ZERO,
+        horasViajeCalc: ZERO,
+        horasViajeInput: ZERO,
+      },
+    });
+
+    resultado.aplicados.push(clave);
+    if (teniaHoras) resultado.pisados.push(clave);
+  }
+
+  // Los totales de la cabecera tienen que seguir al pisado. En la creación no
+  // cambia nada (la planilla nace en cero), pero al rechazar sí: si no se
+  // recalculan, la planilla sigue sumando horas que ya no están en ningún
+  // registro. Mismo criterio que `inyectarDiasBloqueados`.
+  if (resultado.aplicados.length > 0) {
+    await recalcularTotalesPlanilla(planillaId);
+  }
+
+  return resultado;
 }
 
 // ─── Helpers ─────────────────────────────────────

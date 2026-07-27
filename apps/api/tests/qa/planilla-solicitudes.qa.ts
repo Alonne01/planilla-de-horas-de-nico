@@ -1,13 +1,16 @@
 /**
  * QA Suite — SOLICITUDES EN LA PLANILLA (KEY=planilla-solicitudes)
  *
- * Cubre tres cosas:
+ * Cubre cuatro cosas:
  *  1. `solicitudesPendientes` en GET /planillas/:id (las ausencias/vacaciones sin
  *     firmar que tocan el período) y el aviso de días faltantes al enviar, que
  *     distingue los huecos que ya tienen un pedido en curso.
  *  2. Qué pasa cuando el pedido se APRUEBA: pisa las horas cargadas si la
  *     planilla es editable, y avisa.
- *  3. Que borrar y recrear la planilla repone los días ya aprobados.
+ *  3. Que la salida que ese aviso recomienda existe de verdad: con la planilla
+ *     ya enviada la aprobación se saltea, y RECHAZARLA repone el día bloqueado
+ *     sin tener que borrar la planilla (escenario 8b).
+ *  4. Que borrar y recrear la planilla repone los días ya aprobados.
  *
  * ─── Banco de pruebas propio y descartable ───────────────────────────────────
  *
@@ -129,6 +132,28 @@ async function tokenDe(email: string): Promise<string> {
 /** Clave de día de una fecha-día serializada por el backend: sale del STRING, nunca de un `Date`. */
 function diaKey(iso: string): string {
   return iso.slice(0, 10);
+}
+
+/**
+ * El MISMO día calendario argentino que `clave`, pero mandado por el cable como
+ * el INSTANTE de las 23:00 de ese día — o sea `D+1T02:00:00.000Z`.
+ *
+ * Por qué así y no `D T03:00:00.000Z` (la medianoche argentina, que es lo que usa
+ * `isoDayAr()` en audit.qa.ts): mandar `03:00Z` no discrimina nada en esta suite.
+ * Un handler que truncara en UTC lo dejaría igual en el día D, así que la
+ * aserción pasaría con el código roto. La ventana `(00:00Z, 03:00Z)` es la única
+ * en la que el día UTC y el día argentino DISCREPAN: `2070-03-14T02:00:00.000Z`
+ * es el 14 en UTC pero las 23:00 del 13 en Argentina. Medirlo en UTC lo corre un
+ * día hacia adelante — fuera del período de la planilla si D es el último día —
+ * y la inyección no encuentra planilla que tocar.
+ *
+ * Es exactamente la forma que produce el front bajo TZ=AR cuando el usuario elige
+ * el día D y algo le agrega la hora de la máquina en vez de la medianoche.
+ */
+function isoUltimaHoraAr(clave: string): string {
+  const siguiente = new Date(`${clave}T00:00:00.000Z`);
+  siguiente.setUTCDate(siguiente.getUTCDate() + 1);
+  return `${siguiente.toISOString().slice(0, 10)}T02:00:00.000Z`;
 }
 
 /**
@@ -353,13 +378,19 @@ async function run() {
    * snapshot para saber cuántos pasos hay y, en cada paso, se prueba con los
    * candidatos hasta que uno firma. Si la ausencia no llegara a APROBADA los
    * checks de pisado darían falso-negativo, así que el estado final se verifica acá.
+   *
+   * `comoLoManda` es la representación que viaja por el cable; por defecto es el
+   * propio `dia` ('YYYY-MM-DD'). Sirve para mandar el mismo día en una forma
+   * hostil (ver `isoUltimaHoraAr`) y comprobar que el servidor lo guarda igual.
    */
-  async function solicitarYAprobar(dia: string, descripcion: string): Promise<string | null> {
+  async function solicitarYAprobar(
+    dia: string, descripcion: string, comoLoManda: string = dia,
+  ): Promise<string | null> {
     const alta = await fetch(`${BASE}/ausencias/solicitar`, {
       method: 'POST',
       headers: auth(op),
       body: JSON.stringify({
-        tipo: 'FALTA_JUSTIFICADA', fechaInicio: dia, fechaFin: dia,
+        tipo: 'FALTA_JUSTIFICADA', fechaInicio: comoLoManda, fechaFin: comoLoManda,
         diasAusencia: 1, descripcion,
       }),
     });
@@ -368,6 +399,11 @@ async function run() {
       check(false, `se creó la ausencia de ${dia} (status ${alta.status}: ${JSON.stringify(aus).slice(0, 200)})`);
       return null;
     }
+    // El día que quedó guardado, medido sobre el STRING que devuelve el backend.
+    // Con `comoLoManda` en la forma hostil ésta es la aserción que separa medir el
+    // día en Argentina de medirlo en UTC: en UTC caería un día más adelante.
+    check(diaKey(aus.fechaInicio) === dia && diaKey(aus.fechaFin) === dia,
+      `la ausencia mandada como ${comoLoManda} quedó fechada el ${dia} (quedó ${diaKey(aus.fechaInicio ?? '')})`);
 
     // Sin circuito la ausencia la aprueba de una quien tenga nivel RRHH o
     // superior: una vuelta alcanza.
@@ -472,9 +508,19 @@ async function run() {
   check(await hayNotificacionNueva(op, notifsAntesDelPisado, 'Se reemplazaron horas cargadas', diaPisar),
     'al dueño le avisan que le reemplazaron las horas cargadas');
 
-  // 7. Los bordes del período: el último día también se inyecta (antes se perdía
-  //    porque 00:00Z quedaba fuera del filtro contra un período guardado a 03:00Z)
-  await solicitarYAprobar(finPeriodo, 'QA borde fin de período');
+  // 7. El borde de arriba del período: el ÚLTIMO día también se inyecta, y se
+  //    inyecta aunque la ausencia llegue medida en la ventana horaria en la que
+  //    el día UTC y el día argentino discrepan.
+  //
+  //    El pedido viaja como `isoUltimaHoraAr(finPeriodo)` a propósito. Con
+  //    'YYYY-MM-DD' este escenario NO discriminaba: toda la suite crea las fechas
+  //    como fecha-sola, el backend las normaliza a 00:00Z y el bucle de días
+  //    llega al último día del período por aritmética, con convención de día
+  //    correcta o no. Mandando las 23:00 argentinas del último día, medir el día
+  //    en UTC lo corre al día SIGUIENTE — fuera de [periodoInicio, periodoFin] —
+  //    y entonces no hay planilla que solape: el día no se bloquea y los dos
+  //    checks de abajo caen.
+  await solicitarYAprobar(finPeriodo, 'QA borde fin de período', isoUltimaHoraAr(finPeriodo));
   const detalleBorde = await (await fetch(`${BASE}/planillas/${planilla.id}`, { headers: auth(op) })).json();
   const regUltimo = (detalleBorde.registros ?? []).find((r: any) => diaKey(r.fecha) === finPeriodo);
   check(!!regUltimo?.bloqueado, 'la ausencia del último día del período se inyectó');
@@ -517,6 +563,48 @@ async function run() {
       ),
       'a quien aprobó también le avisan que no se aplicó',
     );
+
+    // 8b. La salida que ese aviso recomienda ("rechazala y reenviala") tiene que
+    //     EXISTIR: al rechazar, la planilla vuelve a un estado editable y los días
+    //     que se saltearon se reponen ahí mismo.
+    //
+    //     Antes no pasaba: `backfillAusenciasEnPlanilla` tenía un único llamador,
+    //     `POST /planillas` (creación). `POST /:id/rechazar` sólo cambiaba el
+    //     estado, así que el ciclo aprobar → omitidos → rechazar → reenviar
+    //     terminaba con el día SIN bloquear y la ausencia aprobada en la base. El
+    //     único camino que funcionaba era borrar la planilla y recrearla, que le
+    //     borra al operador todas las horas del ciclo y no se lo dice nadie.
+    const notifsAntesDelRechazo = await idsNotificaciones(op);
+    let quienRechazo: string | null = null;
+    for (const email of CANDIDATOS_APROBADORES) {
+      const r = await fetch(`${BASE}/planillas/${plSueltaId}/rechazar`, {
+        method: 'POST', headers: auth(await tokenDe(email)),
+        body: JSON.stringify({ motivo: 'QA: rechazo para reponer la ausencia aprobada' }),
+      });
+      if (r.ok) { quienRechazo = email; break; }
+    }
+    check(!!quienRechazo, 'alguien del circuito pudo rechazar la planilla enviada');
+
+    const detRechazada = await (await fetch(`${BASE}/planillas/${plSueltaId}`, { headers: auth(op) })).json();
+    check(detRechazada.estado === 'RECHAZADA', 'la planilla quedó RECHAZADA');
+    const delDiaRepuesto = (detRechazada.registros ?? []).filter((r: any) => diaKey(r.fecha) === diaEnviado);
+    check(delDiaRepuesto.length === 1, 'el día repuesto tiene UN solo registro (no se duplicó)');
+    check(delDiaRepuesto[0]?.bloqueado === true,
+      'al rechazar, el día de la ausencia aprobada queda bloqueado sin borrar la planilla');
+    check(Number(delDiaRepuesto[0]?.horasTrabajadas) === 0, 'las horas del día repuesto quedaron en cero');
+    check(delDiaRepuesto[0]?.entradaTurno1 === null, 'el horario del día repuesto se limpió');
+    // Si el backfill pisa horas, los totales de la cabecera tienen que seguirlo:
+    // el único día de esta planilla pasó a estar bloqueado, así que no queda nada.
+    check(Number(detRechazada.totalHorasNormales) === 0 && Number(detRechazada.totalDiasBase) === 0,
+      'los totales de la cabecera siguieron al pisado del rechazo');
+    check(await hayNotificacionNueva(op, notifsAntesDelRechazo, 'Se reemplazaron horas cargadas', diaEnviado),
+      'al dueño le avisan que al rechazar se reemplazaron las horas del día ausente');
+
+    // Y el ciclo se cierra: la planilla se reenvía sin tener que cargarle horas a
+    // un día que no se trabajó (el validador de completitud da por completo un día
+    // bloqueado). Reenviar tampoco vuelve a tocar el día.
+    const reenvio = await fetch(`${BASE}/planillas/${plSueltaId}/enviar`, { method: 'POST', headers: auth(op) });
+    check(reenvio.ok, 'la planilla con el día repuesto se reenvía sin cargar horas de un día ausente');
   } else {
     // Sin la planilla suelta no se pueden correr sus checks. Se marcan fallados en
     // vez de desaparecer del total: si no, una corrida rota reportaría menos
@@ -529,6 +617,15 @@ async function run() {
       'el horario cargado en la planilla enviada quedó intacto',
       'al dueño le avisan que la ausencia aprobada no se aplicó',
       'a quien aprobó también le avisan que no se aplicó',
+      'alguien del circuito pudo rechazar la planilla enviada',
+      'la planilla quedó RECHAZADA',
+      'el día repuesto tiene UN solo registro (no se duplicó)',
+      'al rechazar, el día de la ausencia aprobada queda bloqueado sin borrar la planilla',
+      'las horas del día repuesto quedaron en cero',
+      'el horario del día repuesto se limpió',
+      'los totales de la cabecera siguieron al pisado del rechazo',
+      'al dueño le avisan que al rechazar se reemplazaron las horas del día ausente',
+      'la planilla con el día repuesto se reenvía sin cargar horas de un día ausente',
     ]) check(false, `${q} (no se pudo montar la planilla enviada)`);
   }
 
