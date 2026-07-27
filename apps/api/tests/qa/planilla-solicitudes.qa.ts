@@ -142,14 +142,15 @@ async function run() {
   const libres = (preData.diasFaltantes as string[]).filter(
     (d) => d !== finPeriodo && !yaPedidos.some((s) => diaKey(s.fechaInicio) <= d && d <= diaKey(s.fechaFin)),
   );
-  if (libres.length < 2) {
-    console.log(`  FAIL hacen falta 2 días libres en el período y quedan ${libres.length}`);
+  if (libres.length < 3) {
+    console.log(`  FAIL hacen falta 3 días libres en el período y quedan ${libres.length}`);
     console.log('\n✗ planilla-solicitudes: el período se quedó sin días libres para los escenarios');
     process.exit(1);
   }
 
   const fecha = libres[0] as string;
   const diaPisar = libres[1] as string;
+  const diaVac = libres[2] as string;
   check(true, `día vacío elegido para el pedido: ${fecha}`);
 
   // Solicitar una ausencia dentro del período, que queda PENDIENTE
@@ -203,6 +204,30 @@ async function run() {
   const tras = await (await fetch(`${BASE}/planillas/${planilla.id}`, { headers: auth(op) })).json();
   check(!(tras.solicitudesPendientes ?? []).some((s: any) => s.id === solicitud.id),
     'la solicitud cancelada sale de solicitudesPendientes');
+
+  // 5b. Lo mismo con VACACIONES: el calendario ya las pintaba, pero el cartel de
+  //     días faltantes al enviar sólo miraba ausencias, así que un día con
+  //     vacaciones pedidas se reclamaba sin decir que ya había un pedido en curso.
+  //     Se deshace al final (DELETE devuelve el saldo), así que no gasta el día.
+  const vac = await (await fetch(`${BASE}/vacaciones`, {
+    method: 'POST',
+    headers: auth(op),
+    body: JSON.stringify({ fechaInicio: diaVac, fechaFin: diaVac, diasHabiles: 1, motivo: 'QA vacación pendiente' }),
+  })).json();
+  check(!!vac.id, `se creó la vacación pendiente sobre ${diaVac}`);
+
+  const detVac = await (await fetch(`${BASE}/planillas/${planilla.id}`, { headers: auth(op) })).json();
+  check((detVac.solicitudesPendientes ?? []).some((s: any) => s.id === vac.id && s.clase === 'VACACION'),
+    'la vacación pendiente figura en solicitudesPendientes');
+
+  const envioVac = await fetch(`${BASE}/planillas/${planilla.id}/enviar`, { method: 'POST', headers: auth(op) });
+  const errVac = await envioVac.json();
+  check((errVac.diasFaltantes ?? []).includes(diaVac), 'el día con vacaciones pedidas sigue siendo faltante');
+  check((errVac.diasConPedidoPendiente ?? []).includes(diaVac),
+    'el error marca que ese día tiene una VACACIÓN en curso');
+
+  const bajaVac = await fetch(`${BASE}/vacaciones/${vac.id}`, { method: 'DELETE', headers: auth(op) });
+  check(bajaVac.ok, 'el dueño puede borrar su vacación pendiente (devuelve el saldo)');
 
   /**
    * Pide una falta justificada de un día y la lleva hasta APROBADA recorriendo su

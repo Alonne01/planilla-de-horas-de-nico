@@ -18,7 +18,7 @@ import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, avisarResultadoIny
 import { logAuditoria } from '../lib/auditoria.js';
 import { devolverSaldoDeMarca, borrarAdjuntosDeMarcas } from '../utils/marca-manual.utils.js';
 import { feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
-import { claveFecha, dentroDelRango, diaDesdeEntrada } from '../utils/fecha-dia.utils.js';
+import { claveFecha, dentroDelRango, diaDesdeEntrada, rangoConsultaDia } from '../utils/fecha-dia.utils.js';
 import { periodoQuerySchema, filtroPeriodoPlanilla } from '../utils/periodo-query.utils.js';
 import { tramosDeUsuario, esFrancoEnFecha } from '../utils/diagrama-vigencia.utils.js';
 import {
@@ -50,6 +50,44 @@ async function assertPlanillaAccess(req: AuthRequest, planillaId: string): Promi
     prisma, req.user!.userId, req.user!.empresaId, req.user!.rol, nivel, 'PLANILLA',
   );
   return visibleIds.includes(planilla.usuarioId);
+}
+
+/**
+ * Las solicitudes SIN FIRMAR (ausencias + vacaciones) que tocan el período de una
+ * planilla.
+ *
+ * Vive acá y no repetida en cada ruta porque la consumen dos lugares que tienen
+ * que coincidir exactamente: `GET /:id`, que las pinta en el calendario, y
+ * `/:id/enviar`, que las nombra al explicar por qué un hueco sigue contando como
+ * faltante. Con la cláusula duplicada divergieron: el envío miraba sólo
+ * ausencias, así que un día con vacaciones pedidas se pintaba en el calendario
+ * pero el cartel del envío no lo mencionaba.
+ *
+ * El rango va por `rangoConsultaDia`: el filtro en SQL compara timestamps, y un
+ * período guardado a las 03:00Z (medianoche argentina) dejaba afuera una
+ * solicitud del primer día del período, que está a las 00:00Z. El recorte fino
+ * por día lo hace después quien compara claves.
+ *
+ * Las marcas manuales (`cargaManual`) quedan afuera: ésas ya bloquean el día y
+ * viajan en el registro, como `marcaManual`. El filtro va sólo en la consulta de
+ * ausencias — `Vacacion` no tiene esa columna.
+ */
+async function solicitudesSinFirmar(planilla: { usuarioId: string; periodoInicio: Date; periodoFin: Date }) {
+  const { desde, hasta } = rangoConsultaDia(planilla.periodoInicio, planilla.periodoFin);
+  const solape = { fechaInicio: { lte: hasta }, fechaFin: { gte: desde } };
+  const estados = ['PENDIENTE', 'EN_REVISION'] as const;
+
+  const [ausencias, vacaciones] = await Promise.all([
+    prisma.ausencia.findMany({
+      where: { usuarioId: planilla.usuarioId, cargaManual: false, estado: { in: [...estados] }, ...solape },
+      select: { id: true, tipo: true, estado: true, fechaInicio: true, fechaFin: true, descripcion: true },
+    }),
+    prisma.vacacion.findMany({
+      where: { usuarioId: planilla.usuarioId, estado: { in: [...estados] }, ...solape },
+      select: { id: true, estado: true, fechaInicio: true, fechaFin: true, motivo: true },
+    }),
+  ]);
+  return { ausencias, vacaciones };
 }
 
 // ─── Schemas ─────────────────────────────────────
@@ -336,30 +374,8 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
 
     // Solicitudes en revisión que tocan el período: la planilla sólo conoce lo
     // materializado como RegistroHoras (que existe recién al aprobar), así que
-    // sin esto el operador no ve los días que ya pidió. Las marcas manuales
-    // (cargaManual) quedan afuera: ésas ya bloquean el día y viajan en el
-    // registro, como `marcaManual`.
-    const [ausenciasPend, vacacionesPend] = await Promise.all([
-      prisma.ausencia.findMany({
-        where: {
-          usuarioId: planilla.usuarioId,
-          cargaManual: false,
-          estado: { in: ['PENDIENTE', 'EN_REVISION'] },
-          fechaInicio: { lte: planilla.periodoFin },
-          fechaFin: { gte: planilla.periodoInicio },
-        },
-        select: { id: true, tipo: true, estado: true, fechaInicio: true, fechaFin: true, descripcion: true },
-      }),
-      prisma.vacacion.findMany({
-        where: {
-          usuarioId: planilla.usuarioId,
-          estado: { in: ['PENDIENTE', 'EN_REVISION'] },
-          fechaInicio: { lte: planilla.periodoFin },
-          fechaFin: { gte: planilla.periodoInicio },
-        },
-        select: { id: true, estado: true, fechaInicio: true, fechaFin: true, motivo: true },
-      }),
-    ]);
+    // sin esto el operador no ve los días que ya pidió.
+    const { ausencias: ausenciasPend, vacaciones: vacacionesPend } = await solicitudesSinFirmar(planilla);
 
     const solicitudesPendientes = [
       ...ausenciasPend.map((a) => ({
@@ -496,16 +512,11 @@ router.post('/:id/enviar', async (req: AuthRequest, res: Response): Promise<void
     if (diasFaltantes.length > 0) {
       // Un día pedido y todavía sin firmar sigue siendo un hueco (la planilla no
       // sale con huecos), pero conviene decir por qué se lo sigue pidiendo.
-      const pendientes = await prisma.ausencia.findMany({
-        where: {
-          usuarioId: planilla.usuarioId,
-          cargaManual: false,
-          estado: { in: ['PENDIENTE', 'EN_REVISION'] },
-          fechaInicio: { lte: planilla.periodoFin },
-          fechaFin: { gte: planilla.periodoInicio },
-        },
-        select: { fechaInicio: true, fechaFin: true },
-      });
+      // Cuentan las ausencias Y las vacaciones: son las mismas dos listas que el
+      // calendario pinta, y si acá faltara una el cartel diría menos que la
+      // pantalla de la que salió.
+      const { ausencias, vacaciones } = await solicitudesSinFirmar(planilla);
+      const pendientes = [...ausencias, ...vacaciones];
       const conPedido = diasFaltantes.filter((dia) =>
         pendientes.some((p) => dia >= claveFecha(p.fechaInicio) && dia <= claveFecha(p.fechaFin))
       );
