@@ -20,7 +20,7 @@ import PeriodSelector from '@/components/layout/PeriodSelector';
 import { usePeriodoActual, AVISO_PERIODO_POR_DEFECTO } from '@/hooks/usePeriodoConfig';
 import ScopeToggle from '@/components/layout/ScopeToggle';
 import { useDialogStore } from '@/stores/dialogStore';
-import { diaLocal, fmtDia } from '@/utils/fechaDia';
+import { claveLocal, diaLocal, fmtDia } from '@/utils/fechaDia';
 
 interface Ausencia {
   id: string;
@@ -534,8 +534,10 @@ function AusenciaFormModal({ onClose, onSuccess }: { onClose: () => void; onSucc
       const res = await api.post('/ausencias', {
         usuarioId,
         tipo,
-        fechaInicio: startDate.toISOString(),
-        fechaFin: endDate.toISOString(),
+        // Clave del día local, no un instante: startDate/endDate son medianoches
+        // LOCALES del calendario y .toISOString() las mandaba como 03:00Z.
+        fechaInicio: claveLocal(startDate),
+        fechaFin: claveLocal(endDate),
         diasAusencia,
         descripcion: descripcion || undefined,
         numeroCertificado: numeroCertificado || undefined,
@@ -746,8 +748,10 @@ function CompensatorioFormModal({
       // El pedido de compensatorio nace enviado: si no hay circuito, el aviso
       // llega en esta misma respuesta.
       const res = await api.post('/ausencias/compensatorio', {
-        fechaInicio: startDate.toISOString(),
-        fechaFin: endDate.toISOString(),
+        // Clave del día local, no un instante: startDate/endDate son medianoches
+        // LOCALES del calendario y .toISOString() las mandaba como 03:00Z.
+        fechaInicio: claveLocal(startDate),
+        fechaFin: claveLocal(endDate),
         diasAusencia,
         descripcion: descripcion || undefined,
       });
@@ -877,8 +881,10 @@ function SolicitarAusenciaModal({ onClose, onSuccess }: { onClose: () => void; o
     try {
       const res = await api.post('/ausencias/solicitar', {
         tipo,
-        fechaInicio: startDate.toISOString(),
-        fechaFin: endDate.toISOString(),
+        // Clave del día local, no un instante: startDate/endDate son medianoches
+        // LOCALES del calendario y .toISOString() las mandaba como 03:00Z.
+        fechaInicio: claveLocal(startDate),
+        fechaFin: claveLocal(endDate),
         diasAusencia,
         descripcion: descripcion || undefined,
         numeroCertificado: numeroCertificado || undefined,

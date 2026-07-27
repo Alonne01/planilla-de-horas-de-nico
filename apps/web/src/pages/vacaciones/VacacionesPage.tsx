@@ -17,7 +17,7 @@ import {
 import PeriodSelector from '@/components/layout/PeriodSelector';
 import { usePeriodoActual, AVISO_PERIODO_POR_DEFECTO } from '@/hooks/usePeriodoConfig';
 import ScopeToggle from '@/components/layout/ScopeToggle';
-import { fmtDia } from '@/utils/fechaDia';
+import { claveLocal, fmtDia } from '@/utils/fechaDia';
 
 
 interface Vacacion {
@@ -463,8 +463,10 @@ function VacacionFormModal({
     try {
       // En vacaciones el alta ES el envío: el aviso de "sin circuito" viene acá.
       const res = await api.post('/vacaciones', {
-        fechaInicio: startDate.toISOString(),
-        fechaFin: endDate.toISOString(),
+        // Clave del día local, no un instante: startDate/endDate son medianoches
+        // LOCALES del calendario y .toISOString() las mandaba como 03:00Z.
+        fechaInicio: claveLocal(startDate),
+        fechaFin: claveLocal(endDate),
         diasHabiles: diasTotales, // backend field, but we send total calendar days
         motivo: motivo || undefined,
       });
