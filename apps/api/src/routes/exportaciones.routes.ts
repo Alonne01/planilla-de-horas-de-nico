@@ -5,6 +5,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { fechaDia } from '../utils/zod.utils.js';
 import { fmtFechaDia } from '../utils/fecha-dia.utils.js';
+import { filtroDiaExacto } from '../utils/periodo-query.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -18,6 +19,22 @@ const exportacionSchema = z
     usuariosIds: z.array(z.string()).optional(),
     totalPersonas: z.number().int().nullable().optional(),
     totalRegistros: z.number().int().nullable().optional(),
+  })
+  .refine(
+    (d) => d.periodoFin >= d.periodoInicio,
+    { message: 'periodoFin debe ser mayor o igual a periodoInicio', path: ['periodoFin'] },
+  );
+
+/**
+ * Cierre de período. Es el mismo par de fechas-día que `exportacionSchema`, pero
+ * sin `nombreArchivo` (acá no se registra un archivo) y con `sectorId`. Era el
+ * único handler del archivo que leía `req.body` crudo.
+ */
+const cierreSchema = z
+  .object({
+    periodoInicio: fechaDia,
+    periodoFin: fechaDia,
+    sectorId: z.string().optional(),
   })
   .refine(
     (d) => d.periodoFin >= d.periodoInicio,
@@ -86,18 +103,24 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
 router.post('/cierre', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { periodoInicio, periodoFin, sectorId } = req.body;
-
-    if (!periodoInicio || !periodoFin) {
-      res.status(400).json({ error: 'Se requiere periodoInicio y periodoFin' });
+    const parsed = cierreSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
       return;
     }
+    const { periodoInicio, periodoFin, sectorId } = parsed.data;
 
+    // Rango de un día en cada punta, no igualdad exacta: el cliente manda la
+    // medianoche argentina (`03:00Z`) y en la base conviven las tres
+    // convenciones viejas hasta que corra la migración, así que
+    // `periodoInicio: new Date(x)` devolvía cero filas y el cierre contestaba
+    // "No hay planillas aprobadas para cerrar en este período". Sigue siendo
+    // "ese período y no otro".
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: any = {
       estado: 'APROBADA',
-      periodoInicio: new Date(periodoInicio),
-      periodoFin: new Date(periodoFin),
+      periodoInicio: filtroDiaExacto(periodoInicio),
+      periodoFin: filtroDiaExacto(periodoFin),
       usuario: { empresaId: req.user!.empresaId },
     };
     if (sectorId) where.usuario.sectorId = sectorId;
@@ -135,7 +158,7 @@ router.post('/cierre', async (req: AuthRequest, res: Response): Promise<void> =>
             usuarioId: p.usuario.id,
             tipo: 'planilla:cerrada',
             titulo: 'Período cerrado',
-            cuerpo: `Tu planilla del período ${fmtFechaDia(new Date(periodoInicio))} al ${fmtFechaDia(new Date(periodoFin))} ha sido cerrada.`,
+            cuerpo: `Tu planilla del período ${fmtFechaDia(periodoInicio)} al ${fmtFechaDia(periodoFin)} ha sido cerrada.`,
             link: `/planillas/${p.id}`,
           },
         });

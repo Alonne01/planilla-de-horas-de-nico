@@ -81,3 +81,19 @@ export function filtroFechaInicioEnPeriodo(p: PeriodoQuery): { fechaInicio?: Fil
   const { desde, hasta } = rangoConsultaDia(p.periodoInicio, p.periodoFin);
   return { fechaInicio: { gte: desde, lte: hasta } };
 }
+
+/**
+ * Filtro de "esta columna cae exactamente en ESTE día calendario".
+ *
+ * Es el reemplazo de la igualdad exacta `columna: new Date(x)`, que sólo matchea
+ * si el instante guardado coincide al milisegundo con el que mandó el cliente.
+ * Mientras la migración de datos no corra conviven en la base las tres
+ * convenciones viejas (`00:00Z`, `03:00Z`, `15:00Z`) para el mismo día, así que
+ * la igualdad exacta devuelve cero filas apenas el cliente y la fila no fueron
+ * escritos con la misma convención. El rango de un día conserva la semántica
+ * (sigue siendo "ese día y no otro") sin depender de la hora guardada.
+ */
+export function filtroDiaExacto(dia: Date): { gte: Date; lte: Date } {
+  const { desde, hasta } = rangoConsultaDia(dia, dia);
+  return { gte: desde, lte: hasta };
+}

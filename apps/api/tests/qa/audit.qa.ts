@@ -66,6 +66,17 @@ function isoDay(y: number, m: number, d: number) {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T00:00:00.000Z`;
 }
 
+/**
+ * El MISMO día que `isoDay`, pero expresado como medianoche argentina — que es
+ * lo que manda de verdad el front (`new Date(y, m, d).toISOString()` bajo
+ * TZ=AR). `isoDay` devuelve justo la forma ya normalizada por la convención de
+ * fecha-día, así que un test que sólo use `isoDay` no puede cazar un handler que
+ * compare por igualdad exacta de instantes: coincide de casualidad.
+ */
+function isoDayAr(y: number, m: number, d: number) {
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T03:00:00.000Z`;
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 async function main() {
   console.log(col('CY', `\n=== QA audit suite (ts=${TS}) ===\n`));
@@ -200,6 +211,10 @@ async function main() {
   let planillaId = '';
   let pInicioIso = '';
   let pFinIso = '';
+  // El mismo período que pInicioIso/pFinIso pero en medianoche argentina, tal
+  // como lo manda el front. Ver isoDayAr().
+  let pInicioArIso = '';
+  let pFinArIso = '';
   const opEmail = `qa.${KEY}.${TS}@demo.com`;
 
   await scenario('BED1 RRHH creates dedicated OPERADOR', 'TestBed', async () => {
@@ -239,6 +254,8 @@ async function main() {
     const d = (TS % 25) + 1;
     pInicioIso = isoDay(y, m, d);
     pFinIso = isoDay(y, m, d + 2);
+    pInicioArIso = isoDayAr(y, m, d);
+    pFinArIso = isoDayAr(y, m, d + 2);
     const dates = [isoDay(y, m, d), isoDay(y, m, d + 1), isoDay(y, m, d + 2)];
     const { status, body } = await post('/planillas', { periodoInicio: pInicioIso, periodoFin: pFinIso }, opSession!.token);
     assertStatus(status, 201, JSON.stringify(body));
@@ -406,8 +423,13 @@ async function main() {
     assertStatus(status, 200, JSON.stringify(body));
     countBeforeCierre = (body as any).count;
   });
-  await scenario('EXP8 POST /exportaciones/cierre (RRHH) → APROBADA→CERRADA', 'Exportaciones', async () => {
-    const { status, body } = await post('/exportaciones/cierre', { periodoInicio: pInicioIso, periodoFin: pFinIso }, rrhh.token);
+  // El payload va en medianoche ARGENTINA (03:00Z) a propósito, que es lo que
+  // manda el front, mientras que la planilla se guardó como fecha-día (00:00Z).
+  // Con la igualdad exacta de instantes que tenía el handler esto devolvía cero
+  // filas y contestaba 400 "No hay planillas aprobadas para cerrar en este
+  // período"; el cierre quedaba muerto para cualquier cliente real.
+  await scenario('EXP8 POST /exportaciones/cierre con payload 03:00Z (RRHH) → APROBADA→CERRADA', 'Exportaciones', async () => {
+    const { status, body } = await post('/exportaciones/cierre', { periodoInicio: pInicioArIso, periodoFin: pFinArIso }, rrhh.token);
     assertStatus(status, 200, JSON.stringify(body).slice(0, 200));
     const b = body as any;
     assert(b.ok === true, 'no ok');

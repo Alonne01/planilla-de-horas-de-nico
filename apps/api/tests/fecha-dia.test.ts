@@ -16,6 +16,7 @@ import {
   periodoQuerySchema,
   filtroPeriodoPlanilla,
   filtroFechaInicioEnPeriodo,
+  filtroDiaExacto,
 } from '../src/utils/periodo-query.utils.js';
 
 async function run() {
@@ -254,7 +255,22 @@ async function run() {
     3,
   );
 
-  console.log('✓ fecha-dia: 32/32 OK');
+  // 33. filtroDiaExacto: reemplaza a la igualdad exacta `columna: new Date(x)`
+  //     de POST /exportaciones/cierre. Sigue siendo "ese día y no otro", pero
+  //     matchea las filas guardadas con cualquiera de las tres convenciones
+  //     viejas mientras la migración de datos no corra.
+  const diaExacto = filtroDiaExacto(diaDesdeEntrada('2026-07-21T03:00:00.000Z'));
+  assert.strictEqual(diaExacto.gte.toISOString(), '2026-07-21T00:00:00.000Z');
+  assert.strictEqual(diaExacto.lte.toISOString(), '2026-07-21T23:59:59.999Z');
+  for (const guardado of ['2026-07-21T00:00:00.000Z', '2026-07-21T03:00:00.000Z', '2026-07-21T15:00:00.000Z']) {
+    const d = new Date(guardado);
+    assert.ok(d >= diaExacto.gte && d <= diaExacto.lte, `no matchea ${guardado}`);
+  }
+  // Y el día de al lado sigue quedando afuera: no se ensanchó la semántica.
+  assert.ok(!(new Date('2026-07-22T00:00:00.000Z') <= diaExacto.lte));
+  assert.ok(!(new Date('2026-07-20T15:00:00.000Z') >= diaExacto.gte));
+
+  console.log('✓ fecha-dia: 33/33 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
