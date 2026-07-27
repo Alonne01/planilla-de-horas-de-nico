@@ -134,7 +134,8 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       where.tipo = tipo;
     }
 
-    // Una fecha no parseable llega como Invalid Date y Prisma responde 500 al serializarla
+    // Por schema y no a mano: una fecha no parseable llegaba como Invalid Date y
+    // Prisma respondía 500 al serializarla.
     const periodo = periodoQuerySchema.safeParse(req.query);
     if (!periodo.success) {
       res.status(400).json({ error: 'periodoInicio/periodoFin inválido', details: periodo.error.flatten() });
