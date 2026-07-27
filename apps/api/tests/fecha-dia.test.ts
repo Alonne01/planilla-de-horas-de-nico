@@ -1,0 +1,61 @@
+import assert from 'node:assert';
+import {
+  claveFecha,
+  diaDesdeEntrada,
+  mismoDia,
+  dentroDelRango,
+  hoyLocalEmpresa,
+} from '../src/utils/fecha-dia.utils.js';
+
+async function run() {
+  // 1. Fecha-sola: el día es literal, no se le aplica ningún offset.
+  assert.strictEqual(diaDesdeEntrada('2026-07-31').toISOString(), '2026-07-31T00:00:00.000Z');
+
+  // 2. Medianoche argentina (lo que manda hoy el front) → día 31, no 30.
+  assert.strictEqual(diaDesdeEntrada('2026-07-31T03:00:00.000Z').toISOString(), '2026-07-31T00:00:00.000Z');
+
+  // 3. Mediodía argentino (lo que manda hoy la planilla) → mismo día.
+  assert.strictEqual(diaDesdeEntrada('2026-07-31T15:00:00.000Z').toISOString(), '2026-07-31T00:00:00.000Z');
+
+  // 4. Medianoche UTC exacta YA es la convención de destino: se devuelve igual.
+  //    Restarle el offset la correría al día anterior y rompería todo lo migrado.
+  assert.strictEqual(diaDesdeEntrada('2026-07-31T00:00:00.000Z').toISOString(), '2026-07-31T00:00:00.000Z');
+
+  // 5. Offset explícito -03:00 (formato que puede mandar un cliente).
+  assert.strictEqual(diaDesdeEntrada('2026-07-31T00:00:00-03:00').toISOString(), '2026-07-31T00:00:00.000Z');
+
+  // 6. Las últimas 3 horas del día argentino: en UTC ya es el día siguiente,
+  //    pero para el usuario sigue siendo el 31.
+  assert.strictEqual(diaDesdeEntrada('2026-08-01T02:59:00.000Z').toISOString(), '2026-07-31T00:00:00.000Z');
+
+  // 7. Acepta Date además de string.
+  assert.strictEqual(diaDesdeEntrada(new Date('2026-07-31T15:00:00.000Z')).toISOString(), '2026-07-31T00:00:00.000Z');
+
+  // 8. Entrada inválida: falla fuerte, no devuelve Invalid Date.
+  assert.throws(() => diaDesdeEntrada('no-es-fecha'), RangeError);
+
+  // 9. claveFecha sigue funcionando con las tres convenciones viejas.
+  assert.strictEqual(claveFecha(new Date('2026-07-31T00:00:00.000Z')), '2026-07-31');
+  assert.strictEqual(claveFecha(new Date('2026-07-31T03:00:00.000Z')), '2026-07-31');
+  assert.strictEqual(claveFecha(new Date('2026-07-31T15:00:00.000Z')), '2026-07-31');
+
+  // 10. mismoDia compara por día calendario, no por instante.
+  assert.strictEqual(mismoDia(new Date('2026-07-31T00:00:00.000Z'), new Date('2026-07-31T15:00:00.000Z')), true);
+  assert.strictEqual(mismoDia(new Date('2026-07-31T00:00:00.000Z'), new Date('2026-08-01T00:00:00.000Z')), false);
+
+  // 11. dentroDelRango es inclusivo en los dos extremos — el bug del primer día
+  //     del período era exactamente esto (00:00Z < 03:00Z daba "afuera").
+  const ini = new Date('2026-07-16T03:00:00.000Z');
+  const fin = new Date('2026-08-15T03:00:00.000Z');
+  assert.strictEqual(dentroDelRango(new Date('2026-07-16T00:00:00.000Z'), ini, fin), true);
+  assert.strictEqual(dentroDelRango(new Date('2026-08-15T00:00:00.000Z'), ini, fin), true);
+  assert.strictEqual(dentroDelRango(new Date('2026-07-15T00:00:00.000Z'), ini, fin), false);
+  assert.strictEqual(dentroDelRango(new Date('2026-08-16T00:00:00.000Z'), ini, fin), false);
+
+  // 12. hoyLocalEmpresa devuelve medianoche UTC exacta (invariante de la convención).
+  assert.strictEqual(hoyLocalEmpresa().getTime() % 86_400_000, 0);
+
+  console.log('✓ fecha-dia: 12/12 OK');
+}
+
+run().catch((e) => { console.error(e); process.exit(1); });
