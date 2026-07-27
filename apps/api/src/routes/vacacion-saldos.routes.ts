@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { hoyLocalEmpresa } from '../utils/fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -28,7 +29,7 @@ function diasPorAntiguedad(fechaIngreso: Date, anio: number): number {
 // ─── GET /vacacion-saldos (admin: all users for a year) ───────
 router.get('/', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const anio = parseInt(req.query.anio as string) || new Date().getFullYear();
+    const anio = parseInt(req.query.anio as string) || hoyLocalEmpresa().getUTCFullYear();
     const empresaId = req.user!.empresaId;
 
     const saldos = await prisma.vacacionSaldo.findMany({
@@ -164,7 +165,9 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
 router.get('/mi-saldo', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
-    const anio = new Date().getFullYear();
+    // Año de negocio (Argentina): esta fila también la escriben/leen las rutas
+    // de compensatorios, ya normalizadas a getUTCFullYear() sobre fechas-día.
+    const anio = hoyLocalEmpresa().getUTCFullYear();
 
     let saldo = await prisma.vacacionSaldo.findUnique({
       where: { usuarioId_anio: { usuarioId: userId, anio } },

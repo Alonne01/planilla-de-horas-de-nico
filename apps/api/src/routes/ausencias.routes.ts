@@ -13,6 +13,7 @@ import { inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-ca
 import { notificarAusencia, notificarAprobadoresPaso } from '../utils/notificacion.utils.js';
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import { fechaDia, spanDiasCalendario } from '../utils/zod.utils.js';
+import { claveFecha, hoyLocalEmpresa } from '../utils/fecha-dia.utils.js';
 import { canManageUser } from '../utils/user-scope.utils.js';
 import {
   construirCircuito,
@@ -1092,9 +1093,12 @@ router.post('/:id/revocar', async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (new Date(ausencia.fechaInicio) < today) {
+    // Comparación por CLAVE DE DÍA, no por timestamp: `fechaInicio` está
+    // garantizada en medianoche UTC (00:00Z), y bajo TZ=America/Argentina/
+    // Buenos_Aires (ver Dockerfile) "hoy a medianoche local" cae en 03:00Z. Con
+    // `setHours` un compensatorio que arranca HOY comparaba 00:00Z < 03:00Z y
+    // se rechazaba como si ya hubiera pasado.
+    if (claveFecha(ausencia.fechaInicio) < claveFecha(hoyLocalEmpresa())) {
       res.status(400).json({ error: 'No se puede revocar un compensatorio cuya fecha ya pasó' });
       return;
     }
@@ -1280,6 +1284,16 @@ router.put('/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Respo
         return;
       }
       const span = spanDiasCalendario(nuevoInicio, nuevoFin);
+      // Guard explícito: `span > MAX_SPAN_DIAS` y `nuevosDias > span` son ambos
+      // `false` con `NaN`, así que un span inválido colaría sin este chequeo.
+      // Hoy es inalcanzable (los dos operandos son `Date` ya validados por
+      // `fechaDia` o valores existentes de la DB), pero `spanDiasCalendario`
+      // devuelve `NaN` en vez de lanzar justamente para los `.refine()` de zod,
+      // que sí lo atrapan; acá no hay ningún `.refine()` que lo haga.
+      if (Number.isNaN(span)) {
+        res.status(400).json({ error: 'Rango de fechas inválido' });
+        return;
+      }
       if (span > MAX_SPAN_DIAS) {
         res.status(400).json({ error: `El rango no puede superar ${MAX_SPAN_DIAS} días de calendario` });
         return;

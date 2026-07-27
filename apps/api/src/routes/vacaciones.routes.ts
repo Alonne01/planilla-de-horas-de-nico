@@ -8,6 +8,7 @@ import { notificarVacacion, notificarAprobadoresPaso } from '../utils/notificaci
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import { puedeVerCalendario } from '../utils/calendario-access.utils.js';
 import { fechaDia } from '../utils/zod.utils.js';
+import { hoyLocalEmpresa } from '../utils/fecha-dia.utils.js';
 import {
   construirCircuito,
   nivelesPorRol,
@@ -52,7 +53,8 @@ function diasPorAntiguedad(fechaIngreso: Date, anio: number): number {
 router.get('/saldo', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
-    const anio = new Date().getFullYear();
+    // Año de negocio (Argentina), no el del huso del proceso.
+    const anio = hoyLocalEmpresa().getUTCFullYear();
 
     // Try to find existing saldo for this year
     let saldo = await prisma.vacacionSaldo.findUnique({
@@ -99,7 +101,7 @@ router.get('/gantt', async (req: AuthRequest, res: Response): Promise<void> => {
     const empresaId = req.user!.empresaId;
 
     const { anio, sectorId } = req.query;
-    const year = anio ? Number(anio) : new Date().getFullYear();
+    const year = anio ? Number(anio) : hoyLocalEmpresa().getUTCFullYear();
     const startDate = new Date(year, 0, 1);
     const endDate = new Date(year, 11, 31, 23, 59, 59);
 
@@ -420,6 +422,14 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const empresaId = req.user!.empresaId;
     // Saldo year is always the year the request is CREATED (current year),
     // matching the POST logic with rejection/re-send routes that derive year from createdAt.
+    // A propósito NO se pasa a hoyLocalEmpresa().getUTCFullYear(): este valor
+    // tiene que seguir de acuerdo con el mismo `new Date(vacacion.createdAt).getFullYear()`
+    // que leen /enviar, /avanzar, /rechazar, DELETE y mis-solicitudes.routes.ts
+    // para ESTA misma solicitud (ver el comentario de arriba). Cambiar sólo la
+    // creación desalinearía la fila de created con la de lectura durante la
+    // ventana de 3 h del 31/12 si el proceso corre fuera de Argentina — el
+    // mismo bug que esta limpieza vino a sacar, pero movido de lugar. Requiere
+    // migrar junto los sitios que leen `createdAt` (fuera de esta tanda).
     const anio = new Date().getFullYear();
 
     // Check saldo from VacacionSaldo

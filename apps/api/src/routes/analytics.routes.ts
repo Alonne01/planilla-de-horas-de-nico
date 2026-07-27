@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_COORDINADOR, LEVEL_RRHH, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
+import { hoyLocalEmpresa } from '../utils/fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -472,7 +473,10 @@ router.get('/empresa', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
       .sort((a, b) => b.dias - a.dias);
 
     // ─── Compensatorios balance ───
-    const anio = new Date().getFullYear();
+    // Año de negocio (Argentina), no el del huso del proceso: esta fila la
+    // indexan también las rutas que reservan/consumen compensatorios por
+    // fecha-día, ya normalizadas a getUTCFullYear().
+    const anio = hoyLocalEmpresa().getUTCFullYear();
     const compensatoriosSaldos = await prisma.vacacionSaldo.findMany({
       where: { usuarioId: { in: userIds }, anio },
       select: { compensatoriosAcumulados: true, compensatoriosUsados: true, compensatoriosPendientes: true },
