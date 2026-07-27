@@ -1,6 +1,6 @@
 /** Pure utility functions for planilla calendar, holidays, and diagram logic */
 
-import { ymd } from './fechaDia';
+import { diaLocal } from './fechaDia';
 
 /**
  * Format a date as YYYY-MM-DD. La implementación vive en utils/fechaDia.ts
@@ -217,10 +217,8 @@ export function cellStyle(reg: CellRegistro | undefined, ctx: CellCtx): CellVisu
 export function buildCalendarDays(periodoInicio: string, periodoFin: string): Date[] {
   // Las puntas son fechas-DÍA: se toman del string. `new Date(iso)` las correría
   // un día en cualquier huso negativo (ver utils/fechaDia.ts).
-  const [yi, mi, di] = ymd(periodoInicio);
-  const [yf, mf, df] = ymd(periodoFin);
-  const start = new Date(yi, mi - 1, di, 12, 0, 0);
-  const end = new Date(yf, mf - 1, df, 12, 0, 0);
+  const start = diaLocal(periodoInicio);
+  const end = diaLocal(periodoFin);
   const days: Date[] = [];
   const cur = new Date(start);
   while (cur <= end) {

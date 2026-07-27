@@ -1,5 +1,5 @@
 import { esDiaFranco, type DiagramaInfo } from './planillaHelpers';
-import { claveLocal, diaKey } from './fechaDia';
+import { claveLocal, diaKey, diaLocal } from './fechaDia';
 
 /**
  * Un período de vigencia de un diagrama, tal como lo manda el backend en
@@ -42,8 +42,7 @@ export function tramoDelDia(tramos: TramoDiagrama[], fecha: Date): TramoDiagrama
 export function francoDelDia(tramos: TramoDiagrama[], fecha: Date): boolean {
   const tramo = tramoDelDia(tramos, fecha);
   if (!tramo) return false;
-  const [y, m, d] = diaKey(tramo.fechaInicio).split('-').map(Number);
-  return esDiaFranco(fecha, tramo.diagrama, new Date(y!, m! - 1, d!));
+  return esDiaFranco(fecha, tramo.diagrama, diaLocal(tramo.fechaInicio));
 }
 
 /**

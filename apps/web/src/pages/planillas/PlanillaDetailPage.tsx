@@ -16,7 +16,7 @@ import {
   dateKey, esFeriadoNacional, nombreFeriado, cargarFeriados,
   buildCalendarDays, buildWeeks, cellStyle,
 } from '@/utils/planillaHelpers';
-import { diaKey, diaLocal, fmtDia } from '@/utils/fechaDia';
+import { diaKey, diaLocal, fmtDia, hoyKey } from '@/utils/fechaDia';
 import { francoDelDia, tramoDelDia, esInicioDeTramo, diagramaHeaderText, type TramoDiagrama } from '@/utils/tramosDiagrama';
 import { pasoActualDe, type PasoDocumento } from '@/utils/circuito';
 import { avisarSinCircuito } from '@/lib/avisoCircuito';
@@ -432,6 +432,10 @@ export default function PlanillaDetailPage() {
     const days = buildCalendarDays(planilla.periodoInicio, planilla.periodoFin);
     return buildWeeks(days);
   }, [planilla]);
+
+  // Clave del día de hoy, izada fuera del render de celdas: es constante para
+  // todo el calendario y adentro del `.map` construía un `Date` por cada celda.
+  const claveHoy = hoyKey();
 
   // Orden cronológico de los días que están girando → escalona el card-flip.
   const flipRank = useMemo(() => {
@@ -1129,7 +1133,7 @@ export default function PlanillaDetailPage() {
               }
               const key = dateKey(day);
               const reg = registroMap[key];
-              const isToday = key === dateKey(new Date());
+              const isToday = key === claveHoy;
               const isWeekend = day.getDay() === 0 || day.getDay() === 6;
               const hrs = reg ? Number(reg.horasTrabajadas) : 0;
               const hasData = !!reg;

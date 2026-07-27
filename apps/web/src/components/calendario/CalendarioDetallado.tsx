@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Search, Users, Loader2, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { diaLocal } from '@/utils/fechaDia';
 import { esDiaFranco } from '@/utils/planillaHelpers';
 import { francoDelDia, tramoDelDia } from '@/utils/tramosDiagrama';
 import { turnoKey } from '@/utils/turnos';
@@ -23,8 +24,7 @@ function turnoSubtitle(tramos: TramoEmp[], anio: number): string {
   const sufijo = tramos.length > 1 ? ' · cambia en el año' : '';
   if (t.diagrama.tipo === 'ROTATIVO') {
     const dt = t.diagrama.diasTrabajo ?? 0, dd = t.diagrama.diasDescanso ?? 0;
-    const [fy, fm, fd] = ymd(t.fechaInicio);
-    const fechaInicio = new Date(fy, fm - 1, fd);
+    const fechaInicio = diaLocal(t.fechaInicio);
     let desc = '';
     for (let i = 0; i < dt + dd; i++) {
       const day = new Date(anio, 0, 1 + i);

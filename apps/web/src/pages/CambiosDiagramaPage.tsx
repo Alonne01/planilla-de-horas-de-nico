@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/stores/toastStore';
 import { avisarSinCircuito } from '@/lib/avisoCircuito';
+import { claveLocal } from '@/utils/fechaDia';
 import {
   ArrowLeftRight, Plus, Loader2, X, Check, XCircle,
   ChevronRight, CheckCircle2, AlertTriangle,
@@ -65,7 +66,7 @@ function diagramaLabel(d: Diagrama | null) {
 function manana(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return claveLocal(d);
 }
 
 export default function CambiosDiagramaPage() {
