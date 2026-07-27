@@ -189,15 +189,18 @@ router.get('/gantt', async (req: AuthRequest, res: Response): Promise<void> => {
       id: string; fechaInicio: string; fechaFin: string;
       dias: number; estado: string; tipo: string; detalle: string | null;
     };
-    type DiagramaInfo = {
-      id: string; nombre: string; tipo: string;
-      diasTrabajo: number | null; diasDescanso: number | null;
-      diasSemana: number[]; fechaInicio: string;
+    type TramoGantt = {
+      diagrama: {
+        id: string; nombre: string; tipo: string;
+        diasTrabajo: number | null; diasDescanso: number | null; diasSemana: number[];
+      };
+      fechaInicio: string;
+      fechaFin: string | null;
     };
     type EmpleadoGantt = {
       id: string; nombre: string; apellido: string; legajo: string | null;
       sector: { id: string; nombre: string } | null;
-      diagrama?: DiagramaInfo | null;
+      tramos?: TramoGantt[];
       bloques: Block[];
     };
 
@@ -275,28 +278,33 @@ router.get('/gantt', async (req: AuthRequest, res: Response): Promise<void> => {
       emp.bloques.sort((a, b) => a.fechaInicio.localeCompare(b.fechaInicio));
     }
 
-    // Attach each employee's active diagrama so the client can compute rest days
-    // (francos de descanso) and group employees into turnos.
+    // Cada empleado va con TODOS sus tramos de diagrama del año: con uno solo, un
+    // cambio a mitad de año pinta los descansos del diagrama nuevo también en los
+    // meses anteriores.
     if (empleados.length > 0) {
       const asignaciones = await prisma.usuarioDiagrama.findMany({
-        where: { usuarioId: { in: empleados.map(e => e.id) }, activo: true },
-        orderBy: { fechaInicio: 'desc' },
+        where: {
+          usuarioId: { in: empleados.map((e) => e.id) },
+          fechaInicio: { lte: endDate },
+          OR: [{ fechaFin: null }, { fechaFin: { gte: startDate } }],
+        },
+        orderBy: { fechaInicio: 'asc' },
         select: {
-          usuarioId: true, fechaInicio: true,
+          usuarioId: true, fechaInicio: true, fechaFin: true,
           diagrama: { select: { id: true, nombre: true, tipo: true, diasTrabajo: true, diasDescanso: true, diasSemana: true } },
         },
       });
-      const diagramaByUser = new Map<string, DiagramaInfo>();
+      const tramosByUser = new Map<string, TramoGantt[]>();
       for (const a of asignaciones) {
-        if (!diagramaByUser.has(a.usuarioId)) {
-          diagramaByUser.set(a.usuarioId, {
-            id: a.diagrama.id, nombre: a.diagrama.nombre, tipo: a.diagrama.tipo,
-            diasTrabajo: a.diagrama.diasTrabajo, diasDescanso: a.diagrama.diasDescanso,
-            diasSemana: a.diagrama.diasSemana, fechaInicio: (a.fechaInicio as Date).toISOString(),
-          });
-        }
+        const lista = tramosByUser.get(a.usuarioId) ?? [];
+        lista.push({
+          diagrama: a.diagrama,
+          fechaInicio: (a.fechaInicio as Date).toISOString(),
+          fechaFin: a.fechaFin ? (a.fechaFin as Date).toISOString() : null,
+        });
+        tramosByUser.set(a.usuarioId, lista);
       }
-      for (const e of empleados) e.diagrama = diagramaByUser.get(e.id) ?? null;
+      for (const e of empleados) e.tramos = tramosByUser.get(e.id) ?? [];
     }
 
     const sectores = await prisma.sector.findMany({

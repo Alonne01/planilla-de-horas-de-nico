@@ -2,7 +2,12 @@ import api from '@/services/api';
 import { type DiagramaInfo } from '@/utils/planillaHelpers';
 
 export interface Sector { id: string; nombre: string }
-export type EmpDiagrama = DiagramaInfo & { fechaInicio: string };
+/** Un tramo de vigencia, tal como lo manda el gantt. */
+export interface TramoEmp {
+  diagrama: DiagramaInfo;
+  fechaInicio: string;
+  fechaFin: string | null;
+}
 export interface Bloque {
   id: string;
   fechaInicio: string;
@@ -18,7 +23,7 @@ export interface Empleado {
   apellido: string;
   legajo: string | null;
   sector: Sector | null;
-  diagrama?: EmpDiagrama | null;
+  tramos?: TramoEmp[];
   bloques: Bloque[];
 }
 export interface GanttData {

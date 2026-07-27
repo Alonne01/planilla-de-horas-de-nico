@@ -2,47 +2,45 @@ import { useMemo, useState } from 'react';
 import { Search, Users, Loader2, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { esDiaFranco } from '@/utils/planillaHelpers';
+import { francoDelDia, tramoDelDia } from '@/utils/tramosDiagrama';
 import {
-  type GanttData, type Empleado, type EmpDiagrama, type Bloque, type Cat,
+  type GanttData, type Empleado, type TramoEmp, type Bloque, type Cat,
   MESES, DOW_SHORT, CAT, CAT_LABEL, ESTADO_BADGE, COUNTABLE, CAT_ORDER,
   catOf, tipoLabel, ymd, daysInMonth, fmtDate, norm,
 } from './shared';
 
-// ── Turno derivation: two employees share a turno iff their rest days coincide ──
-const epochDay = (y: number, m: number, d: number) => Math.floor(Date.UTC(y, m - 1, d) / 86400000);
-function turnoKey(diag: EmpDiagrama | null | undefined): string {
-  if (!diag) return 'SIN';
-  if (diag.tipo === 'ROTATIVO') {
-    const dt = diag.diasTrabajo ?? 0, dd = diag.diasDescanso ?? 0, ciclo = dt + dd;
-    if (ciclo <= 0) return 'SIN';
-    const [y, m, d] = ymd(diag.fechaInicio);
-    const fase = ((epochDay(y, m, d) % ciclo) + ciclo) % ciclo;
-    return `R|${dt}|${dd}|${fase}`;
-  }
-  if (diag.tipo === 'FIJO_SEMANA') {
-    return `F|${[...diag.diasSemana].sort((a, b) => a - b).join(',')}`;
-  }
-  return 'SIN';
+// ── Turno derivation: se agrupa por el tramo vigente HOY (con un cambio a mitad
+// de año, agrupar por el diagrama "de siempre" mezclaría gente que ya cambió con
+// gente que todavía no) ──
+function tramoVigenteHoy(tramos: TramoEmp[]): TramoEmp | null {
+  return tramoDelDia(tramos, new Date());
 }
-function turnoSubtitle(diag: EmpDiagrama | null, anio: number): string {
-  if (!diag) return 'Sin diagrama';
-  if (diag.tipo === 'ROTATIVO') {
-    const dt = diag.diasTrabajo ?? 0, dd = diag.diasDescanso ?? 0;
-    const [fy, fm, fd] = ymd(diag.fechaInicio);
+function turnoKey(tramos: TramoEmp[]): string {
+  const t = tramoVigenteHoy(tramos);
+  if (!t) return 'SIN';
+  return `${t.diagrama.id}|${t.fechaInicio.slice(0, 10)}`;
+}
+function turnoSubtitle(tramos: TramoEmp[], anio: number): string {
+  const t = tramoVigenteHoy(tramos);
+  if (!t) return 'Sin diagrama';
+  const sufijo = tramos.length > 1 ? ' · cambia en el año' : '';
+  if (t.diagrama.tipo === 'ROTATIVO') {
+    const dt = t.diagrama.diasTrabajo ?? 0, dd = t.diagrama.diasDescanso ?? 0;
+    const [fy, fm, fd] = ymd(t.fechaInicio);
     const fechaInicio = new Date(fy, fm - 1, fd);
     let desc = '';
     for (let i = 0; i < dt + dd; i++) {
       const day = new Date(anio, 0, 1 + i);
-      if (esDiaFranco(day, diag, fechaInicio)) {
+      if (esDiaFranco(day, t.diagrama, fechaInicio)) {
         desc = ` · desc. desde ${String(day.getDate()).padStart(2, '0')}/${String(day.getMonth() + 1).padStart(2, '0')}`;
         break;
       }
     }
-    return `Rotativo ${dt}×${dd}${desc}`;
+    return `${dt}×${dd}${desc}${sufijo}`;
   }
-  if (diag.tipo === 'FIJO_SEMANA') {
-    const rest = [0, 1, 2, 3, 4, 5, 6].filter((i) => !diag.diasSemana.includes(i)).map((i) => DOW_SHORT[i]);
-    return `Semana fija · descansa ${rest.join(', ') || '—'}`;
+  if (t.diagrama.tipo === 'FIJO_SEMANA') {
+    const rest = [0, 1, 2, 3, 4, 5, 6].filter((i) => !t.diagrama.diasSemana.includes(i)).map((i) => DOW_SHORT[i]);
+    return `Semana fija · descansa ${rest.join(', ') || '—'}${sufijo}`;
   }
   return 'Sin diagrama';
 }
@@ -182,16 +180,14 @@ export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSe
       for (const doy of doySet) counts[doy]++;
 
       let restByMonth: { d0: number; days: number }[][] | null = null;
-      const diag = emp.diagrama;
-      if (vis.DESCANSO && diag) {
-        const [fy, fm, fd] = ymd(diag.fechaInicio);
-        const fechaInicio = new Date(fy, fm - 1, fd);
+      const tramos = emp.tramos ?? [];
+      if (vis.DESCANSO && tramos.length > 0) {
         restByMonth = Array.from({ length: 12 }, () => [] as { d0: number; days: number }[]);
         for (let mi = 0; mi < 12; mi++) {
           const dim = daysInMonth(anio, mi);
           let start = -1;
           for (let d = 1; d <= dim; d++) {
-            const isF = esDiaFranco(new Date(anio, mi, d), diag, fechaInicio);
+            const isF = francoDelDia(tramos, new Date(anio, mi, d));
             if (isF && start === -1) start = d;
             else if (!isF && start !== -1) { restByMonth[mi].push({ d0: start - 1, days: d - start }); start = -1; }
           }
@@ -219,18 +215,18 @@ export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSe
   // Turnos derived from diagramas (letters assigned over the present keys).
   const { turnoKeyByEmp, turnos, hasDiagramas } = useMemo(() => {
     const keyByEmp = new Map<string, string>();
-    const groups = new Map<string, { count: number; diag: EmpDiagrama | null }>();
+    const groups = new Map<string, { count: number; tramos: TramoEmp[] }>();
     let hasDiag = false;
     for (const r of rows) {
-      const diag = r.emp.diagrama ?? null;
-      if (diag) hasDiag = true;
-      const k = turnoKey(diag);
+      const tramos = r.emp.tramos ?? [];
+      if (tramos.length > 0) hasDiag = true;
+      const k = turnoKey(tramos);
       keyByEmp.set(r.emp.id, k);
       const g = groups.get(k);
-      if (g) g.count++; else groups.set(k, { count: 1, diag });
+      if (g) g.count++; else groups.set(k, { count: 1, tramos });
     }
     const entries = [...groups.entries()].filter(([k]) => k !== 'SIN').sort((a, b) => a[0].localeCompare(b[0]));
-    const list = entries.map(([key, g], i) => ({ key, letra: letterOf(i), subtitle: turnoSubtitle(g.diag, anio), count: g.count }));
+    const list = entries.map(([key, g], i) => ({ key, letra: letterOf(i), subtitle: turnoSubtitle(g.tramos, anio), count: g.count }));
     if (groups.has('SIN')) list.push({ key: 'SIN', letra: '—', subtitle: 'Sin diagrama', count: groups.get('SIN')!.count });
     return { turnoKeyByEmp: keyByEmp, turnos: list, hasDiagramas: hasDiag };
   }, [rows, anio]);

@@ -23,12 +23,12 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
             nombre: true, apellido: true, legajo: true,
             sector: { select: { nombre: true } },
             diagramas: {
-              where: { activo: true },
-              take: 1,
-              select: { 
-                diagrama: { select: { nombre: true, tipo: true, diasTrabajo: true, diasDescanso: true, diasSemana: true } },
+              select: {
+                diagrama: { select: { nombre: true } },
                 fechaInicio: true,
+                fechaFin: true,
               },
+              orderBy: { fechaInicio: 'asc' },
             },
           },
         },
@@ -52,8 +52,23 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
     }
 
     const u = planilla.usuario;
-    const diagramaAsignacion = u.diagramas[0] ?? null;
-    const diagramaNombre = diagramaAsignacion?.diagrama?.nombre ?? null;
+    // Los tramos que tocan el período. Con un cambio a mitad de ciclo, poner un
+    // solo nombre en el encabezado contradice los francos de la propia planilla.
+    const fmt = (d: Date) => d.toISOString().slice(0, 10).split('-').reverse().join('/');
+    const tramosPeriodo = u.diagramas.filter(
+      (a) => a.fechaInicio <= planilla.periodoFin && (!a.fechaFin || a.fechaFin >= planilla.periodoInicio),
+    );
+    const diagramaNombre = tramosPeriodo.length === 0
+      ? null
+      : tramosPeriodo.length === 1
+        ? tramosPeriodo[0]!.diagrama.nombre
+        : tramosPeriodo
+            .map((a, i) =>
+              i === 0 && a.fechaFin
+                ? `${a.diagrama.nombre} hasta ${fmt(a.fechaFin)}`
+                : `${a.diagrama.nombre} desde ${fmt(a.fechaInicio)}`,
+            )
+            .join(' · ');
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Planilla de Horas';
     workbook.created = new Date();
