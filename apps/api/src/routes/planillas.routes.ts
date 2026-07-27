@@ -14,7 +14,7 @@ import {
   recalcularTotalesPlanilla,
   getPeriodoActual,
 } from '../utils/calculo.utils.js';
-import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, avisarResultadoInyeccion, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
+import { backfillAusenciasEnPlanilla, inyectarDiasBloqueados, formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { logAuditoria } from '../lib/auditoria.js';
 import { devolverSaldoDeMarca, borrarAdjuntosDeMarcas } from '../utils/marca-manual.utils.js';
 import { feriadosDeEmpresa } from '../utils/contexto-dia.utils.js';
@@ -1608,16 +1608,15 @@ router.post('/:id/marcar-dia', async (req: AuthRequest, res: Response): Promise<
       observaciones: `${tipoLabel} (marca manual)${parsed.data.descripcion ? ` — ${parsed.data.descripcion}` : ''}`,
       marcaManualId: ausencia.id,
     });
-    // El actor ES el dueño y la planilla llegó acá editable (el guard de
-    // ESTADOS_OWNER de más arriba), así que `omitidos` no puede ocurrir y la copia
-    // para el aprobador la descarta el propio helper. Queda por uniformidad: los
-    // cinco llamadores de `inyectarDiasBloqueados` avisan con la misma regla.
-    await avisarResultadoInyeccion({
-      resultado: resultadoInyeccion,
-      usuarioId: planilla.usuarioId,
-      aprobadorId: actorId,
-      etiqueta: `${tipoLabel} (marca manual)`,
-    });
+    // Acá NO se llama a `avisarResultadoInyeccion`, a diferencia de los otros
+    // cuatro llamadores de `inyectarDiasBloqueados` (ausencias, vacaciones y el
+    // cierre de una sesión de capacitación). En esos, quien aprueba es otro y el
+    // dueño se entera del pisado sólo por la campanita. Acá el actor ES el dueño
+    // y la acción es sincrónica: `horasReemplazadas` viaja en la respuesta HTTP y
+    // se lo dice la pantalla que acaba de usar, así que la notificación le repite
+    // algo que ya vio. La otra rama del helper (`omitidos`) tampoco aplica: el
+    // guard de ESTADOS_OWNER de más arriba garantiza que la planilla llegó acá
+    // editable, así que `inyectarDiasBloqueados` no puede omitir este día.
 
     await logAuditoria({
       entidad: 'Ausencia', entidadId: ausencia.id, accion: 'CREAR',

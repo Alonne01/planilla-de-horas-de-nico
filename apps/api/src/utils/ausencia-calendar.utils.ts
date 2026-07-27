@@ -322,9 +322,13 @@ function listaDias(claves: string[]): string {
  * sesión de capacitación, que bloquea el día de cada asistente dentro de un
  * bucle: avisarle ahí adentro le mandaría al organizador una notificación por
  * asistente, así que arma una sola agregada al final. Si el aprobador ES el
- * dueño (la marca manual de un día, que la carga el propio empleado en su
- * planilla) la copia también se saltea: son dos notificaciones idénticas para la
- * misma persona.
+ * dueño (por ejemplo, quien carga un certificado médico propio) la copia también
+ * se saltea: son dos notificaciones idénticas para la misma persona.
+ *
+ * OJO: descartar la copia al aprobador NO silencia el aviso al dueño, que es el
+ * de `pisados`. `POST /planillas/:id/marcar-dia` no llama a este helper por eso
+ * mismo — ahí el dueño es el actor y el dato le llega en la respuesta HTTP; ver
+ * el comentario en planillas.routes.ts.
  */
 export async function avisarResultadoInyeccion(params: {
   resultado: ResultadoInyeccion;
