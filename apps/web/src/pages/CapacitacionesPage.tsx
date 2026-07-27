@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
-import { diaLocal, diasEntre, fmtDia, hoyKey } from '@/utils/fechaDia';
+import { diaKey, diasEntre, fmtDia, hoyKey } from '@/utils/fechaDia';
 import { useState, useCallback } from 'react';
 import {
   Loader2, GraduationCap, Plus, Trash2, Pencil, X, Save,
@@ -606,7 +606,9 @@ export default function CapacitacionesPage() {
               {misInvitaciones.map((inv) => {
                 const s = inv.sesion;
                 const isPending = inv.estado === 'PENDIENTE';
-                const isFuture = diaLocal(s.fecha) >= new Date(new Date().toDateString());
+                // Comparación de claves 'YYYY-MM-DD': exacta y sin depender del
+                // parseo de `toDateString()`. Una sesión de HOY cuenta como futura.
+                const isFuture = diaKey(s.fecha) >= hoy;
                 return (
                   <div key={inv.id} className="rounded-xl border border-border bg-card p-5 space-y-3">
                     <div className="flex items-start justify-between">
