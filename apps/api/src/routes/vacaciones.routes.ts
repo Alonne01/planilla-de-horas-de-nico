@@ -8,7 +8,7 @@ import { notificarVacacion, notificarAprobadoresPaso } from '../utils/notificaci
 import { isResponsibleApprover } from '../utils/approval-auth.utils.js';
 import { puedeVerCalendario } from '../utils/calendario-access.utils.js';
 import { fechaDia } from '../utils/zod.utils.js';
-import { hoyLocalEmpresa } from '../utils/fecha-dia.utils.js';
+import { hoyLocalEmpresa, rangoConsultaDia } from '../utils/fecha-dia.utils.js';
 import { periodoQuerySchema, filtroFechaInicioEnPeriodo } from '../utils/periodo-query.utils.js';
 import {
   construirCircuito,
@@ -102,9 +102,27 @@ router.get('/gantt', async (req: AuthRequest, res: Response): Promise<void> => {
     const empresaId = req.user!.empresaId;
 
     const { anio, sectorId } = req.query;
-    const year = anio ? Number(anio) : hoyLocalEmpresa().getUTCFullYear();
-    const startDate = new Date(year, 0, 1);
-    const endDate = new Date(year, 11, 31, 23, 59, 59);
+    let year = hoyLocalEmpresa().getUTCFullYear();
+    if (anio !== undefined && anio !== '') {
+      const n = Number(anio);
+      // Sin este guard, un `?anio=abc` propaga NaN hasta el `where` de Prisma y
+      // el gantt entero contesta 500.
+      if (!Number.isInteger(n) || n < 1900 || n > 2999) {
+        res.status(400).json({ error: 'anio inválido' });
+        return;
+      }
+      year = n;
+    }
+    // Las puntas del año van en UTC. Con el constructor local, bajo
+    // TZ=America/Argentina/Buenos_Aires (ver Dockerfile) `new Date(year, 0, 1)`
+    // da `03:00Z` del 1/1, y como se usa como `fechaFin: { gte: startDate }`,
+    // unas vacaciones que TERMINAN el 1 de enero (fecha-día `00:00:00Z`)
+    // quedaban afuera del gantt de ese año; por el otro extremo se colaba una
+    // que arrancaba el 1 de enero del año siguiente.
+    const { desde: startDate, hasta: endDate } = rangoConsultaDia(
+      new Date(Date.UTC(year, 0, 1)),
+      new Date(Date.UTC(year, 11, 31)),
+    );
 
     const userWhere: any = { empresaId };
     // Acceso dinámico por cadena de aprobación. RRHH+ (>=90) ven todo y pueden
