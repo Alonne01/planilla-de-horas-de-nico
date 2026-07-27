@@ -14,9 +14,9 @@ import {
 import { ESTADO_STYLES, ESTADO_LABELS } from '@/constants/planillaConstants';
 import {
   dateKey, esFeriadoNacional, nombreFeriado, cargarFeriados,
-  esDiaFranco, buildCalendarDays, buildWeeks, cellStyle,
-  type DiagramaInfo,
+  buildCalendarDays, buildWeeks, cellStyle,
 } from '@/utils/planillaHelpers';
+import { francoDelDia, tramoDelDia, esInicioDeTramo, type TramoDiagrama } from '@/utils/tramosDiagrama';
 import { pasoActualDe, type PasoDocumento } from '@/utils/circuito';
 import { avisarSinCircuito } from '@/lib/avisoCircuito';
 import SuccessOverlay from '@/components/planilla/SuccessOverlay';
@@ -83,6 +83,8 @@ interface PlanillaDetalle {
   };
   /** El circuito congelado al enviar; JSON crudo, lo interpreta `pasoActualDe`. */
   circuitoSnapshot: unknown;
+  /** Tramos de diagrama que cubren el período (uno por cada cambio aprobado). */
+  tramosDiagrama?: TramoDiagrama[];
   flujo?: {
     nombre: string;
     pasos: PasoDocumento[];
@@ -191,14 +193,6 @@ export default function PlanillaDetailPage() {
     retry: 1,
   });
 
-  // Load owner's diagram assignment for cycle calculation
-  const { data: usuarioDetalle } = useQuery({
-    queryKey: ['usuario-detail-planilla', planilla?.usuario.id],
-    queryFn: async () => (await api.get(`/usuarios/${planilla!.usuario.id}`)).data,
-    enabled: !!planilla?.usuario.id,
-    staleTime: 60_000,
-  });
-
   // Flags de módulo de la empresa. El plan B nace apagado: sin esto el bloque de
   // marcar días se renderiza y el backend responde 403 al confirmar.
   const { data: modulos } = useQuery<{ marcaManualActiva: boolean }>({
@@ -215,10 +209,10 @@ export default function PlanillaDetailPage() {
     staleTime: 60_000,
   });
 
-  const diagramaActual: DiagramaInfo | null = usuarioDetalle?.diagramaActual ?? null;
-  const fechaInicioDiagrama: Date | null = usuarioDetalle?.diagramaFechaInicio
-    ? new Date(usuarioDetalle.diagramaFechaInicio)
-    : null;
+  // Los tramos vienen con la planilla: un cambio de diagrama aprobado a mitad de
+  // período parte el período, y el diagrama "actual" del usuario no sabe nada de
+  // la primera mitad.
+  const tramosDiagrama: TramoDiagrama[] = planilla?.tramosDiagrama ?? [];
 
   // Traer del servidor los feriados con los que se liquida (nacionales + los de la
   // empresa). El calendario los pinta; el flag del registro lo decide el backend.
@@ -507,10 +501,9 @@ export default function PlanillaDetailPage() {
     .map((p) => ({ id: p.id, periodoInicio: p.periodoInicio, periodoFin: p.periodoFin }));
   const showTip = canEdit && paintMode === 'none' && !tipDismissed && !tipHidden;
 
-  /** Check if a date is a franco day according to the user's current diagram */
+  /** Franco según el diagrama vigente ESE día (los tramos vienen con la planilla). */
   function isFranco(day: Date): boolean {
-    if (!diagramaActual || !fechaInicioDiagrama) return false;
-    return esDiaFranco(day, diagramaActual, fechaInicioDiagrama);
+    return francoDelDia(tramosDiagrama, day);
   }
 
   // ═══════════════════════════════════════════════
@@ -1278,6 +1271,14 @@ export default function PlanillaDetailPage() {
                           title="Este día está guardado como feriado pero no figura en el calendario: las horas se liquidan al 100%. Revisar antes de aprobar."
                         >
                           FER?
+                        </span>
+                      )}
+                      {esInicioDeTramo(tramosDiagrama, day) && (
+                        <span
+                          className="text-[8px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-primary/20 text-primary"
+                          title={`Desde este día rige el diagrama ${tramoDelDia(tramosDiagrama, day)?.diagrama.nombre ?? 'nuevo'}`}
+                        >
+                          NUEVO DIAG.
                         </span>
                       )}
                     </div>
