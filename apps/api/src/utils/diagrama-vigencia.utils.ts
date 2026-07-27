@@ -126,3 +126,15 @@ export function diaAnterior(fecha: Date): Date {
   d.setUTCDate(d.getUTCDate() - 1);
   return d;
 }
+
+/**
+ * Con qué fecha cerrar una asignación saliente cuando la entrante arranca en
+ * `inicioEntrante`: el día anterior, salvo que eso caiga antes de que la propia
+ * saliente empezara. Sin esa guarda, asignar dos diagramas el mismo día deja una
+ * fila con fechaFin anterior a su fechaInicio: un rango invertido que no rompe el
+ * cálculo (`tramoDelDia` lo descarta) pero ensucia el historial.
+ */
+export function cierreDeAsignacion(inicioSaliente: Date, inicioEntrante: Date): Date {
+  const anterior = diaAnterior(inicioEntrante);
+  return claveFecha(anterior) < claveFecha(inicioSaliente) ? inicioSaliente : anterior;
+}

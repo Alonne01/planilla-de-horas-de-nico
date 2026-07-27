@@ -7,7 +7,7 @@ import { fechaFlexible } from '../utils/zod.utils.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_ADMIN, LEVEL_RRHH, LEVEL_COORDINADOR, LEVEL_SUPERVISOR } from '../middleware/roles.middleware.js';
 import { revokeAllRefreshTokensForUser } from '../utils/jwt.utils.js';
-import { diaAnterior } from '../utils/diagrama-vigencia.utils.js';
+import { cierreDeAsignacion } from '../utils/diagrama-vigencia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -540,10 +540,22 @@ router.patch('/:id/diagrama', requireLevel(LEVEL_RRHH), async (req: AuthRequest,
       // Se cierra el día antes de que arranque la nueva, no "hoy": con una
       // fechaInicio futura, cerrar hoy dejaba los días del medio sin diagrama, y
       // sin diagrama ningún día es franco.
-      await tx.usuarioDiagrama.updateMany({
+      //
+      // Fila por fila (no updateMany): si la nueva arranca el mismo día
+      // calendario en que arrancó alguna saliente (p. ej. RRHH corrige un
+      // diagrama mal cargado el mismo día), el día anterior cae antes del propio
+      // inicio de esa fila y queda un rango invertido en el historial.
+      // cierreDeAsignacion() aplica esa guarda por fila.
+      const salientes = await tx.usuarioDiagrama.findMany({
         where: { usuarioId: req.params.id as string, activo: true },
-        data: { activo: false, fechaFin: diaAnterior(inicioNuevo) },
+        select: { id: true, fechaInicio: true },
       });
+      for (const saliente of salientes) {
+        await tx.usuarioDiagrama.update({
+          where: { id: saliente.id },
+          data: { activo: false, fechaFin: cierreDeAsignacion(saliente.fechaInicio, inicioNuevo) },
+        });
+      }
       return tx.usuarioDiagrama.create({
         data: {
           usuarioId: req.params.id as string,

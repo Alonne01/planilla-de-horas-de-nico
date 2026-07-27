@@ -3,6 +3,7 @@ import {
   tramoDelDia,
   esFrancoEnFecha,
   diaAnterior,
+  cierreDeAsignacion,
   type TramoDiagrama,
 } from '../src/utils/diagrama-vigencia.utils.js';
 
@@ -146,7 +147,33 @@ async function run() {
     '2026-07-31T15:32:10.100Z',
   );
 
-  console.log('✓ diagrama-vigencia: 19/19 OK');
+  // 20. cierreDeAsignacion: caso normal, la entrante arranca al día siguiente de
+  //     la saliente → devuelve el día anterior a la entrante (01/08 → 31/07).
+  assert.strictEqual(
+    cierreDeAsignacion(d('2026-07-01'), d('2026-08-01')).toISOString(),
+    d('2026-07-31').toISOString(),
+  );
+
+  // 21. cierreDeAsignacion: mismo día calendario que la propia saliente (RRHH
+  //     corrige un diagrama mal cargado el mismo día). diaAnterior(entrante) caería
+  //     ANTES del propio fechaInicio de la saliente → rango invertido. La guarda
+  //     tiene que devolver el fechaInicio de la saliente, no ese día anterior.
+  assert.strictEqual(
+    cierreDeAsignacion(d('2026-08-01'), d('2026-08-01')).toISOString(),
+    d('2026-08-01').toISOString(),
+  );
+
+  // 22. cierreDeAsignacion: saliente con hora real (la de la aprobación, no
+  //     medianoche) el mismo día calendario que la entrante. La comparación es por
+  //     CLAVE DE DÍA, así que sigue devolviendo el propio fechaInicio de la
+  //     saliente (con su hora), no un timestamp roto por comparar Date crudo.
+  const salienteConHora = new Date('2026-08-01T09:15:00.000Z');
+  assert.strictEqual(
+    cierreDeAsignacion(salienteConHora, new Date('2026-08-01T18:40:00.000Z')).toISOString(),
+    salienteConHora.toISOString(),
+  );
+
+  console.log('✓ diagrama-vigencia: 22/22 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

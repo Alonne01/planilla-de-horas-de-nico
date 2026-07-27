@@ -18,7 +18,7 @@ import {
   resolverFlujo,
   type PasoCircuito,
 } from '../utils/circuito.utils.js';
-import { diaAnterior } from '../utils/diagrama-vigencia.utils.js';
+import { cierreDeAsignacion } from '../utils/diagrama-vigencia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -385,10 +385,22 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
           // La saliente se cierra el día ANTERIOR al arranque de la entrante: si
           // ambas cubren el día del corte, ese día queda con dos diagramas
           // vigentes y el franco depende de un desempate.
-          await tx.usuarioDiagrama.updateMany({
+          //
+          // Se actualiza fila por fila (no updateMany) porque el cierre correcto
+          // depende de la propia fechaInicio de CADA saliente: si la entrante
+          // arranca el mismo día calendario en que arrancó la saliente,
+          // diaAnterior(desde) cae antes de su propio inicio y queda un rango
+          // invertido en el historial. cierreDeAsignacion() aplica esa guarda.
+          const salientes = await tx.usuarioDiagrama.findMany({
             where: { usuarioId: solicitud.usuarioId, activo: true },
-            data: { activo: false, fechaFin: diaAnterior(desde) },
+            select: { id: true, fechaInicio: true },
           });
+          for (const saliente of salientes) {
+            await tx.usuarioDiagrama.update({
+              where: { id: saliente.id },
+              data: { activo: false, fechaFin: cierreDeAsignacion(saliente.fechaInicio, desde) },
+            });
+          }
 
           await tx.usuarioDiagrama.create({
             data: {
