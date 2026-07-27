@@ -85,7 +85,12 @@ async function run() {
   //     endpoint tiene que contestar 400 (validación), no 500 (excepción).
   assert.ok(Number.isNaN(spanDiasCalendario('31/07/2026', '31/07/2026')));
 
-  console.log('✓ fecha-dia: 16/16 OK');
+  // 17. El atajo de fecha-sola también valida: un día que no existe no puede
+  //     colarse como el día siguiente.
+  assert.throws(() => diaDesdeEntrada('2026-13-45'), RangeError);
+  assert.throws(() => diaDesdeEntrada('2026-02-30'), RangeError);
+
+  console.log('✓ fecha-dia: 17/17 OK');
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });

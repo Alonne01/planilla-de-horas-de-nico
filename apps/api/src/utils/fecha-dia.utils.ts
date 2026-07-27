@@ -40,7 +40,14 @@ export function claveFecha(fecha: Date): string {
  */
 export function diaDesdeEntrada(valor: string | Date): Date {
   if (typeof valor === 'string' && SOLO_FECHA.test(valor.trim())) {
-    return new Date(`${valor.trim()}T00:00:00.000Z`);
+    const soloFecha = valor.trim();
+    const d = new Date(`${soloFecha}T00:00:00.000Z`);
+    // El round-trip caza los días que no existen: '2026-02-30' se normalizaría
+    // solo a marzo, y '2026-13-45' queda Invalid Date.
+    if (Number.isNaN(d.getTime()) || claveFecha(d) !== soloFecha) {
+      throw new RangeError(`Fecha inválida: ${valor}`);
+    }
+    return d;
   }
   const d = typeof valor === 'string' ? new Date(valor) : valor;
   if (Number.isNaN(d.getTime())) {
