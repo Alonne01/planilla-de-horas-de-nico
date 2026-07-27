@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
-import { diaLocal, fmtDia } from '@/utils/fechaDia';
+import { diaLocal, diasEntre, fmtDia, hoyKey } from '@/utils/fechaDia';
 import { useState, useCallback } from 'react';
 import {
   Loader2, GraduationCap, Plus, Trash2, Pencil, X, Save,
@@ -326,13 +326,20 @@ export default function CapacitacionesPage() {
     },
   });
 
-  // Compute status for employee view
+  // Compute status for employee view.
+  // Sólo corre como respaldo: si el servidor ya mandó `statusCap`, manda el suyo
+  // (ver el `return r` de abajo). El criterio tiene que ser el MISMO que el del
+  // API (capacitaciones.routes.ts, que compara contra `hoyLocalEmpresa()`): días
+  // calendario enteros entre hoy y el vencimiento, comparados por clave de día.
+  // El día de vencimiento todavía cuenta como válido (diff 0); vence recién al
+  // día siguiente (diff < 0). Restar timestamps hacía que el corte dependiera de
+  // la hora a la que se mirara la pantalla.
+  const hoy = hoyKey();
   const enrichedRegistros = (registros ?? []).map((r) => {
     if (r.statusCap) return r;
-    const now = new Date();
     let statusCap: string = 'sin_vencimiento';
     if (r.fechaVencimiento) {
-      const diff = Math.ceil((diaLocal(r.fechaVencimiento).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      const diff = diasEntre(r.fechaVencimiento, hoy);
       if (diff < 0) statusCap = 'vencida';
       else if (diff <= (r.tipo?.alertaDias ?? 30)) statusCap = 'proxima';
       else statusCap = 'vigente';
