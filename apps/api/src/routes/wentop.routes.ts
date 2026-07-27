@@ -13,6 +13,7 @@ import {
   MAX_BYTES_POR_TARJETA,
 } from '../middleware/upload.middleware.js';
 import { fechaDia } from '../utils/zod.utils.js';
+import { claveFecha } from '../utils/fecha-dia.utils.js';
 import { unlink } from 'fs/promises';
 import path from 'path';
 
@@ -222,8 +223,7 @@ router.get('/analytics', async (req: AuthRequest, res: Response): Promise<void> 
     // Por mes
     const mesMap = new Map<string, number>();
     for (const t of tarjetas) {
-      const d = new Date(t.fechaReporte);
-      const mes = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const mes = claveFecha(t.fechaReporte).slice(0, 7);
       mesMap.set(mes, (mesMap.get(mes) || 0) + 1);
     }
     const porMes = Array.from(mesMap.entries())

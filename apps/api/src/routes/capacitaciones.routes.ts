@@ -226,7 +226,7 @@ router.post('/registros', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res
       // `new Date(...)` copia el valor: no se puede mutar `data.fechaRealizacion`
       // directamente con `setDate`, porque abajo se guarda ese mismo campo.
       fechaVencimiento = new Date(data.fechaRealizacion);
-      fechaVencimiento.setDate(fechaVencimiento.getDate() + tipo.vigenciaDias);
+      fechaVencimiento.setUTCDate(fechaVencimiento.getUTCDate() + tipo.vigenciaDias);
     }
 
     const registro = await prisma.empleadoCapacitacion.create({

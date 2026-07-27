@@ -3,18 +3,12 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { formatTipoAusencia } from '../utils/ausencia-calendar.utils.js';
 import { enriquecerPasos, pasosDe, type PasoRecorrido } from '../utils/circuito.utils.js';
+import { fmtFechaDiaCorta as fmtDate } from '../utils/fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
 
 router.use(authMiddleware);
-
-// Helper: format date as dd/MM
-function fmtDate(d: Date): string {
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  return `${day}/${month}`;
-}
 
 interface SolicitudUnificada {
   id: string;

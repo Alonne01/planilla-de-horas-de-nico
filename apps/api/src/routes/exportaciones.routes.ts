@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { fechaDia } from '../utils/zod.utils.js';
+import { fmtFechaDia } from '../utils/fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -134,7 +135,7 @@ router.post('/cierre', async (req: AuthRequest, res: Response): Promise<void> =>
             usuarioId: p.usuario.id,
             tipo: 'planilla:cerrada',
             titulo: 'Período cerrado',
-            cuerpo: `Tu planilla del período ${new Date(periodoInicio).toLocaleDateString('es-AR')} al ${new Date(periodoFin).toLocaleDateString('es-AR')} ha sido cerrada.`,
+            cuerpo: `Tu planilla del período ${fmtFechaDia(new Date(periodoInicio))} al ${fmtFechaDia(new Date(periodoFin))} ha sido cerrada.`,
             link: `/planillas/${p.id}`,
           },
         });

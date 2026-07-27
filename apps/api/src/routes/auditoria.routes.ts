@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
+import { fmtFechaDia } from '../utils/fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -48,7 +49,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         id: l.id,
         tipo: 'PLANILLA',
         entidadId: l.planillaId,
-        entidadLabel: `Planilla ${l.planilla.usuario.apellido} ${l.planilla.usuario.nombre} (${new Date(l.planilla.periodoInicio).toLocaleDateString('es-AR')})`,
+        entidadLabel: `Planilla ${l.planilla.usuario.apellido} ${l.planilla.usuario.nombre} (${fmtFechaDia(l.planilla.periodoInicio)})`,
         estadoAnterior: l.estadoAnterior,
         estadoNuevo: l.estadoNuevo,
         paso: l.pasoFlujo,
@@ -77,7 +78,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         id: l.id,
         tipo: 'VACACION',
         entidadId: l.vacacionId,
-        entidadLabel: `Vacación ${l.vacacion.usuario.apellido} (${new Date(l.vacacion.fechaInicio).toLocaleDateString('es-AR')})`,
+        entidadLabel: `Vacación ${l.vacacion.usuario.apellido} (${fmtFechaDia(l.vacacion.fechaInicio)})`,
         estadoAnterior: l.estadoAnterior,
         estadoNuevo: l.estadoNuevo,
         paso: l.pasoFlujo,
@@ -106,7 +107,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         id: l.id,
         tipo: 'AUSENCIA',
         entidadId: l.ausenciaId,
-        entidadLabel: `Ausencia ${l.ausencia.usuario.apellido} — ${l.ausencia.tipo} (${new Date(l.ausencia.fechaInicio).toLocaleDateString('es-AR')})`,
+        entidadLabel: `Ausencia ${l.ausencia.usuario.apellido} — ${l.ausencia.tipo} (${fmtFechaDia(l.ausencia.fechaInicio)})`,
         estadoAnterior: l.estadoAnterior,
         estadoNuevo: l.estadoNuevo,
         paso: l.pasoFlujo,

@@ -6,6 +6,7 @@ import { requireLevel, LEVEL_COORDINADOR, LEVEL_RRHH } from '../middleware/roles
 import { crearNotificacion } from '../utils/notificacion.utils.js';
 import { inyectarDiasBloqueados } from '../utils/ausencia-calendar.utils.js';
 import { fechaDia } from '../utils/zod.utils.js';
+import { fmtFechaDia } from '../utils/fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -243,7 +244,7 @@ router.delete('/:id', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, 
         usuarioId: inv.usuarioId,
         tipo: 'CAPACITACION',
         titulo: 'Capacitación cancelada',
-        cuerpo: `La sesión "${sesion.titulo}" del ${new Date(sesion.fecha).toLocaleDateString('es-AR')} fue cancelada.`,
+        cuerpo: `La sesión "${sesion.titulo}" del ${fmtFechaDia(sesion.fecha)} fue cancelada.`,
         link: '/capacitaciones',
       });
     }
@@ -324,7 +325,7 @@ router.post('/:id/invitar', requireLevel(LEVEL_COORDINADOR), async (req: AuthReq
       select: { nombre: true, apellido: true },
     });
     const orgNombre = organizador ? `${organizador.nombre} ${organizador.apellido}` : 'Un coordinador';
-    const fechaStr = new Date(sesion.fecha).toLocaleDateString('es-AR');
+    const fechaStr = fmtFechaDia(sesion.fecha);
 
     for (const usuarioId of parsed.data.usuarioIds) {
       try {
@@ -493,7 +494,7 @@ router.post('/mis-invitaciones/:invId/responder', async (req: AuthRequest, res: 
     }
 
     const empleadoNombre = `${inv.usuario.nombre} ${inv.usuario.apellido}`;
-    const fechaStr = new Date(inv.sesion.fecha).toLocaleDateString('es-AR');
+    const fechaStr = fmtFechaDia(inv.sesion.fecha);
 
     // Notify the organizer
     await crearNotificacion({
@@ -578,7 +579,7 @@ router.post('/:id/finalizar', requireLevel(LEVEL_COORDINADOR), async (req: AuthR
         let fechaVencimiento: Date | null = null;
         if (sesion.tipo.vigenciaDias) {
           fechaVencimiento = new Date(sesion.fecha);
-          fechaVencimiento.setDate(fechaVencimiento.getDate() + sesion.tipo.vigenciaDias);
+          fechaVencimiento.setUTCDate(fechaVencimiento.getUTCDate() + sesion.tipo.vigenciaDias);
         }
 
         await prisma.empleadoCapacitacion.create({

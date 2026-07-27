@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { claveFecha } from '../utils/contexto-dia.utils.js';
+import { fmtFechaDia, fmtFechaDiaCorta } from '../utils/fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -133,8 +134,8 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
     const inicio = new Date(planilla.periodoInicio);
     const fin = new Date(planilla.periodoFin);
     const meses = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
-    const mesInicio = meses[inicio.getMonth()];
-    const mesFin = meses[fin.getMonth()];
+    const mesInicio = meses[inicio.getUTCMonth()];
+    const mesFin = meses[fin.getUTCMonth()];
 
     sheet.getCell('B7').value = 'Mes:';
     sheet.getCell('B7').font = { bold: true, size: 10 };
@@ -301,9 +302,13 @@ router.get('/planilla/:id', async (req: AuthRequest, res: Response): Promise<voi
     // Generate buffer and send
     const buffer = await workbook.xlsx.writeBuffer();
 
-    const mesInicioStr = inicio.toLocaleDateString('es-AR', { month: 'short' });
-    const mesFinStr = fin.toLocaleDateString('es-AR', { month: 'short' });
-    const anio = fin.getFullYear();
+    // `timeZone: 'UTC'` fuerza a leer el mes calendario que ya está codificado en
+    // la fecha-día (medianoche UTC), no el que resulta de aplicar el huso del
+    // proceso (TZ=America/Argentina/Buenos_Aires — ver Dockerfile): sin esto,
+    // el 1 de agosto se lee como julio.
+    const mesInicioStr = inicio.toLocaleDateString('es-AR', { month: 'short', timeZone: 'UTC' });
+    const mesFinStr = fin.toLocaleDateString('es-AR', { month: 'short', timeZone: 'UTC' });
+    const anio = fin.getUTCFullYear();
     const filename = `Planilla de horas ${u.apellido} ${u.nombre} (${mesInicioStr} - ${mesFinStr} - ${anio}).xlsx`;
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -369,7 +374,7 @@ router.get('/sector/:sid', requireLevel(LEVEL_RRHH), async (req: AuthRequest, re
     const rows = planillas.map((p) => [
       `${p.usuario.apellido} ${p.usuario.nombre}`,
       p.usuario.legajo ?? '-',
-      `${new Date(p.periodoInicio).toLocaleDateString('es-AR')} - ${new Date(p.periodoFin).toLocaleDateString('es-AR')}`,
+      `${fmtFechaDia(p.periodoInicio)} - ${fmtFechaDia(p.periodoFin)}`,
       p.estado,
       Number(p.totalHorasNormales).toFixed(1),
       Number(p.totalHorasExtra50).toFixed(1),
@@ -691,7 +696,7 @@ router.post('/cierre', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: R
 
       for (const r of p.registros) {
         const fmtTime = (d: Date | null) => d ? new Date(d).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
-        const fmtDate = (d: Date) => new Date(d).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+        const fmtDate = fmtFechaDiaCorta;
 
         const lugar = r.bloqueado ? (r.motivoBloqueo ?? 'AUSENCIA') : (r.lugarTrabajo ?? '');
 
