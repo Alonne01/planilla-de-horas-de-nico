@@ -671,6 +671,18 @@ En la línea 361, reemplazar:
     const anio = parsed.data.fechaInicio.getUTCFullYear();
 ```
 
+**Y unificar el criterio en TODOS los sitios que tocan el mismo saldo**, o queda
+una regresión: la reserva iría a un año y el consumo a otro. Con el proceso en
+Argentina (UTC-3), `new Date('2026-01-01T00:00:00Z').getFullYear()` devuelve
+**2025**. Pasar a `getUTCFullYear()` en: `ausencias.routes.ts:717,879,1035,1103`,
+`planillas.routes.ts:695,1245,1274` y `marca-manual.utils.ts:26` — y reescribir el
+comentario de `marca-manual.utils.ts:17-19`, que documenta el invariante viejo
+("el año se toma con getFullYear() LOCAL a propósito").
+
+La fecha ya está normalizada a medianoche UTC del día calendario argentino, así
+que el año UTC ES el año del día que pidió el usuario; el año local es el que
+puede equivocarse.
+
 - [ ] **Step 4: Verificar que compila**
 
 ```bash
@@ -775,10 +787,12 @@ Reemplazar las líneas 1450-1455 por:
 Agregar el import:
 
 ```ts
-import { feriadosDeEmpresa, dentroDelRango, claveFecha } from '../utils/contexto-dia.utils.js';
+import { dentroDelRango, claveFecha } from '../utils/fecha-dia.utils.js';
 ```
 
-(el archivo ya importa `feriadosDeEmpresa` de ese módulo en la línea 20 — extender ese import, no agregar otro).
+Directo al módulo, no vía `contexto-dia.utils.js`: ese re-exporta sólo
+`claveFecha` y `hoyLocalEmpresa`, y no conviene dejar dos caminos de import para
+el mismo símbolo en el mismo archivo.
 
 - [ ] **Step 4: Usar la clave de día en la validación de faltantes**
 
@@ -1093,6 +1107,12 @@ git commit -m "fix(web): la planilla ubica los registros por clave de dia"
 ```bash
 cd "C:/dev/planilla de horas/apps/web/src" && grep -rnE "new Date\([^)]*[fF]echa" --include=*.tsx --include=*.ts .
 ```
+
+**El compilador NO es red de seguridad acá.** `lib.es2015.core.d.ts` agrega la
+sobrecarga `new (value: number | string | Date): Date`, así que `new Date(unDate)`
+compila sin una queja aunque sobre. Esto salió en la tanda del API: el barrido hay
+que hacerlo con grep, archivo por archivo, y `tsc` limpio no prueba nada sobre los
+envoltorios que hayan quedado.
 
 - [ ] **Step 2: Reemplazar caso por caso**
 
