@@ -19,9 +19,18 @@ import {
   type PasoCircuito,
 } from '../utils/circuito.utils.js';
 import { cierreDeAsignacion } from '../utils/diagrama-vigencia.utils.js';
+import { claveFecha } from '../utils/contexto-dia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
+
+/**
+ * Motivo con el que se cierra una solicitud que llegó a su fecha de inicio sin
+ * terminar de aprobarse. No se usa un estado nuevo: RECHAZADA + motivo evita
+ * tocar el enum y todas las pantallas que lo interpretan.
+ */
+export const MOTIVO_VENCIDA =
+  'Vencida: la fecha de inicio del diagrama pasó sin completarse la aprobación';
 
 router.use(authMiddleware);
 
@@ -289,6 +298,31 @@ router.post('/', requireLevel(LEVEL_COORDINADOR), async (req: AuthRequest, res: 
 // ─── POST /cambios-diagrama/:id/avanzar ──────────
 // Advance approval step (typically RRHH-only)
 
+/**
+ * Aviso de vencimiento al empleado y a quien la pidió (si es otra persona). Va
+ * fuera de cualquier transacción: un fallo del aviso no puede revertir el cierre.
+ */
+async function notificarVencida(solicitud: {
+  id: string;
+  usuarioId: string;
+  solicitanteId: string;
+  fechaEfectiva: Date | null;
+}): Promise<void> {
+  const cuerpo = solicitud.fechaEfectiva
+    ? `Llegó el ${solicitud.fechaEfectiva.toISOString().slice(0, 10).split('-').reverse().join('/')} sin que se completara la aprobación. Hay que pedirla de nuevo con otra fecha de inicio.`
+    : 'La solicitud venció sin completarse la aprobación.';
+
+  for (const usuarioId of new Set([solicitud.usuarioId, solicitud.solicitanteId])) {
+    await crearNotificacion({
+      usuarioId,
+      tipo: 'CAMBIO_DIAGRAMA',
+      titulo: 'Solicitud de cambio de diagrama vencida',
+      cuerpo,
+      link: '/cambios-diagrama',
+    });
+  }
+}
+
 router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const solId = req.params.id as string;
@@ -357,6 +391,41 @@ router.post('/:id/avanzar', requireLevel(LEVEL_SUPERVISOR), async (req: AuthRequ
       rolPasoAprobado = pasoConfig.rolAprobador;
       nuevoPaso = pasoActual + 1;
       nuevoEstado = nuevoPaso > totalPasos ? 'APROBADA' : 'EN_REVISION';
+    }
+
+    // Si esta firma es la última y la fecha de inicio ya llegó, el cambio no se
+    // aplica: quedaría rigiendo sobre días ya cargados con el diagrama viejo. La
+    // solicitud se cierra vencida y hay que pedirla de nuevo con otra fecha.
+    // Es la red del barrido diario: sin esto, una aprobación entre dos corridas
+    // aplicaría un cambio retroactivo.
+    // La comparación es por CLAVE DE DÍA (no por timestamp): `fechaFlexible`
+    // acepta un sufijo de hora en el string de entrada, así que `fechaEfectiva`
+    // no está garantizado a ser medianoche UTC. Comparando timestamps crudos,
+    // una fecha de inicio de HOY a las 15:00 sería "> hoyUTC()" y la guardia no
+    // dispararía pese a que el día ya llegó.
+    if (
+      nuevoEstado === 'APROBADA' &&
+      solicitud.fechaEfectiva &&
+      claveFecha(solicitud.fechaEfectiva) <= claveFecha(hoyUTC())
+    ) {
+      await prisma.solicitudCambioDiagrama.update({
+        where: { id: solId },
+        data: { estado: 'RECHAZADA', obsRechazo: MOTIVO_VENCIDA },
+      });
+      await prisma.cambioDiagramaHistorial.create({
+        data: {
+          solicitudId: solId,
+          usuarioId: req.user!.userId,
+          estadoAnterior: solicitud.estado,
+          estadoNuevo: 'RECHAZADA',
+          pasoFlujo: pasoActual,
+          rolAprobador: rolPasoAprobado,
+          comentario: MOTIVO_VENCIDA,
+        },
+      });
+      await notificarVencida(solicitud);
+      res.status(409).json({ error: MOTIVO_VENCIDA });
+      return;
     }
 
     // Atomic: optimistic concurrency + duplicate check
