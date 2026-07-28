@@ -25,6 +25,7 @@ import {
   Table as TableIcon,
   ArrowUp,
   ArrowDown,
+  Download,
 } from 'lucide-react';
 import api, { getUploadUrl } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -339,6 +340,12 @@ export default function WentopPage() {
     },
   });
 
+  // Espejo de la guardia del endpoint: alcance global (CMASS o nivel >= 90),
+  // gestor de algún sector, o coordinador para arriba. Si esto y el backend se
+  // separan, el botón aparece y descarga un 403.
+  const puedeExportar =
+    user?.rol === 'CMASS' || (user?.rolNivel ?? 0) >= 70 || gestorSectorIds.length > 0;
+
   const canManageCard = useCallback(
     (tarjeta: WentopTarjeta) => {
       const nivel = user?.rolNivel ?? 0;
@@ -490,6 +497,8 @@ export default function WentopPage() {
           }}
           loading={loadingTarjetas}
           sectores={sectores}
+          puedeExportar={puedeExportar}
+          filtrosActivos={tarjetasQueryParams}
           filterEstado={filterEstado}
           setFilterEstado={setFilterEstado}
           filterTipo={filterTipo}
@@ -607,6 +616,8 @@ function TarjetasTab({
   filterHasta,
   setFilterHasta,
   canManageGestores,
+  puedeExportar,
+  filtrosActivos,
   onSelect,
   onNew,
 }: {
@@ -618,6 +629,8 @@ function TarjetasTab({
   orden: OrdenTarjetas;
   dir: 'asc' | 'desc';
   onOrden: (campo: OrdenTarjetas) => void;
+  puedeExportar: boolean;
+  filtrosActivos: Record<string, string>;
   loading: boolean;
   sectores: Sector[];
   filterEstado: string;
@@ -636,9 +649,31 @@ function TarjetasTab({
 }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [vista, setVistaState] = useState<VistaTarjetas>(loadVista);
+  const [exportando, setExportando] = useState(false);
   const setVista = (v: VistaTarjetas) => {
     setVistaState(v);
     try { localStorage.setItem(VISTA_KEY, v); } catch { /* ignore */ }
+  };
+
+  const exportar = async () => {
+    setExportando(true);
+    try {
+      const { data } = await api.get('/wentop/export.xlsx', {
+        params: filtrosActivos,
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wentop-${hoyKey()}.xlsx`;
+      a.click();
+      // Sin el revoke, el blob queda en memoria hasta que se recargue la página.
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ title: 'No se pudo generar el Excel', variant: 'destructive' });
+    } finally {
+      setExportando(false);
+    }
   };
 
   const activeFilterCount = [filterEstado, filterTipo, filterSector, filterDesde, filterHasta].filter(Boolean).length;
@@ -806,12 +841,27 @@ function TarjetasTab({
               <TableIcon className="h-4 w-4" /> Tabla
             </button>
           </div>
-          {total > 0 && (
-            <p className="text-sm text-muted-foreground tabular-nums">
-              {total} {total === 1 ? 'tarjeta' : 'tarjetas'}
-              {pages > 1 && <> · página {page} de {pages}</>}
-            </p>
-          )}
+          <div className="flex items-center gap-3">
+            {total > 0 && (
+              <p className="text-sm text-muted-foreground tabular-nums">
+                {total} {total === 1 ? 'tarjeta' : 'tarjetas'}
+                {pages > 1 && <> · página {page} de {pages}</>}
+              </p>
+            )}
+            {puedeExportar && (
+              <button
+                type="button"
+                onClick={exportar}
+                disabled={exportando || total === 0}
+                title="Exporta TODAS las tarjetas que cumplen los filtros, no sólo esta página"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+              >
+                {exportando
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Generando…</>
+                  : <><Download className="h-4 w-4" /> Exportar a Excel</>}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
