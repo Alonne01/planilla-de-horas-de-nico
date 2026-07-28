@@ -218,26 +218,26 @@ async function main() {
   await scenario('C6 GET /wentop list as creator includes card', async () => {
     const r = await get('/wentop', owner.token);
     assertStatus(r.status, 200);
-    assert(r.body.some((t: any) => t.id === cardId), 'card not in list');
+    assert(r.body.tarjetas.some((t: any) => t.id === cardId), 'card not in list');
   });
   await scenario('C7 GET /wentop?estado filter', async () => {
     const a = await get('/wentop?estado=ABIERTA', owner.token);
     assertStatus(a.status, 200);
-    assert(a.body.some((t: any) => t.id === cardId), 'ABIERTA filter missing card');
+    assert(a.body.tarjetas.some((t: any) => t.id === cardId), 'ABIERTA filter missing card');
     const c = await get('/wentop?estado=CERRADA', owner.token);
     assertStatus(c.status, 200);
-    assert(!c.body.some((t: any) => t.id === cardId), 'CERRADA filter wrongly includes card');
+    assert(!c.body.tarjetas.some((t: any) => t.id === cardId), 'CERRADA filter wrongly includes card');
   });
   await scenario('C8 GET /wentop?tipoTarjeta filter', async () => {
     const r = await get('/wentop?tipoTarjeta=CONDICION_INSEGURA', owner.token);
     assertStatus(r.status, 200);
-    assert(r.body.some((t: any) => t.id === cardId), 'tipo filter missing card');
-    assert(r.body.every((t: any) => t.tipoTarjeta === 'CONDICION_INSEGURA'), 'tipo filter leaked other types');
+    assert(r.body.tarjetas.some((t: any) => t.id === cardId), 'tipo filter missing card');
+    assert(r.body.tarjetas.every((t: any) => t.tipoTarjeta === 'CONDICION_INSEGURA'), 'tipo filter leaked other types');
   });
   await scenario('C9 GET /wentop?sectorId filter', async () => {
     const r = await get(`/wentop?sectorId=${sectorA}`, owner.token);
     assertStatus(r.status, 200);
-    assert(r.body.some((t: any) => t.id === cardId), 'sector filter missing card');
+    assert(r.body.tarjetas.some((t: any) => t.id === cardId), 'sector filter missing card');
   });
   await scenario('C10 [ISOLATION] GET /wentop/:id as foreign-sector user -> 404', async () => {
     const r = await get(`/wentop/${cardId}`, foreign.token);
@@ -246,7 +246,7 @@ async function main() {
   await scenario('C10b [ISOLATION] foreign list excludes card', async () => {
     const r = await get('/wentop', foreign.token);
     assertStatus(r.status, 200);
-    assert(!r.body.some((t: any) => t.id === cardId), 'LEAK: card visible in foreign list');
+    assert(!r.body.tarjetas.some((t: any) => t.id === cardId), 'LEAK: card visible in foreign list');
   });
   await scenario('C11 GET /wentop/:id nonexistent -> 404', async () => {
     const r = await get('/wentop/00000000-0000-0000-0000-000000000000', owner.token);
@@ -481,7 +481,7 @@ async function main() {
     const listado = await get('/wentop', owner.token);
     assertStatus(listado.status, 200);
     assert(
-      listado.body.some((t: any) => t.id === cruzada),
+      listado.body.tarjetas.some((t: any) => t.id === cruzada),
       'el LISTADO sí tiene que mostrarle su propia tarjeta, aunque sea de otro sector',
     );
   });
@@ -523,6 +523,73 @@ async function main() {
   await scenario('A11 fecha inválida -> 400 (y no 500)', async () => {
     const r = await get('/wentop/analytics?desde=abc', admin.token);
     assertStatus(r.status, 400, JSON.stringify(r.body));
+  });
+
+  // ─────────── PAGINADO Y ORDEN ───────────
+  console.log(C.CY + '\n-- Paginado y orden --' + C.R);
+
+  await scenario('P1 el listado devuelve la envoltura con total y páginas', async () => {
+    const r = await get('/wentop', admin.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    assert(Array.isArray(r.body.tarjetas), 'falta el array tarjetas');
+    assert(typeof r.body.total === 'number', 'falta total');
+    assert(r.body.page === 1, `page tendría que ser 1: ${r.body.page}`);
+    assert(r.body.pages >= 1, `pages tendría que ser >= 1: ${r.body.pages}`);
+  });
+
+  await scenario('P2 limit acota la página y pages lo refleja', async () => {
+    const r = await get('/wentop?limit=1', admin.token);
+    assertStatus(r.status, 200);
+    assert(r.body.tarjetas.length <= 1, `pidió 1 y trajo ${r.body.tarjetas.length}`);
+    if (r.body.total > 1) assert(r.body.pages === r.body.total, 'con limit=1, pages == total');
+  });
+
+  await scenario('P3 la página 2 trae otras tarjetas', async () => {
+    const p1 = await get('/wentop?limit=1&page=1', admin.token);
+    const p2 = await get('/wentop?limit=1&page=2', admin.token);
+    assertStatus(p1.status, 200);
+    assertStatus(p2.status, 200);
+    if (p1.body.total >= 2) {
+      assert(p2.body.tarjetas.length === 1, 'la página 2 tendría que traer una');
+      assert(p1.body.tarjetas[0].id !== p2.body.tarjetas[0].id, 'la página 2 repitió la 1');
+    }
+  });
+
+  await scenario('P4 limit se topea en 100 (no se puede pedir todo de una)', async () => {
+    const r = await get('/wentop?limit=99999', admin.token);
+    assertStatus(r.status, 200);
+    assert(r.body.tarjetas.length <= 100, `el tope no se aplicó: ${r.body.tarjetas.length}`);
+  });
+
+  await scenario('P5 una página más allá del final devuelve vacío, no error', async () => {
+    const r = await get('/wentop?limit=1&page=9999', admin.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    assert(r.body.tarjetas.length === 0, 'esperaba una página vacía');
+  });
+
+  await scenario('P6 orden inválido -> 400 (lista blanca)', async () => {
+    const r = await get('/wentop?orden=descripcion', admin.token);
+    assertStatus(r.status, 400, JSON.stringify(r.body));
+  });
+
+  await scenario('P7 orden por fecha ascendente invierte el listado', async () => {
+    const desc = await get('/wentop?orden=fechaReporte&dir=desc&limit=100', admin.token);
+    const asc = await get('/wentop?orden=fechaReporte&dir=asc&limit=100', admin.token);
+    assertStatus(desc.status, 200);
+    assertStatus(asc.status, 200, JSON.stringify(asc.body));
+    const fechas = asc.body.tarjetas.map((t: any) => t.fechaReporte);
+    const ordenadas = [...fechas].sort();
+    assert(JSON.stringify(fechas) === JSON.stringify(ordenadas), 'asc no vino ordenado ascendente');
+  });
+
+  await scenario('P8 orden por relación (sector) no rompe', async () => {
+    const r = await get('/wentop?orden=sector&dir=asc', admin.token);
+    assertStatus(r.status, 200, `el orderBy anidado falló: ${JSON.stringify(r.body)}`);
+  });
+
+  await scenario('P9 orden por creador no rompe', async () => {
+    const r = await get('/wentop?orden=creador&dir=desc', admin.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
   });
 
   // ─────────── CLEANUP ───────────

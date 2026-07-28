@@ -26,9 +26,28 @@ router.use(authMiddleware);
 
 const VALID_TIPOS = ['DETENCION_TAREAS', 'CONDICION_INSEGURA', 'ACTO_INSEGURO', 'CASI_ACCIDENTE', 'OBSERVACION_POSITIVA'] as const;
 
-// Tope del listado: sin cota, una tarjeta con textos enormes multiplicada por
-// muchas filas hace que el findMany + serialización se coma la memoria del proceso.
-const MAX_TARJETAS_LISTADO = 500;
+// Tope por PÁGINA. Antes era un tope duro de 500 filas sin paginado, que además
+// de proteger la memoria del proceso impedía justamente lo que el seguimiento por
+// sector necesita: ver TODAS las tarjetas. Con paginado real la cota sigue
+// existiendo (una tarjeta con textos enormes por muchas filas se come la memoria
+// en el findMany y en la serialización), pero ya no esconde datos.
+const MAX_LIMIT_LISTADO = 100;
+
+/**
+ * Órdenes permitidos del listado, como lista blanca.
+ *
+ * Es lo que impide que un `?orden=` arbitrario llegue al `orderBy` de Prisma. La
+ * dirección se aplica dentro de cada entrada en vez de pisarla afuera: los
+ * órdenes por relación anidan (`{ sectorObservacion: { nombre: dir } }`) y un
+ * merge genérico se equivoca de nivel.
+ */
+const ORDENES_LISTADO: Record<string, (dir: 'asc' | 'desc') => any> = {
+  fechaReporte: (dir) => ({ fechaReporte: dir }),
+  estado: (dir) => ({ estado: dir }),
+  tipoTarjeta: (dir) => ({ tipoTarjeta: dir }),
+  sector: (dir) => ({ sectorObservacion: { nombre: dir } }),
+  creador: (dir) => ({ creador: { apellido: dir } }),
+};
 
 // Textos de la tarjeta: los campos son text/jsonb sin cota en el schema, así que
 // el único límite real sería el body de 10 MB de express. Se acotan acá.
@@ -539,14 +558,28 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     }
     if (fechas.filtro) where.fechaReporte = fechas.filtro;
 
-    const tarjetas = await prisma.wentopTarjeta.findMany({
-      where,
-      include: tarjetaInclude,
-      orderBy: { fechaReporte: 'desc' },
-      take: MAX_TARJETAS_LISTADO,
-    });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit as string) || 50, MAX_LIMIT_LISTADO));
 
-    res.json(tarjetas);
+    const campo = (req.query.orden as string) || 'fechaReporte';
+    if (!ORDENES_LISTADO[campo]) {
+      res.status(400).json({ error: 'Parámetro "orden" inválido' });
+      return;
+    }
+    const dir: 'asc' | 'desc' = req.query.dir === 'asc' ? 'asc' : 'desc';
+
+    const [tarjetas, total] = await Promise.all([
+      prisma.wentopTarjeta.findMany({
+        where,
+        include: tarjetaInclude,
+        orderBy: ORDENES_LISTADO[campo]!(dir),
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.wentopTarjeta.count({ where }),
+    ]);
+
+    res.json({ tarjetas, total, page, pages: Math.max(1, Math.ceil(total / limit)) });
   } catch (error) {
     console.error('Error listing wentop tarjetas:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
