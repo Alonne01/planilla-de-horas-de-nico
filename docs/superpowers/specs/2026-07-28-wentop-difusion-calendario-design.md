@@ -343,7 +343,14 @@ model Mensaje              { requiereConfirmacion Boolean   @default(false) }
 model MensajeDestinatario  { confirmadoAt         DateTime? }
 ```
 
-- El remitente marca "pedir confirmación de recepción" al redactar.
+**La confirmación la pide el remitente, mensaje por mensaje, al enviarlo.** Es una casilla
+del formulario de redacción y nada más: no se puede activar después, ni se configura por
+rol, sector o tipo de destinatario. Si el remitente no la marca —el caso por omisión— el
+mensaje se comporta **exactamente como hoy**: se marca leído al abrirlo, no aparece ningún
+cartel, y nadie tiene que apretar nada.
+
+Con la casilla marcada:
+
 - Quien lo recibe ve un cartel fijo arriba del mensaje con el botón **Confirmar recepción**,
   y en la bandeja el mensaje queda con un distintivo hasta que lo confirme. No bloquea la
   aplicación: un cartel que no se puede cerrar se termina confirmando sin leer, que es
