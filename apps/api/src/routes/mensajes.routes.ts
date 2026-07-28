@@ -359,14 +359,18 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
     // Privacy: only the sender (or RRHH+) may see the full recipient list and
     // read-receipts of a broadcast. A plain recipient must not enumerate the rest.
     const canSeeRecipients = isSender || (req.user!.rolNivel ?? 0) >= LEVEL_RRHH;
+    // El propio estado de confirmación va aparte de la lista: un destinatario
+    // raso no ve quién más recibió el mensaje, pero sí tiene que saber si ya
+    // acusó recibo — si no, el botón le aparecería siempre.
+    const miConfirmacion = mensaje.destinatarios.find(d => d.usuarioId === userId)?.confirmadoAt ?? null;
     if (!canSeeRecipients) {
       const { destinatarios, ...rest } = mensaje;
       void destinatarios;
-      res.json(rest);
+      res.json({ ...rest, miConfirmacion });
       return;
     }
 
-    res.json(mensaje);
+    res.json({ ...mensaje, miConfirmacion });
   } catch (error) {
     console.error('Error getting mensaje:', error);
     res.status(500).json({ error: 'Error interno' });

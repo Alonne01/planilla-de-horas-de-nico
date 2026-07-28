@@ -19,9 +19,14 @@ import {
   Loader2,
   X,
   Check,
+  CalendarClock,
+  BadgeCheck,
 } from 'lucide-react';
 
 // ─── Types ──────────────────────────────────────────
+/** Tiene que coincidir con MAX_ADJUNTOS_POR_MENSAJE de la API. */
+const MAX_ADJUNTOS = 4;
+
 interface Remitente {
   id: string;
   nombre: string;
@@ -42,6 +47,7 @@ interface MensajeInbox {
   cuerpo: string;
   adjuntos: Adjunto[];
   permiteRespuesta: boolean;
+  requiereConfirmacion: boolean;
   esDifusion: boolean;
   destinoTipo: string | null;
   createdAt: string;
@@ -49,6 +55,7 @@ interface MensajeInbox {
   _count: { respuestas: number };
   leido: boolean;
   leidoAt: string | null;
+  confirmadoAt: string | null;
   destinatarioId: string;
 }
 
@@ -77,18 +84,47 @@ interface MensajeDetalle {
   cuerpo: string;
   adjuntos: Adjunto[];
   permiteRespuesta: boolean;
+  requiereConfirmacion: boolean;
   esDifusion: boolean;
   destinoTipo: string | null;
   createdAt: string;
   remitenteId: string;
   remitente: Remitente;
   respuestas: Respuesta[];
-  destinatarios: { usuarioId: string; leido: boolean }[];
+  /** El propio acuse de recibo. Va aparte de `destinatarios` porque un
+   *  destinatario raso no ve la lista pero sí necesita saber si ya confirmó. */
+  miConfirmacion: string | null;
+  // Sólo llega si el que mira es el remitente (o RRHH+): un destinatario raso no
+  // puede enumerar al resto de una difusión.
+  destinatarios?: {
+    usuarioId: string;
+    leido: boolean;
+    leidoAt: string | null;
+    confirmadoAt: string | null;
+    usuario: { nombre: string; apellido: string };
+  }[];
 }
 
 interface Sector {
   id: string;
   nombre: string;
+}
+
+interface TurnoGrupo {
+  clave: string;
+  etiqueta: string;
+  proximoInicio: string | null;
+  cantidad: number;
+}
+
+/** Lo que el remitente PUEDE hacer, resuelto por el servidor. */
+interface GruposDifusion {
+  alcance: 'EMPRESA' | 'SECTOR' | 'NINGUNO';
+  sectorPropio: string | null;
+  destinosPermitidos: string[];
+  sectores: Sector[];
+  turnos: TurnoGrupo[];
+  totalAlcance: number;
 }
 
 interface UsuarioOption {
@@ -127,6 +163,7 @@ function destinoLabel(tipo: string | null, valor: string | null) {
   if (tipo === 'TODOS') return 'Todos';
   if (tipo === 'ROL') return `Rol: ${valor}`;
   if (tipo === 'SECTOR') return 'Sector';
+  if (tipo === 'TURNO') return 'Turno';
   if (tipo === 'USUARIO') return 'Individual';
   return tipo;
 }
@@ -135,7 +172,10 @@ function destinoLabel(tipo: string | null, valor: string | null) {
 export default function MensajesPage() {
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
-  const isRRHH = (user?.rolNivel ?? 0) >= 90;
+  // Difundir ya no es de RRHH para arriba: un coordinador o gerente llega a su
+  // sector, CMASS y un gerente general a la empresa. El servidor decide el
+  // alcance real; acá sólo se decide si el botón existe.
+  const puedeDifundir = (user?.rolNivel ?? 0) >= 70;
 
   const [activeTab, setActiveTab] = useState<'inbox' | 'enviados'>('inbox');
   const [selectedMensajeId, setSelectedMensajeId] = useState<string | null>(null);
@@ -151,7 +191,7 @@ export default function MensajesPage() {
   const { data: enviadosData, isLoading: loadingEnviados } = useQuery({
     queryKey: ['mensajes', 'enviados'],
     queryFn: () => api.get('/mensajes/enviados').then(r => r.data),
-    enabled: isRRHH && activeTab === 'enviados',
+    enabled: puedeDifundir && activeTab === 'enviados',
   });
 
   // ─── Detalle Query ────────────────────────────────
@@ -263,7 +303,7 @@ export default function MensajesPage() {
               Marcar todas leídas
             </button>
           )}
-          {isRRHH && (
+          {puedeDifundir && (
             <button
               onClick={() => setShowCompose(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -294,7 +334,7 @@ export default function MensajesPage() {
             </span>
           )}
         </button>
-        {isRRHH && (
+        {puedeDifundir && (
           <button
             onClick={() => setActiveTab('enviados')}
             className={cn(
@@ -453,11 +493,20 @@ function MensajeDetalleView({ mensaje, currentUserId }: { mensaje: MensajeDetall
   const [replyFile, setReplyFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const confirmarMutation = useMutation({
+    mutationFn: () => api.post(`/mensajes/${mensaje.id}/confirmar`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mensajes', 'detalle', mensaje.id] });
+      queryClient.invalidateQueries({ queryKey: ['mensajes', 'inbox'] });
+      queryClient.invalidateQueries({ queryKey: ['mensajes', 'no-leidos'] });
+    },
+  });
+
   const replyMutation = useMutation({
     mutationFn: async () => {
       const formData = new FormData();
       formData.append('cuerpo', replyText);
-      if (replyFile) formData.append('archivo', replyFile);
+      if (replyFile) formData.append('adjuntos', replyFile);
       return api.post(`/mensajes/${mensaje.id}/responder`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
@@ -504,10 +553,63 @@ function MensajeDetalleView({ mensaje, currentUserId }: { mensaje: MensajeDetall
         {/* Attachments */}
         <ListaAdjuntos adjuntos={mensaje.adjuntos} />
 
+        {/* Acuse de recibo, para el destinatario */}
+        {mensaje.requiereConfirmacion && mensaje.remitenteId !== currentUserId && (
+          <div className="mt-4 pt-3 border-t border-border">
+            {mensaje.miConfirmacion ? (
+              <p className="flex items-center gap-1.5 text-sm text-emerald-500">
+                <BadgeCheck className="h-4 w-4" />
+                Confirmaste la recepción el {formatDateFull(mensaje.miConfirmacion)}
+              </p>
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => confirmarMutation.mutate()}
+                  disabled={confirmarMutation.isPending}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {confirmarMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}
+                  Confirmar recepción
+                </button>
+                <span className="text-xs text-muted-foreground">
+                  El remitente pidió que confirmes que lo recibiste.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Read status for sender */}
         {mensaje.remitenteId === currentUserId && mensaje.destinatarios && (
-          <div className="mt-4 pt-3 border-t border-border text-xs text-muted-foreground">
-            {mensaje.destinatarios.filter(d => d.leido).length} de {mensaje.destinatarios.length} leídos
+          <div className="mt-4 pt-3 border-t border-border space-y-2">
+            <p className="text-xs text-muted-foreground">
+              {mensaje.destinatarios.filter(d => d.leido).length} de {mensaje.destinatarios.length} leídos
+              {mensaje.requiereConfirmacion &&
+                ` · ${mensaje.destinatarios.filter(d => d.confirmadoAt).length} de ${mensaje.destinatarios.length} confirmados`}
+            </p>
+            {/* Leído y confirmado son dos estados distintos: se puede haber
+                abierto el mensaje sin acusar recibo, y eso es lo que le importa
+                a quien mandó el comunicado. */}
+            {mensaje.requiereConfirmacion && (
+              <div className="flex flex-wrap gap-1.5">
+                {mensaje.destinatarios.map((d) => (
+                  <span
+                    key={d.usuarioId}
+                    title={d.confirmadoAt ? `Confirmó el ${formatDateFull(d.confirmadoAt)}` : 'Sin confirmar'}
+                    className={cn(
+                      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border',
+                      d.confirmadoAt
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
+                        : 'border-border text-muted-foreground'
+                    )}
+                  >
+                    {d.confirmadoAt && <Check className="h-3 w-3" />}
+                    {d.usuario.nombre} {d.usuario.apellido}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -608,20 +710,36 @@ function MensajeDetalleView({ mensaje, currentUserId }: { mensaje: MensajeDetall
 function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
   const [asunto, setAsunto] = useState('');
   const [cuerpo, setCuerpo] = useState('');
-  const [destinoTipo, setDestinoTipo] = useState<string>('TODOS');
+  const [destinoTipo, setDestinoTipo] = useState<string>('SECTOR');
   const [destinoValor, setDestinoValor] = useState('');
+  const [destinoSectorId, setDestinoSectorId] = useState('');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [permiteRespuesta, setPermiteRespuesta] = useState(false);
-  const [archivo, setArchivo] = useState<File | null>(null);
+  const [requiereConfirmacion, setRequiereConfirmacion] = useState(false);
+  const [archivos, setArchivos] = useState<File[]>([]);
   const [userSearch, setUserSearch] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch sectores
-  const { data: sectores } = useQuery<Sector[]>({
-    queryKey: ['sectores-for-mensajes'],
-    queryFn: () => api.get('/analytics/sectores').then(r => r.data),
-    enabled: destinoTipo === 'SECTOR',
+  // El alcance y los grupos REALES del remitente. Los sectores y los turnos
+  // salen de acá y no de una lista fija: así se ve a cuánta gente se le está por
+  // escribir, y no aparecen opciones que el servidor va a rechazar igual.
+  // `destinoSectorId` entra en la clave porque acota los turnos al sector
+  // elegido, y con él cambian las cantidades.
+  const { data: grupos } = useQuery<GruposDifusion>({
+    queryKey: ['mensajes', 'grupos-difusion', destinoSectorId],
+    queryFn: () => api
+      .get('/mensajes/grupos-difusion', { params: destinoSectorId ? { sectorId: destinoSectorId } : {} })
+      .then(r => r.data),
   });
+
+  const permitidos = grupos?.destinosPermitidos ?? [];
+  const alcanceEmpresa = grupos?.alcance === 'EMPRESA';
+  // Con alcance de sector, "Sector" no ofrece elección: el destino es el propio.
+  // Se deriva en vez de sincronizarlo con un efecto — un `setState` dentro de un
+  // `useEffect` re-renderiza de más y acá no aporta nada.
+  const destinoValorEfectivo = destinoTipo === 'SECTOR' && !alcanceEmpresa
+    ? (grupos?.sectorPropio ?? '')
+    : destinoValor;
 
   // Fetch usuarios
   const { data: usuarios } = useQuery<UsuarioOption[]>({
@@ -651,11 +769,15 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
       formData.append('destinoTipo', destinoTipo);
       if (destinoTipo === 'USUARIO') {
         formData.append('destinoValor', selectedUserIds.join(','));
-      } else if (destinoValor) {
-        formData.append('destinoValor', destinoValor);
+      } else if (destinoValorEfectivo) {
+        formData.append('destinoValor', destinoValorEfectivo);
+      }
+      if (alcanceEmpresa && destinoSectorId && destinoTipo !== 'SECTOR') {
+        formData.append('destinoSectorId', destinoSectorId);
       }
       formData.append('permiteRespuesta', String(permiteRespuesta));
-      if (archivo) formData.append('archivo', archivo);
+      formData.append('requiereConfirmacion', String(requiereConfirmacion));
+      for (const f of archivos) formData.append('adjuntos', f);
       return api.post('/mensajes', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
@@ -674,16 +796,26 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
         <h2 className="text-lg font-bold text-foreground">Redactar mensaje</h2>
       </div>
 
+      {/* Alcance */}
+      {grupos && (
+        <p className="text-xs text-muted-foreground">
+          {grupos.alcance === 'EMPRESA'
+            ? `Podés escribirle a toda la empresa (${grupos.totalAlcance} personas${destinoSectorId ? ' en el sector elegido' : ''}).`
+            : `Podés escribirle a tu sector (${grupos.totalAlcance} personas).`}
+        </p>
+      )}
+
       {/* Destination type */}
       <div>
         <label className="block text-sm font-medium text-foreground mb-1.5">Destinatario</label>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {[
-            { value: 'TODOS', label: 'Todos', icon: Users },
+            { value: 'TODOS', label: 'Toda la empresa', icon: Users },
             { value: 'SECTOR', label: 'Sector', icon: Building2 },
+            { value: 'TURNO', label: 'Turno', icon: CalendarClock },
             { value: 'ROL', label: 'Rol', icon: Shield },
-            { value: 'USUARIO', label: 'Usuario', icon: Mail },
-          ].map((opt) => (
+            { value: 'USUARIO', label: 'Personas', icon: Mail },
+          ].filter((opt) => permitidos.includes(opt.value)).map((opt) => (
             <button
               key={opt.value}
               type="button"
@@ -706,16 +838,72 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
       {destinoTipo === 'SECTOR' && (
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">Sector</label>
+          {alcanceEmpresa ? (
+            <select
+              value={destinoValor}
+              onChange={(e) => setDestinoValor(e.target.value)}
+              className="w-full rounded-lg border border-input bg-background text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            >
+              <option value="">Seleccionar sector...</option>
+              {(grupos?.sectores ?? []).map((s) => (
+                <option key={s.id} value={s.id}>{s.nombre}</option>
+              ))}
+            </select>
+          ) : (
+            // Con alcance de sector no hay nada que elegir: es el propio. El
+            // servidor lo fuerza igual, pero mostrar un <select> con una sola
+            // opción sugiere que hay una decisión donde no la hay.
+            <p className="text-sm text-muted-foreground">Tu sector.</p>
+          )}
+        </div>
+      )}
+
+      {/* Con alcance de empresa, TODOS y TURNO se pueden acotar a un sector */}
+      {alcanceEmpresa && (destinoTipo === 'TODOS' || destinoTipo === 'TURNO') && (
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1.5">
+            Acotar a un sector <span className="text-muted-foreground font-normal">(opcional)</span>
+          </label>
           <select
-            value={destinoValor}
-            onChange={(e) => setDestinoValor(e.target.value)}
+            value={destinoSectorId}
+            onChange={(e) => { setDestinoSectorId(e.target.value); setDestinoValor(''); }}
             className="w-full rounded-lg border border-input bg-background text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
           >
-            <option value="">Seleccionar sector...</option>
-            {(sectores ?? []).map((s) => (
+            <option value="">Toda la empresa</option>
+            {(grupos?.sectores ?? []).map((s) => (
               <option key={s.id} value={s.id}>{s.nombre}</option>
             ))}
           </select>
+        </div>
+      )}
+
+      {destinoTipo === 'TURNO' && (
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1.5">Turno</label>
+          {(grupos?.turnos ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">No hay turnos en tu alcance.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {(grupos?.turnos ?? []).map((t) => (
+                <button
+                  key={t.clave}
+                  type="button"
+                  onClick={() => setDestinoValor(t.clave)}
+                  className={cn(
+                    'w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm border text-left transition-colors',
+                    destinoValor === t.clave
+                      ? 'border-primary bg-primary/10 text-primary font-medium'
+                      : 'border-border text-foreground hover:bg-accent'
+                  )}
+                >
+                  <span className="truncate">{t.etiqueta}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {t.cantidad} {t.cantidad === 1 ? 'persona' : 'personas'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -838,30 +1026,39 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
       {/* Options row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
         {/* File upload */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <input
             ref={fileInputRef}
             type="file"
-            onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+            multiple
+            onChange={(e) => {
+              // Se ACUMULAN en vez de reemplazar: elegir una foto y después el
+              // PDF es exactamente el caso que motivó los adjuntos múltiples, y
+              // pisar la selección anterior lo haría imposible.
+              const nuevos = Array.from(e.target.files ?? []);
+              setArchivos((prev) => [...prev, ...nuevos].slice(0, MAX_ADJUNTOS));
+              e.target.value = '';
+            }}
             className="hidden"
-            accept=".pdf,.png,.jpg,.jpeg,.webp"
+            accept=".pdf,.png,.jpg,.jpeg,.webp,.gif"
           />
           <button
             type="button"
+            disabled={archivos.length >= MAX_ADJUNTOS}
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Paperclip className="h-4 w-4" />
-            Adjuntar archivo
+            Adjuntar ({archivos.length}/{MAX_ADJUNTOS})
           </button>
-          {archivo && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              {archivo.name}
-              <button onClick={() => setArchivo(null)} className="hover:text-foreground">
+          {archivos.map((f, i) => (
+            <span key={`${f.name}-${i}`} className="flex items-center gap-1 text-xs text-muted-foreground">
+              {f.name}
+              <button type="button" onClick={() => setArchivos((prev) => prev.filter((_, j) => j !== i))} className="hover:text-foreground">
                 <X className="h-3 w-3" />
               </button>
             </span>
-          )}
+          ))}
         </div>
 
         {/* Allow replies toggle */}
@@ -883,6 +1080,27 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
           </button>
           <span className="text-sm text-foreground">Permitir respuestas</span>
         </label>
+
+        {/* Lo pide el REMITENTE al enviar: sin esto el mensaje sólo se marca
+            leído, que pasa solo al abrirlo y no prueba que alguien lo recibió. */}
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <button
+            type="button"
+            onClick={() => setRequiereConfirmacion(!requiereConfirmacion)}
+            className={cn(
+              'relative w-10 h-5 rounded-full transition-colors',
+              requiereConfirmacion ? 'bg-primary' : 'bg-muted-foreground/30'
+            )}
+          >
+            <span
+              className={cn(
+                'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform',
+                requiereConfirmacion && 'translate-x-5'
+              )}
+            />
+          </button>
+          <span className="text-sm text-foreground">Pedir confirmación de recepción</span>
+        </label>
       </div>
 
       {/* Actions */}
@@ -900,7 +1118,7 @@ function ComposeForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel:
             !asunto.trim() ||
             !cuerpo.trim() ||
             (destinoTipo === 'USUARIO' && selectedUserIds.length === 0) ||
-            (destinoTipo !== 'TODOS' && destinoTipo !== 'USUARIO' && !destinoValor) ||
+            (destinoTipo !== 'TODOS' && destinoTipo !== 'USUARIO' && !destinoValorEfectivo) ||
             sendMutation.isPending
           }
           className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
