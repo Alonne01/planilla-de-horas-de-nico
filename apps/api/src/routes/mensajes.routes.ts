@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
-import { upload } from '../middleware/upload.middleware.js';
+import { upload, descartarArchivos } from '../middleware/upload.middleware.js';
 import { crearNotificacion } from '../utils/notificacion.utils.js';
 import { alcanceDeDifusion, destinosPermitidos, NIVEL_MINIMO_DIFUSION, type AlcanceDifusion } from '../utils/difusion.utils.js';
 import { turnoKey, etiquetaTurno } from '../utils/turnos.utils.js';
@@ -16,20 +16,42 @@ const router = Router();
 router.use(authMiddleware);
 
 /**
+ * Cuántos archivos entran en un mensaje.
+ *
+ * El pedido era poder mandar "un archivo y una imagen"; cuatro deja margen para
+ * el instructivo más un par de fotos sin que un solo mensaje pueda ocupar 50 MB.
+ */
+export const MAX_ADJUNTOS_POR_MENSAJE = 4;
+
+/**
  * Los adjuntos de un mensaje, listos para el `create` anidado.
  *
  * El tipo sale del mimetype que ya validó el `fileFilter` del middleware y no de
- * la extensión: el nombre lo elige quien sube el archivo y renombrar un .docx a
+ * la extensión: el nombre lo elige quien sube el archivo y renombrar un .pdf a
  * .png haría que el front intentara pintarlo como imagen.
  */
-function adjuntosDesdeArchivo(file: Express.Multer.File | undefined) {
-  if (!file) return [];
-  return [{
-    url: `/uploads/${file.filename}`,
-    nombre: file.originalname,
-    tipo: file.mimetype.startsWith('image/') ? 'IMAGEN' : 'ARCHIVO',
-    tamanioBytes: file.size,
-  }];
+function adjuntosDesdeArchivos(files: Express.Multer.File[] | undefined) {
+  return (files ?? []).map((f) => ({
+    url: `/uploads/${f.filename}`,
+    nombre: f.originalname,
+    tipo: f.mimetype.startsWith('image/') ? 'IMAGEN' : 'ARCHIVO',
+    tamanioBytes: f.size,
+  }));
+}
+
+/**
+ * Un 4xx que además limpia lo que multer ya escribió en disco.
+ *
+ * Multer guarda los archivos ANTES de que corra el handler, así que cada rama que
+ * rechaza deja basura acumulándose si no borra. Son seis ramas en `POST /`, y
+ * hacerlo a mano en cada una es exactamente el tipo de cosa que se olvida al
+ * agregar la séptima.
+ */
+function rechazoConLimpieza(res: Response, files: Express.Multer.File[] | undefined) {
+  return (status: number, payload: Record<string, unknown>): void => {
+    descartarArchivos(files);
+    res.status(status).json(payload);
+  };
 }
 
 // ─── Difusión: alcance y agrupamiento por turno ──────────────────────────────
@@ -131,6 +153,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         ...d.mensaje,
         leido: d.leido,
         leidoAt: d.leidoAt,
+        confirmadoAt: d.confirmadoAt,
         destinatarioId: d.id,
       })),
       total,
@@ -147,10 +170,22 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 // ─── GET /mensajes/no-leidos — Count unread ────────
 router.get('/no-leidos', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const count = await prisma.mensajeDestinatario.count({
-      where: { usuarioId: req.user!.userId, leido: false },
-    });
-    res.json({ count });
+    // Son dos cosas distintas: lo no leído se limpia solo al abrir el mensaje, y
+    // lo pendiente de confirmar sigue pendiente hasta que la persona lo confirma
+    // a mano. Un comunicado leído puede seguir sin confirmar.
+    const [count, pendientesConfirmacion] = await Promise.all([
+      prisma.mensajeDestinatario.count({
+        where: { usuarioId: req.user!.userId, leido: false },
+      }),
+      prisma.mensajeDestinatario.count({
+        where: {
+          usuarioId: req.user!.userId,
+          confirmadoAt: null,
+          mensaje: { requiereConfirmacion: true },
+        },
+      }),
+    ]);
+    res.json({ count, pendientesConfirmacion });
   } catch (error) {
     res.status(500).json({ error: 'Error interno' });
   }
@@ -286,7 +321,10 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
           orderBy: { createdAt: 'asc' },
         },
         destinatarios: {
-          select: { usuarioId: true, leido: true },
+          select: {
+            usuarioId: true, leido: true, leidoAt: true, confirmadoAt: true,
+            usuario: { select: { nombre: true, apellido: true } },
+          },
         },
       },
     });
@@ -340,6 +378,8 @@ const createMensajeSchema = z.object({
   asunto: z.string().min(1).max(200),
   cuerpo: z.string().min(1).max(5000),
   permiteRespuesta: z.boolean().optional().default(false),
+  // Lo decide el REMITENTE al enviar, no el destinatario al leer.
+  requiereConfirmacion: z.boolean().optional().default(false),
   destinoTipo: z.enum(['TODOS', 'SECTOR', 'ROL', 'TURNO', 'USUARIO']),
   destinoValor: z.string().optional(),
   // Sólo lo mira quien tiene alcance EMPRESA: acota la difusión a un sector sin
@@ -347,27 +387,31 @@ const createMensajeSchema = z.object({
   destinoSectorId: z.string().uuid().optional(),
 });
 
-router.post('/', requireLevel(NIVEL_MINIMO_DIFUSION), upload.single('archivo'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requireLevel(NIVEL_MINIMO_DIFUSION), upload.array('adjuntos', MAX_ADJUNTOS_POR_MENSAJE), async (req: AuthRequest, res: Response): Promise<void> => {
+  const archivos = req.files as Express.Multer.File[] | undefined;
+  const rechazar = rechazoConLimpieza(res, archivos);
+  let creado = false;
   try {
     // Parse JSON fields from multipart form
     const body = {
       ...req.body,
       permiteRespuesta: req.body.permiteRespuesta === 'true' || req.body.permiteRespuesta === true,
+      requiereConfirmacion: req.body.requiereConfirmacion === 'true' || req.body.requiereConfirmacion === true,
     };
 
     const parsed = createMensajeSchema.safeParse(body);
     if (!parsed.success) {
-      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      rechazar(400, { error: 'Datos inválidos', details: parsed.error.flatten() });
       return;
     }
 
-    const { asunto, cuerpo, permiteRespuesta, destinoTipo, destinoValor, destinoSectorId } = parsed.data;
+    const { asunto, cuerpo, permiteRespuesta, requiereConfirmacion, destinoTipo, destinoValor, destinoSectorId } = parsed.data;
     const empresaId = req.user!.empresaId;
     const remitenteId = req.user!.userId;
 
     const { sectorId, alcance, permitidos } = await contextoDeDifusion(req.user!);
     if (!permitidos.includes(destinoTipo)) {
-      res.status(403).json({ error: 'No podés difundir con ese destino' });
+      rechazar(403, { error: 'No podés difundir con ese destino' });
       return;
     }
 
@@ -390,10 +434,10 @@ router.post('/', requireLevel(NIVEL_MINIMO_DIFUSION), upload.single('archivo'), 
       const users = await prisma.usuario.findMany({ where: baseWhere, select: { id: true } });
       userIds = users.map(u => u.id);
     } else if (destinoTipo === 'SECTOR') {
-      if (!destinoValor) { res.status(400).json({ error: 'Se requiere el sector' }); return; }
+      if (!destinoValor) { rechazar(400, { error: 'Se requiere el sector' }); return; }
       // Con alcance SECTOR el sector es el propio, aunque el cliente pida otro.
       if (alcance === 'SECTOR' && destinoValor !== sectorId) {
-        res.status(403).json({ error: 'Sólo podés difundir a tu propio sector' });
+        rechazar(403, { error: 'Sólo podés difundir a tu propio sector' });
         return;
       }
       const users = await prisma.usuario.findMany({
@@ -402,21 +446,21 @@ router.post('/', requireLevel(NIVEL_MINIMO_DIFUSION), upload.single('archivo'), 
       });
       userIds = users.map(u => u.id);
     } else if (destinoTipo === 'ROL') {
-      if (!destinoValor) { res.status(400).json({ error: 'Se requiere el rol' }); return; }
+      if (!destinoValor) { rechazar(400, { error: 'Se requiere el rol' }); return; }
       const users = await prisma.usuario.findMany({
         where: { ...baseWhere, rol: destinoValor },
         select: { id: true },
       });
       userIds = users.map(u => u.id);
     } else if (destinoTipo === 'TURNO') {
-      if (!destinoValor) { res.status(400).json({ error: 'Se requiere el turno' }); return; }
+      if (!destinoValor) { rechazar(400, { error: 'Se requiere el turno' }); return; }
       // El turno no es una columna: sale del diagrama vigente hoy de cada uno.
       // Por eso se trae el alcance entero y se filtra en memoria, en vez de en SQL.
       const users = await prisma.usuario.findMany({ where: baseWhere, select: { id: true } });
       const turnos = await turnosDeUsuarios(users.map(u => u.id));
       userIds = users.map(u => u.id).filter(uid => turnos.get(uid)?.clave === destinoValor);
     } else if (destinoTipo === 'USUARIO') {
-      if (!destinoValor) { res.status(400).json({ error: 'Se requiere el usuario' }); return; }
+      if (!destinoValor) { rechazar(400, { error: 'Se requiere el usuario' }); return; }
       // Validate all recipient IDs belong to sender's empresa; never self-address.
       // Van contra `baseWhere`, así que un coordinador no puede escribirle a
       // alguien de otro sector pasando su id a mano.
@@ -429,7 +473,7 @@ router.post('/', requireLevel(NIVEL_MINIMO_DIFUSION), upload.single('archivo'), 
     }
 
     if (userIds.length === 0) {
-      res.status(400).json({ error: 'No se encontraron destinatarios' });
+      rechazar(400, { error: 'No se encontraron destinatarios' });
       return;
     }
 
@@ -440,6 +484,7 @@ router.post('/', requireLevel(NIVEL_MINIMO_DIFUSION), upload.single('archivo'), 
         asunto,
         cuerpo,
         permiteRespuesta,
+        requiereConfirmacion,
         esDifusion: destinoTipo !== 'USUARIO' || userIds.length > 1,
         destinoTipo,
         destinoValor: destinoValor ?? null,
@@ -447,10 +492,11 @@ router.post('/', requireLevel(NIVEL_MINIMO_DIFUSION), upload.single('archivo'), 
         destinatarios: {
           create: userIds.map(uid => ({ usuarioId: uid })),
         },
-        adjuntos: { create: adjuntosDesdeArchivo(req.file) },
+        adjuntos: { create: adjuntosDesdeArchivos(archivos) },
       },
       include: { adjuntos: true },
     });
+    creado = true;
 
     // Notify all recipients
     const remitente = await prisma.usuario.findUnique({
@@ -473,6 +519,9 @@ router.post('/', requireLevel(NIVEL_MINIMO_DIFUSION), upload.single('archivo'), 
     res.status(201).json({ ...mensaje, destinatariosCount: userIds.length });
   } catch (error) {
     console.error('Error creating mensaje:', error);
+    // Sólo se descartan si el mensaje NO llegó a crearse: pasado ese punto los
+    // archivos ya son suyos y borrarlos dejaría adjuntos rotos en la base.
+    if (!creado) descartarArchivos(archivos);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -482,7 +531,10 @@ const respuestaSchema = z.object({
   cuerpo: z.string().min(1).max(5000),
 });
 
-router.post('/:id/responder', upload.single('archivo'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/:id/responder', upload.array('adjuntos', MAX_ADJUNTOS_POR_MENSAJE), async (req: AuthRequest, res: Response): Promise<void> => {
+  const archivos = req.files as Express.Multer.File[] | undefined;
+  const rechazar = rechazoConLimpieza(res, archivos);
+  let creado = false;
   try {
     const mensajeId = req.params.id;
     const userId = req.user!.userId;
@@ -493,13 +545,13 @@ router.post('/:id/responder', upload.single('archivo'), async (req: AuthRequest,
     });
 
     if (!mensaje) {
-      res.status(404).json({ error: 'Mensaje no encontrado' });
+      rechazar(404, { error: 'Mensaje no encontrado' });
       return;
     }
 
     // Ensure message belongs to caller's empresa
     if (mensaje.empresaId !== req.user!.empresaId) {
-      res.status(404).json({ error: 'Mensaje no encontrado' });
+      rechazar(404, { error: 'Mensaje no encontrado' });
       return;
     }
 
@@ -507,18 +559,18 @@ router.post('/:id/responder', upload.single('archivo'), async (req: AuthRequest,
     const isRecipient = mensaje.destinatarios.length > 0;
     const isSender = mensaje.remitenteId === userId;
     if (!isRecipient && !isSender) {
-      res.status(403).json({ error: 'Sin acceso a este mensaje' });
+      rechazar(403, { error: 'Sin acceso a este mensaje' });
       return;
     }
 
     if (!mensaje.permiteRespuesta) {
-      res.status(400).json({ error: 'Este mensaje no permite respuestas' });
+      rechazar(400, { error: 'Este mensaje no permite respuestas' });
       return;
     }
 
     const parsed = respuestaSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: 'Datos inválidos' });
+      rechazar(400, { error: 'Datos inválidos' });
       return;
     }
 
@@ -527,13 +579,14 @@ router.post('/:id/responder', upload.single('archivo'), async (req: AuthRequest,
         mensajeId,
         usuarioId: userId,
         cuerpo: parsed.data.cuerpo,
-        adjuntos: { create: adjuntosDesdeArchivo(req.file) },
+        adjuntos: { create: adjuntosDesdeArchivos(archivos) },
       },
       include: {
         usuario: { select: { id: true, nombre: true, apellido: true, rol: true } },
         adjuntos: true,
       },
     });
+    creado = true;
 
     // Notify the original sender about the reply
     if (mensaje.remitenteId !== userId) {
@@ -550,6 +603,61 @@ router.post('/:id/responder', upload.single('archivo'), async (req: AuthRequest,
     res.status(201).json(respuesta);
   } catch (error) {
     console.error('Error replying to mensaje:', error);
+    if (!creado) descartarArchivos(archivos);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /mensajes/:id/confirmar — Acuse de recibo ────
+//
+// El "leído" se marca solo al abrir el mensaje, así que no prueba nada: alcanza
+// con que la pantalla haya estado abierta. Esto es un acto explícito del
+// destinatario y es lo único que sirve para mostrar después que el comunicado se
+// recibió. Sólo lo piden los mensajes cuyo remitente lo pidió al enviar.
+router.post('/:id/confirmar', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const mensaje = await prisma.mensaje.findFirst({
+      where: { id: req.params.id, empresaId: req.user!.empresaId },
+      select: { id: true, requiereConfirmacion: true },
+    });
+    if (!mensaje) {
+      res.status(404).json({ error: 'Mensaje no encontrado' });
+      return;
+    }
+    if (!mensaje.requiereConfirmacion) {
+      res.status(400).json({ error: 'Este mensaje no pide confirmación de recepción' });
+      return;
+    }
+
+    const destinatario = await prisma.mensajeDestinatario.findUnique({
+      where: { mensajeId_usuarioId: { mensajeId: mensaje.id, usuarioId: req.user!.userId } },
+      select: { confirmadoAt: true, leido: true },
+    });
+    if (!destinatario) {
+      res.status(403).json({ error: 'No sos destinatario de este mensaje' });
+      return;
+    }
+
+    // Idempotente: confirmar de nuevo no mueve la fecha original, que es
+    // justamente el dato que se quiere conservar.
+    if (destinatario.confirmadoAt) {
+      res.json({ ok: true, confirmadoAt: destinatario.confirmadoAt });
+      return;
+    }
+
+    const ahora = new Date();
+    await prisma.mensajeDestinatario.update({
+      where: { mensajeId_usuarioId: { mensajeId: mensaje.id, usuarioId: req.user!.userId } },
+      // Confirmar implica haberlo leído: si llegó acá sin pasar por el detalle,
+      // dejarlo como no leído contradice el acuse que acaba de dar. Si ya estaba
+      // leído se conserva la fecha original — pisarla borraría cuándo lo abrió.
+      data: destinatario.leido
+        ? { confirmadoAt: ahora }
+        : { confirmadoAt: ahora, leido: true, leidoAt: ahora },
+    });
+    res.json({ ok: true, confirmadoAt: ahora });
+  } catch (error) {
+    console.error('Error confirmando mensaje:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
