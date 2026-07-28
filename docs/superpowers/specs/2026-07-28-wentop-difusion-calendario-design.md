@@ -11,30 +11,35 @@ y cada una se puede frenar sin dejar las otras a medias.
 
 ## Qué ya existe (y por eso no se rehace)
 
-Antes de diseñar nada conviene fijar el punto de partida, porque tres de los cuatro
-pedidos ya están construidos a medias:
+Antes de diseñar nada conviene fijar el punto de partida, porque casi todo lo pedido ya
+está construido a medias:
 
 | Pedido | Lo que ya hay | Lo que falta de verdad |
 |---|---|---|
 | Analytics WENTOP por sector | `buildVisibilityWhere` (wentop.routes.ts:126) ya limita a: sector propio + sectores donde sos gestor + tus propias tarjetas. RRHH (nivel ≥ 90) y el rol `CMASS` ya ven todo. | El **filtro por sector** para quien ve varios, y el rango de fechas. |
 | Personal de seguimiento por sector | La tabla `wentop_gestores` y la pestaña "Gestores" (la configura RRHH). El gestor ya ve todas las tarjetas de sus sectores, con filtros por estado/tipo/sector/fechas. | La **vista tabla** (hoy es una grilla con tope de 500 sin paginado) y el **Excel con fotos**. |
 | Difusión segmentada por diagrama | `turnoKey` (apps/web/src/utils/turnos.ts) ya agrupa por patrón de descanso y fase del ciclo — exactamente "los que arrancan el jueves 30" y "los de lunes a viernes". Se usa en el filtro del calendario detallado. | Portarlo al backend, bajar el nivel mínimo de `POST /mensajes` y acotar el alcance. |
+| Adjuntos y confirmación en los mensajes | Un adjunto por mensaje (`archivoUrl`) y `leido`/`leidoAt`, que se marca solo al abrir. | Varios adjuntos con imagen embebida, y un acuse **explícito** distinto del leído. |
 | Zoom del calendario de equipo | Nada. Las dos vistas están cableadas a 12 meses de un año. | Todo. |
 
 ---
 
 ## Decisiones tomadas
 
-Cuatro preguntas que cambiaban el tamaño del trabajo, ya resueltas:
+Lo que cambiaba el tamaño del trabajo, ya resuelto:
 
 1. **Fotos en el Excel → miniaturas con `jimp`.** JavaScript puro, sin dependencias
    nativas, así que la imagen Docker no cambia. Miniaturas cacheadas en disco.
-2. **Alcance de la difusión → todos los activos del sector.** Sin discriminar por nivel
+2. **Alcance de la difusión → todos los activos del alcance.** Sin discriminar por nivel
    (salvo el propio remitente). Un coordinador le puede avisar algo a otro coordinador
-   del sector.
-3. **Vista del gestor → tabla paginada y ordenable.** La grilla de tarjetas queda como
+   del sector. Quien es transversal —RRHH, CMASS, un rol de nivel ≥ 70 sin sector como el
+   gerente general— elige en cada mensaje entre toda la empresa y un sector.
+3. **Las difusiones llevan adjuntos y pueden pedir confirmación de recepción.** Hasta 4
+   archivos por mensaje (imágenes embebidas, PDF como enlace) y un acuse explícito, que es
+   distinto del "leído" automático que ya existe.
+4. **Vista del gestor → tabla paginada y ordenable.** La grilla de tarjetas queda como
    está para el resto de la gente.
-4. **Entrega → un spec, implementación por partes.**
+5. **Entrega → un spec, implementación por partes.**
 
 ---
 
@@ -173,27 +178,52 @@ sector ve los analytics de su sector" no se puede ni etiquetar en pantalla.
 
 ---
 
-## Parte 3 — Difusión de Coordinador y Gerente
+## Parte 3 — Difusión de Coordinador, Gerente y CMASS
 
-### Alcance
+### Alcance: dos, no una regla por rol
 
-`POST /mensajes` baja de `requireLevel(90)` a `requireLevel(70)`, con las reglas por nivel
-resueltas **en el servidor** (el front sólo muestra lo que el servidor permite):
+`POST /mensajes` baja de `requireLevel(90)` a `requireLevel(70)`. En vez de una tabla de
+excepciones por rol, cada remitente tiene un **alcance máximo**, y todo lo demás se deriva
+de ahí:
 
-| Nivel | `destinoTipo` permitidos | Destinatarios |
-|---|---|---|
-| ≥ 90 (RRHH/ADMIN) | `TODOS`, `SECTOR`, `ROL`, `USUARIO`, `TURNO` | como hoy |
-| 70–89 (COORDINADOR/GERENTE/CMASS) | `SECTOR` (sólo el propio), `TURNO`, `USUARIO` | siempre intersectado con `sectorId = remitente.sectorId`, `activo: true`, sin el remitente |
-| < 70 | ninguno | 403 |
+```ts
+// apps/api/src/utils/difusion.utils.ts (nuevo)
+export type AlcanceDifusion = 'EMPRESA' | 'SECTOR' | 'NINGUNO';
 
-`TODOS` y `ROL` quedan fuera para 70–89: no se traducen a "mi sector" sin ambigüedad, y
-`SECTOR` con el sector propio dice exactamente lo mismo sin dejar dudas en la auditoría.
+export function alcanceDeDifusion(u: { rol: string; rolNivel: number; sectorId: string | null }): AlcanceDifusion {
+  if (u.rolNivel >= 90) return 'EMPRESA';            // RRHH / ADMIN
+  if (u.rol === 'CMASS') return 'EMPRESA';           // seguridad: comunica a toda la planta
+  if (u.rolNivel >= 70 && !u.sectorId) return 'EMPRESA';  // gerente general y demás roles transversales
+  if (u.rolNivel >= 70) return 'SECTOR';
+  return 'NINGUNO';
+}
+```
 
-**Limitación conocida:** un GERENTE **sin sector asignado** (que en los circuitos de
-aprobación es transversal) no tiene a quién difundir y recibe
-`400 — "No tenés un sector asignado: pedile a RRHH que te asigne uno para poder difundir"`.
-Se ofreció la variante "gerente sin sector elige cualquier sector" y no se eligió; si
-aparece el caso real, es una regla más en la tabla de arriba.
+**Un rol de nivel ≥ 70 sin sector asignado es transversal**, no un usuario mal configurado.
+Es la misma convención que ya usan los circuitos de aprobación (un GERENTE sin sector
+aprueba para toda la empresa), y es el caso del gerente general: no tiene sector *porque*
+su alcance es la compañía entera.
+
+| Alcance | Quién | `destinoTipo` permitidos | Destinatarios |
+|---|---|---|---|
+| `EMPRESA` | RRHH/ADMIN (≥90) · CMASS · cualquier rol ≥70 sin sector | `TODOS`, `SECTOR` (cualquiera), `TURNO`, `USUARIO`, `ROL` (sólo ≥90) | lo que elija, dentro de su empresa |
+| `SECTOR` | COORDINADOR, GERENTE de sector y demás roles ≥70 con sector | `SECTOR` (sólo el propio), `TURNO`, `USUARIO` | siempre intersectado con `sectorId = remitente.sectorId` |
+| `NINGUNO` | nivel < 70 | ninguno | 403 |
+
+Con alcance `EMPRESA` el usuario **elige en cada mensaje**: toda la empresa, un sector, un
+turno (de toda la empresa o del sector que eligió), o personas sueltas. Es lo que se pidió
+para CMASS ("a su sector o a toda la empresa, según lo que decida"), y de paso queda
+uniforme: poder elegir *cualquier* sector es un superconjunto de poder elegir el propio, y
+no hace falta una regla aparte para distinguirlos.
+
+`ROL` queda reservado a nivel ≥ 90: es la única segmentación que atraviesa la jerarquía
+(«todos los supervisores de la empresa») y no tiene lectura natural para CMASS ni para un
+gerente general.
+
+Con alcance `SECTOR`, `TODOS` y `ROL` quedan fuera porque no se traducen a "mi sector" sin
+ambigüedad; `SECTOR` con el sector propio dice lo mismo sin dejar dudas en la auditoría.
+
+En los tres casos la resolución termina con `activo: true` y sin el remitente, como hoy.
 
 `GET /mensajes/enviados` también baja a nivel 70 (ya filtra por `remitenteId`, así que no
 expone nada de otro).
@@ -234,10 +264,11 @@ grupo nuevo.
 ### Endpoint nuevo: los grupos que puedo difundir
 
 ```
-GET /mensajes/grupos-difusion
+GET /mensajes/grupos-difusion?sectorId=<opcional>
 → {
     alcance: 'EMPRESA' | 'SECTOR',
-    sector: { id, nombre } | null,
+    sectorPropio: { id, nombre } | null,
+    sectores: [{ id, nombre }],        // vacío si el alcance es SECTOR
     turnos: [{
       clave: 'R|14|7|3',
       etiqueta: 'Rotativo 14×7 — arrancan el jue 30/07',
@@ -251,26 +282,117 @@ Los turnos se calculan sobre los usuarios activos del alcance, agrupando por `tu
 ordenados por cantidad descendente. Los `SIN` (sin diagrama vigente) se muestran aparte,
 como "Sin diagrama asignado", porque son gente que igual puede necesitar el comunicado.
 
+El `sectorId` opcional sólo lo usa quien tiene alcance `EMPRESA`: acota los turnos al
+sector que está por elegir, para que el conteo que ve sea el que realmente va a recibir el
+mensaje. Sin él, los turnos son de toda la empresa. Con alcance `SECTOR` el parámetro se
+ignora (el sector siempre es el propio).
+
 ### Resolución de destinatarios
 
 Para `destinoTipo: 'TURNO'`, el servidor **recalcula** el grupo en el momento del envío a
-partir de `destinoValor` (la clave); nunca confía en una lista de IDs mandada por el
-cliente. Si el grupo quedó vacío (alguien cambió de diagrama entre que se abrió el
-formulario y se envió), responde 400 con el conteo en cero, igual que hoy.
+partir de `destinoValor` (la clave) y `destinoSectorId`; nunca confía en una lista de IDs
+mandada por el cliente. Si el grupo quedó vacío (alguien cambió de diagrama entre que se
+abrió el formulario y se envió), responde 400 con el conteo en cero, igual que hoy.
+
+`destinoSectorId` es una **columna nueva** en `mensajes`: sin ella, un turno acotado a un
+sector y el mismo turno a nivel empresa se guardan idénticos, y el historial de un
+comunicado deja de decir a quién se mandó. `null` significa "toda la empresa".
+
+### Adjuntos: archivo e imagen
+
+Hoy `Mensaje` y `MensajeRespuesta` tienen un solo par de columnas `archivoUrl`/`archivoNombre`,
+o sea **un adjunto y nada más**. Se reemplazan por una tabla:
+
+```prisma
+model MensajeAdjunto {
+  id           String   @id @default(uuid())
+  mensajeId    String?  @map("mensaje_id")
+  respuestaId  String?  @map("respuesta_id")
+  url          String
+  nombre       String
+  tipo         String   // 'IMAGEN' | 'ARCHIVO'
+  tamanioBytes Int      @map("tamanio_bytes")
+  createdAt    DateTime @default(now()) @map("created_at")
+  // CHECK en la migración: exactamente uno de mensajeId / respuestaId
+}
+```
+
+`tipo` se deriva del mimetype que ya valida `upload.middleware.ts` (que hoy admite jpg,
+png, gif, webp y pdf): las imágenes se muestran embebidas en el cuerpo del mensaje, el PDF
+como un enlace de descarga. Guardarlo como columna y no recalcularlo desde la extensión
+evita que renombrar un archivo cambie cómo se renderiza un mensaje ya enviado.
+
+**Hasta 4 adjuntos por mensaje** (`upload.array('adjuntos', 4)`), mezclando tipos. El
+pedido fue "un archivo y una imagen"; un único selector múltiple con un tope es menos
+código que dos selectores con validaciones distintas, y no deja al usuario trabado cuando
+son dos fotos. Siguen valiendo los límites que ya existen: 5 MB por archivo
+(`MAX_BYTES_POR_ARCHIVO`) y 60 subidas por hora por usuario (`uploadLimiter`).
+
+Si la creación del mensaje falla después de que multer escribió los archivos, hay que
+llamar a `descartarArchivos(files)` en **cada** rama de rechazo — es la trampa que ya está
+documentada en la memoria `limites-carga-archivos`.
+
+### Confirmación de recepción
+
+`leido` ya existe, pero es **automático**: se marca solo al abrir el mensaje. Para un
+comunicado que después hay que poder mostrar ("se le informó y lo confirmó"), eso no sirve;
+hace falta un acto explícito. Son dos cosas distintas y conviven:
+
+```prisma
+model Mensaje              { requiereConfirmacion Boolean   @default(false) }
+model MensajeDestinatario  { confirmadoAt         DateTime? }
+```
+
+- El remitente marca "pedir confirmación de recepción" al redactar.
+- Quien lo recibe ve un cartel fijo arriba del mensaje con el botón **Confirmar recepción**,
+  y en la bandeja el mensaje queda con un distintivo hasta que lo confirme. No bloquea la
+  aplicación: un cartel que no se puede cerrar se termina confirmando sin leer, que es
+  justo lo contrario de lo que el registro pretende probar.
+- `POST /mensajes/:id/confirmar` — sólo un destinatario, idempotente (confirmar dos veces
+  no mueve la fecha original).
+- `GET /mensajes/:id` ya le devuelve la lista de destinatarios al remitente y a RRHH; suma
+  `confirmadoAt` y el nombre, para mostrar "12 de 34 confirmaron" y quiénes faltan.
+- `GET /mensajes/no-leidos` pasa a devolver `{ count, pendientesConfirmacion }`, que es lo
+  que necesita el badge del menú.
+
+### Migración
+
+`20260728_difusion_adjuntos_confirmacion`:
+
+1. Crea `mensaje_adjuntos` con el CHECK de exclusividad.
+2. Copia las filas existentes de `mensajes.archivo_url` y `mensaje_respuestas.archivo_url`
+   (hoy: **3 y 3**, respectivamente), con `tipo` derivado de la extensión y `tamanio_bytes`
+   en 0 para las históricas (el archivo original puede ya no estar en disco).
+3. Elimina `archivo_url` y `archivo_nombre` de las dos tablas.
+4. Agrega `mensajes.destino_sector_id`, `mensajes.requiere_confirmacion` y
+   `mensaje_destinatarios.confirmado_at`.
+
+El paso 3 es el único destructivo, y por eso va después del backfill en la misma migración:
+partirlo en dos deja una ventana donde el dato vive en dos lados.
 
 ### Archivos
 
 - **Crear:** `apps/api/src/utils/turnos.utils.ts` + `apps/api/tests/turnos.test.ts`
   (sumarlo a `test:unit`).
-- **Modificar:** `apps/api/src/routes/mensajes.routes.ts` — niveles, `alcanceDelRemitente()`,
-  `TURNO`, `GET /grupos-difusion`.
+- **Crear:** `apps/api/src/utils/difusion.utils.ts` (`alcanceDeDifusion`, resolución de
+  destinatarios) + casos en el mismo test.
+- **Crear:** migración `20260728_difusion_adjuntos_confirmacion`.
+- **Modificar:** `apps/api/prisma/schema.prisma` — `MensajeAdjunto`, `destinoSectorId`,
+  `requiereConfirmacion`, `confirmadoAt`; baja de `archivoUrl`/`archivoNombre`.
+- **Modificar:** `apps/api/src/routes/mensajes.routes.ts` — niveles, alcance, `TURNO`,
+  `GET /grupos-difusion`, adjuntos múltiples, `POST /:id/confirmar`, `no-leidos`.
 - **Modificar:** `apps/web/src/pages/MensajesPage.tsx` — `isRRHH` → `puedeDifundir`
   (nivel ≥ 70), opciones de destino según `grupos-difusion`, selector de turno con
-  etiqueta y conteo.
+  etiqueta y conteo, selector de sector para alcance `EMPRESA`, adjuntos múltiples con
+  vista previa de imágenes, cartel y botón de confirmación, tablero de confirmaciones
+  para el remitente.
 - **Modificar:** `apps/api/tests/qa/mensajes.qa.ts` — coordinador difunde a su sector;
   coordinador no puede `TODOS` ni `ROL` (403); coordinador no alcanza a nadie de otro
   sector aunque mande IDs explícitos; difusión por turno llega sólo a ese grupo;
-  operador sigue sin poder enviar (403).
+  operador sigue sin poder enviar (403); CMASS difunde a toda la empresa y también a un
+  sector; gerente sin sector difunde a un sector que no es el suyo; mensaje con dos
+  adjuntos (imagen + PDF) los devuelve tipados; confirmar recepción es idempotente y sólo
+  lo puede hacer un destinatario; el remitente ve quién confirmó y quién no.
 
 ---
 
@@ -393,7 +515,8 @@ descarga entera.
 | `turnoKey` duplicado front/back que se desincroniza | El backend es la autoridad; comentarios cruzados y test unitario espejo |
 | Cambio de forma en `GET /wentop` | Un solo consumidor y una sola suite, actualizados en el mismo commit |
 | El zoom cambia el conteo de solapes (pasa a ser por ventana) | Es el comportamiento correcto para lo que el zoom sirve; documentado en el código |
-| Gerente sin sector se queda sin difusión | Error explícito que dice qué pedirle a RRHH |
+| La migración de adjuntos borra `archivo_url` | Backfill y borrado en la misma migración; son 6 filas en total y `pg_dump` antes, como siempre |
+| Un rol nuevo de nivel ≥ 70 sin sector queda difundiendo a toda la empresa sin que nadie lo haya decidido | Es la misma convención que ya rige los circuitos de aprobación; la pantalla de roles muestra el nivel al crearlos |
 
 ## Fuera de alcance
 
