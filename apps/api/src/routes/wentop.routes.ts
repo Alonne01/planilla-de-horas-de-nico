@@ -85,6 +85,63 @@ const estadoSchema = z.object({
 
 // ─── Helper ──────────────────────────────────────
 
+type UsuarioWentop = { userId: string; empresaId: string; rol: string; rolNivel: number };
+
+/**
+ * Los sectores cuyas tarjetas puede ver el usuario, y si su alcance es global.
+ *
+ * Mismo criterio que `buildVisibilityWhere`, pero devuelto como lista en vez de
+ * como `where`: lo necesitan el selector de sector del tablero (para saber si
+ * mostrarlo) y la validación del filtro (para saber si el sector pedido está
+ * permitido).
+ */
+async function alcanceDeSectores(user: UsuarioWentop): Promise<{ global: boolean; sectores: { id: string; nombre: string }[] }> {
+  if (user.rol === 'CMASS' || user.rolNivel >= 90) {
+    const sectores = await prisma.sector.findMany({
+      where: { empresaId: user.empresaId, activo: true },
+      select: { id: true, nombre: true },
+      orderBy: { nombre: 'asc' },
+    });
+    return { global: true, sectores };
+  }
+
+  const [usuario, gestorDe] = await Promise.all([
+    prisma.usuario.findUnique({ where: { id: user.userId }, select: { sectorId: true } }),
+    prisma.wentopGestor.findMany({ where: { usuarioId: user.userId, activo: true }, select: { sectorId: true } }),
+  ]);
+
+  const ids = new Set<string>();
+  if (usuario?.sectorId) ids.add(usuario.sectorId);
+  for (const g of gestorDe) ids.add(g.sectorId);
+
+  const sectores = ids.size === 0 ? [] : await prisma.sector.findMany({
+    where: { id: { in: [...ids] }, empresaId: user.empresaId },
+    select: { id: true, nombre: true },
+    orderBy: { nombre: 'asc' },
+  });
+  return { global: false, sectores };
+}
+
+/**
+ * Rango de `fechaReporte` a partir de `desde`/`hasta` de la query.
+ *
+ * Devuelve `null` si alguno es inválido, para que el llamador conteste 400: sin
+ * el guard, un `?desde=abc` propaga un Invalid Date al `where` de Prisma y la
+ * ruta entera contesta 500.
+ */
+function filtroFechaReporte(query: Record<string, unknown>): { ok: true; filtro?: { gte?: Date; lte?: Date } } | { ok: false; campo: string } {
+  const filtro: { gte?: Date; lte?: Date } = {};
+  for (const campo of ['desde', 'hasta'] as const) {
+    const valor = query[campo];
+    if (!valor) continue;
+    const d = new Date(valor as string);
+    if (isNaN(d.getTime())) return { ok: false, campo };
+    if (campo === 'desde') filtro.gte = d;
+    else filtro.lte = d;
+  }
+  return { ok: true, filtro: Object.keys(filtro).length > 0 ? filtro : undefined };
+}
+
 async function canManageWentop(
   userId: string,
   rol: string,
@@ -155,6 +212,40 @@ async function buildVisibilityWhere(user: { userId: string; empresaId: string; r
   };
 }
 
+/**
+ * Alcance del TABLERO, que no es el del listado.
+ *
+ * `buildVisibilityWhere` incluye `{ creadorId: vos }` para que siempre puedas
+ * encontrar una tarjeta tuya, aunque la hayas cargado sobre otro sector. En un
+ * tablero que dice "sector X" esa rama mete tarjetas de otros sectores y los
+ * números dejan de coincidir con los que ve el gestor de X. Por eso son dos
+ * funciones y no una con un flag: el flag se termina pasando mal.
+ */
+async function buildAnalyticsWhere(
+  user: UsuarioWentop,
+  sectorId?: string,
+): Promise<{ where: any } | { status: number; error: string }> {
+  const alcance = await alcanceDeSectores(user);
+
+  if (sectorId) {
+    if (!alcance.global && !alcance.sectores.some((s) => s.id === sectorId)) {
+      // 403 explícito y no un tablero vacío: en pantalla los dos se ven igual, y
+      // el segundo se termina reportando como bug de datos faltantes.
+      return { status: 403, error: 'Sin permiso para ver ese sector' };
+    }
+    return { where: { empresaId: user.empresaId, sectorObservacionId: sectorId } };
+  }
+
+  if (alcance.global) return { where: { empresaId: user.empresaId } };
+
+  return {
+    where: {
+      empresaId: user.empresaId,
+      sectorObservacionId: { in: alcance.sectores.map((s) => s.id) },
+    },
+  };
+}
+
 const tarjetaInclude = {
   creador: { select: { nombre: true, apellido: true, legajo: true, sector: { select: { id: true, nombre: true } } } },
   sectorObservacion: { select: { id: true, nombre: true } },
@@ -171,7 +262,19 @@ const tarjetaDetailInclude = {
 
 router.get('/analytics', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const where = await buildVisibilityWhere(req.user!);
+    const alcance = await buildAnalyticsWhere(req.user!, req.query.sectorId as string | undefined);
+    if ('error' in alcance) {
+      res.status(alcance.status).json({ error: alcance.error });
+      return;
+    }
+    const where: any = alcance.where;
+
+    const fechas = filtroFechaReporte(req.query as Record<string, unknown>);
+    if (!fechas.ok) {
+      res.status(400).json({ error: `Parámetro "${fechas.campo}" inválido` });
+      return;
+    }
+    if (fechas.filtro) where.fechaReporte = fechas.filtro;
 
     const tarjetas = await prisma.wentopTarjeta.findMany({
       where,
@@ -261,6 +364,41 @@ router.get('/analytics', async (req: AuthRequest, res: Response): Promise<void> 
     });
   } catch (error) {
     console.error('Error fetching wentop analytics:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ─── GET /wentop/sectores ────────────────────────
+// Catálogo de sectores SIN guardia de nivel.
+//
+// El front pedía esta lista a `/analytics/sectores`, que exige nivel 70: para un
+// operador eso era un 403 y la lista quedaba vacía. No sólo lo dejaba sin filtro
+// — el MISMO array alimenta el `<select>` del asistente de alta, así que un
+// operador no podía elegir el sector de observación de su propia tarjeta.
+// Son id y nombre, que ya viajan dentro de cada tarjeta que ese usuario ve.
+router.get('/sectores', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const sectores = await prisma.sector.findMany({
+      where: { empresaId: req.user!.empresaId, activo: true },
+      select: { id: true, nombre: true },
+      orderBy: { nombre: 'asc' },
+    });
+    res.json(sectores);
+  } catch (error) {
+    console.error('Error listing sectores wentop:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ─── GET /wentop/mi-alcance ──────────────────────
+// Qué sectores puede mirar el tablero de quien pregunta. El front lo usa para
+// decidir si muestra el selector: con un solo sector no hay nada que elegir.
+
+router.get('/mi-alcance', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    res.json(await alcanceDeSectores(req.user!));
+  } catch (error) {
+    console.error('Error fetching alcance wentop:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -376,7 +514,7 @@ router.delete('/gestores/:id', requireLevel(LEVEL_RRHH), async (req: AuthRequest
 
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { estado, tipoTarjeta, sectorId, desde, hasta } = req.query;
+    const { estado, tipoTarjeta, sectorId } = req.query;
 
     const where: any = await buildVisibilityWhere(req.user!);
 
@@ -393,19 +531,13 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       where.tipoTarjeta = tipoTarjeta as string;
     }
     if (sectorId) where.sectorObservacionId = sectorId as string;
-    if (desde || hasta) {
-      where.fechaReporte = {};
-      if (desde) {
-        const d = new Date(desde as string);
-        if (isNaN(d.getTime())) { res.status(400).json({ error: 'Parámetro "desde" inválido' }); return; }
-        where.fechaReporte.gte = d;
-      }
-      if (hasta) {
-        const h = new Date(hasta as string);
-        if (isNaN(h.getTime())) { res.status(400).json({ error: 'Parámetro "hasta" inválido' }); return; }
-        where.fechaReporte.lte = h;
-      }
+
+    const fechas = filtroFechaReporte(req.query as Record<string, unknown>);
+    if (!fechas.ok) {
+      res.status(400).json({ error: `Parámetro "${fechas.campo}" inválido` });
+      return;
     }
+    if (fechas.filtro) where.fechaReporte = fechas.filtro;
 
     const tarjetas = await prisma.wentopTarjeta.findMany({
       where,
