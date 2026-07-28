@@ -1,6 +1,6 @@
 import api from '@/services/api';
-import { ymd } from '@/utils/fechaDia';
 import { type DiagramaInfo } from '@/utils/planillaHelpers';
+import { type Ventana, rangoEnVentana } from './ventana';
 
 export interface Sector { id: string; nombre: string }
 /** Un tramo de vigencia, tal como lo manda el gantt. */
@@ -93,9 +93,13 @@ export function tipoLabel(tipo: string): string {
 // La implementación vive en utils/fechaDia.ts (autoridad única): acá sólo se
 // re-exporta con los nombres que ya usaban los calendarios.
 export { ymd, fmtDia as fmtDate } from '@/utils/fechaDia';
-export function daysInMonth(year: number, monthIndex0: number) {
-  return new Date(year, monthIndex0 + 1, 0).getDate();
-}
+
+// El eje del calendario (ventana de meses, índices de día, recortes). Se
+// re-exporta acá para que los dos componentes sigan importando de un solo lugar.
+// `daysInMonth(anio, mes0)` era la versión 0-based de `diasDelMes(anio, mes)`:
+// OJO al migrar llamadas, el mes ahora va 1-12.
+export * from './ventana';
+
 export function norm(s: string) {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
@@ -111,46 +115,33 @@ export async function fetchCalendar(anio: number, sectorId: string): Promise<Gan
 }
 
 // ── Solapes (overlap) ──────────────────────────────────────────────────────
-// Offsets día-del-año por mes (leap-aware).
-export function monthOffsets(anio: number): { monthOffset: number[]; totalDays: number } {
-  const monthOffset: number[] = [];
-  let acc = 0;
-  for (let mi = 0; mi < 12; mi++) { monthOffset[mi] = acc; acc += daysInMonth(anio, mi); }
-  return { monthOffset, totalDays: acc };
-}
-
-// Rango [inicio,fin] en día-del-año de un bloque, acotado al año (null si queda afuera).
-export function blockDoyRange(
-  fechaInicio: string, fechaFin: string, year: number, monthOffset: number[], totalDays: number,
-): [number, number] | null {
-  const [y1, m1, d1] = ymd(fechaInicio);
-  const [y2, m2, d2] = ymd(fechaFin);
-  if (y1 > year || y2 < year) return null;
-  const start = y1 < year ? 0 : monthOffset[m1 - 1] + (d1 - 1);
-  const end = y2 > year ? totalDays - 1 : monthOffset[m2 - 1] + (d2 - 1);
-  return [Math.max(0, start), Math.min(totalDays - 1, end)];
-}
+//
+// El pico se mide DENTRO DE LA VENTANA: en la vista de un mes, el badge cuenta la
+// gente que se pisa ese mes, no en todo el año. Es lo que el zoom tiene que
+// responder —"quién más está afuera estos días"— pero es un cambio observable
+// respecto de cuando el eje era el año entero: el mismo bloque puede mostrar
+// pico 3 en la vista anual y 2 en la mensual, y las dos cifras son correctas
+// para lo que cada vista pregunta.
 
 // Pico de ocupación por bloque countable (≥2 ⇒ al menos otra persona afuera esos
 // días). Cada empleado cuenta 1 por día. Devuelve sólo los bloques con pico ≥ 2.
-export function computeOverlapPeaks(empleados: Empleado[], anio: number): Map<string, number> {
-  const { monthOffset, totalDays } = monthOffsets(anio);
-  const counts = new Int16Array(totalDays);
+export function computeOverlapPeaks(empleados: Empleado[], v: Ventana): Map<string, number> {
+  const counts = new Int16Array(v.totalDias);
   for (const emp of empleados) {
-    const doySet = new Set<number>();
+    const dias = new Set<number>();
     for (const b of emp.bloques) {
       if (!COUNTABLE[catOf(b.tipo)]) continue;
-      const rg = blockDoyRange(b.fechaInicio, b.fechaFin, anio, monthOffset, totalDays);
+      const rg = rangoEnVentana(b.fechaInicio, b.fechaFin, v);
       if (!rg) continue;
-      for (let d = rg[0]; d <= rg[1]; d++) doySet.add(d);
+      for (let d = rg[0]; d <= rg[1]; d++) dias.add(d);
     }
-    for (const d of doySet) counts[d]++;
+    for (const d of dias) counts[d]++;
   }
   const peaks = new Map<string, number>();
   for (const emp of empleados) {
     for (const b of emp.bloques) {
       if (!COUNTABLE[catOf(b.tipo)]) continue;
-      const rg = blockDoyRange(b.fechaInicio, b.fechaFin, anio, monthOffset, totalDays);
+      const rg = rangoEnVentana(b.fechaInicio, b.fechaFin, v);
       if (!rg) continue;
       let peak = 0;
       for (let d = rg[0]; d <= rg[1]; d++) if (counts[d] > peak) peak = counts[d];
@@ -163,18 +154,17 @@ export function computeOverlapPeaks(empleados: Empleado[], anio: number): Map<st
 // IDs de empleados (excluye al clickeado) cuyo bloque countable se solapa con el
 // rango del bloque dado.
 export function overlappingEmployeeIds(
-  empleados: Empleado[], block: Bloque, clickedEmpId: string, anio: number,
+  empleados: Empleado[], block: Bloque, clickedEmpId: string, v: Ventana,
 ): Set<string> {
-  const { monthOffset, totalDays } = monthOffsets(anio);
   const ids = new Set<string>();
-  const range = blockDoyRange(block.fechaInicio, block.fechaFin, anio, monthOffset, totalDays);
+  const range = rangoEnVentana(block.fechaInicio, block.fechaFin, v);
   if (!range) return ids;
   const [s0, s1] = range;
   for (const emp of empleados) {
     if (emp.id === clickedEmpId) continue;
     for (const b of emp.bloques) {
       if (!COUNTABLE[catOf(b.tipo)]) continue;
-      const rg = blockDoyRange(b.fechaInicio, b.fechaFin, anio, monthOffset, totalDays);
+      const rg = rangoEnVentana(b.fechaInicio, b.fechaFin, v);
       if (!rg || rg[0] > s1 || rg[1] < s0) continue;
       ids.add(emp.id);
       break;
