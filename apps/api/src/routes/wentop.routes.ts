@@ -3,7 +3,9 @@ import { PrismaClient, WentopEstado, WentopTipoTarjeta } from '@prisma/client';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
-import { requireLevel, LEVEL_RRHH, LEVEL_CMASS } from '../middleware/roles.middleware.js';
+import { requireLevel, LEVEL_RRHH, LEVEL_CMASS, LEVEL_COORDINADOR } from '../middleware/roles.middleware.js';
+import { construirWorkbookWentop } from '../utils/wentop-export.utils.js';
+import { calentarMiniatura, borrarMiniatura } from '../utils/miniaturas.service.js';
 import {
   upload,
   uploadLimiter,
@@ -586,6 +588,69 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   }
 });
 
+// ─── GET /wentop/export.xlsx ─────────────────────
+// Mismos filtros y mismo alcance de visibilidad que el listado, pero sin
+// paginado: el sentido del archivo es justamente llevarse todo.
+
+router.get('/export.xlsx', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const alcance = await alcanceDeSectores(req.user!);
+    const esGestor = !alcance.global && alcance.sectores.length > 0
+      && (await prisma.wentopGestor.count({ where: { usuarioId: req.user!.userId, activo: true } })) > 0;
+
+    // Un operador no exporta. Ver las tarjetas de su sector de a una en pantalla
+    // y llevarse un archivo con todas las descripciones juntas no son la misma
+    // cosa, aunque el contenido visible coincida.
+    if (!alcance.global && !esGestor && req.user!.rolNivel < LEVEL_COORDINADOR) {
+      res.status(403).json({ error: 'No tenés permiso para exportar tarjetas' });
+      return;
+    }
+
+    const where: any = await buildVisibilityWhere(req.user!);
+
+    const { estado, tipoTarjeta, sectorId } = req.query;
+    if (estado) {
+      if (!Object.values(WentopEstado).includes(estado as WentopEstado)) {
+        res.status(400).json({ error: 'Parámetro "estado" inválido' }); return;
+      }
+      where.estado = estado as string;
+    }
+    if (tipoTarjeta) {
+      if (!Object.values(WentopTipoTarjeta).includes(tipoTarjeta as WentopTipoTarjeta)) {
+        res.status(400).json({ error: 'Parámetro "tipoTarjeta" inválido' }); return;
+      }
+      where.tipoTarjeta = tipoTarjeta as string;
+    }
+    if (sectorId) where.sectorObservacionId = sectorId as string;
+
+    const fechas = filtroFechaReporte(req.query as Record<string, unknown>);
+    if (!fechas.ok) {
+      res.status(400).json({ error: `Parámetro "${fechas.campo}" inválido` });
+      return;
+    }
+    if (fechas.filtro) where.fechaReporte = fechas.filtro;
+
+    const tarjetas = await prisma.wentopTarjeta.findMany({
+      where,
+      include: tarjetaDetailInclude,
+      orderBy: { fechaReporte: 'desc' },
+    });
+
+    const workbook = await construirWorkbookWentop(tarjetas);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="wentop-${claveFecha(hoyLocalEmpresa())}.xlsx"`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error('Error exportando tarjetas wentop:', error);
+    // Si falla a mitad del stream ya se mandaron los encabezados, y un
+    // res.status() ahí revienta con ERR_HTTP_HEADERS_SENT.
+    if (!res.headersSent) res.status(500).json({ error: 'Error interno del servidor' });
+    else res.end();
+  }
+});
+
 // ─── GET /wentop/:id ────────────────────────────
 
 router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
@@ -855,6 +920,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
       } catch {
         // File may already be deleted
       }
+      await borrarMiniatura(foto.url);
     }
 
     res.status(204).send();
@@ -930,6 +996,11 @@ router.post('/:id/fotos', uploadLimiter, upload.array('fotos', MAX_FOTOS_POR_TAR
     );
 
     res.status(201).json(fotos);
+
+    // Las miniaturas se encolan DESPUÉS de responder y sin await: el que carga
+    // desde el campo con datos móviles no tiene por qué esperar el
+    // redimensionado. Si falla, la exportación las vuelve a intentar.
+    for (const foto of fotos) calentarMiniatura(foto.url);
   } catch (error) {
     console.error('Error uploading wentop fotos:', error);
     descartarArchivos(files);
@@ -974,6 +1045,7 @@ router.delete('/:id/fotos/:fotoId', async (req: AuthRequest, res: Response): Pro
     } catch {
       // File may already be deleted
     }
+    await borrarMiniatura(foto.url);
 
     await prisma.wentopFoto.delete({ where: { id: foto.id } });
 

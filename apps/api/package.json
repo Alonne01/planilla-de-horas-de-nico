@@ -7,7 +7,7 @@
     "dev": "tsx watch src/app.ts",
     "build": "tsc",
     "start": "node dist/app.js",
-    "test:unit": "tsx tests/fecha-dia.test.ts && tsx tests/ausencia-calendar.test.ts && tsx tests/diagrama-vigencia.test.ts && tsx tests/zod-es.test.ts && tsx tests/periodo-actual.test.ts && tsx tests/dias-antiguedad.test.ts && tsx tests/turnos.test.ts && tsc --noEmit",
+    "test:unit": "tsx tests/fecha-dia.test.ts && tsx tests/ausencia-calendar.test.ts && tsx tests/diagrama-vigencia.test.ts && tsx tests/zod-es.test.ts && tsx tests/periodo-actual.test.ts && tsx tests/dias-antiguedad.test.ts && tsx tests/turnos.test.ts && tsx tests/wentop-export.test.ts && tsc --noEmit",
     "test:integration": "tsx tests/integration.ts",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",

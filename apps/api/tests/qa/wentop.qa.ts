@@ -592,6 +592,70 @@ async function main() {
     assertStatus(r.status, 200, JSON.stringify(r.body));
   });
 
+  // ─────────── EXPORTACIÓN A EXCEL ───────────
+  console.log(C.CY + '\n-- Exportación a Excel --' + C.R);
+
+  // Los .xlsx son ZIP: los primeros dos bytes son 'PK'. Alcanza para distinguir
+  // un archivo real de un JSON de error servido con el content-type equivocado.
+  async function descargar(path: string, token: string) {
+    const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    const buf = Buffer.from(await res.arrayBuffer());
+    return { status: res.status, buf, tipo: res.headers.get('content-type') ?? '' };
+  }
+
+  await scenario('X1 un operador sin gestoría no puede exportar -> 403', async () => {
+    const r = await descargar('/wentop/export.xlsx', foreign.token);
+    assertStatus(r.status, 403, r.buf.toString().slice(0, 200));
+  });
+
+  await scenario('X2 admin exporta un .xlsx de verdad', async () => {
+    const r = await descargar('/wentop/export.xlsx', admin.token);
+    assertStatus(r.status, 200, r.buf.toString().slice(0, 200));
+    assert(r.tipo.includes('spreadsheetml'), `content-type inesperado: ${r.tipo}`);
+    assert(r.buf.subarray(0, 2).toString() === 'PK', 'no parece un xlsx (falta la firma ZIP)');
+    assert(r.buf.length > 1000, `archivo sospechosamente chico: ${r.buf.length} bytes`);
+  });
+
+  await scenario('X3 CMASS también exporta', async () => {
+    const r = await descargar('/wentop/export.xlsx', cmass.token);
+    assertStatus(r.status, 200, r.buf.toString().slice(0, 200));
+  });
+
+  await scenario('X4 un gestor exporta lo de su sector', async () => {
+    // `owner` quedó gestor del sector B en el caso A9.
+    const r = await descargar('/wentop/export.xlsx', owner.token);
+    assertStatus(r.status, 200, r.buf.toString().slice(0, 200));
+  });
+
+  await scenario('X5 el export respeta los filtros', async () => {
+    const r = await descargar('/wentop/export.xlsx?estado=CERRADA', admin.token);
+    assertStatus(r.status, 200, r.buf.toString().slice(0, 200));
+    assert(r.buf.subarray(0, 2).toString() === 'PK', 'no parece un xlsx');
+  });
+
+  await scenario('X6 un filtro inválido da 400 antes de abrir el stream', async () => {
+    const r = await descargar('/wentop/export.xlsx?estado=NOPE', admin.token);
+    assertStatus(r.status, 400, r.buf.toString().slice(0, 200));
+  });
+
+  await scenario('X7 un rango sin resultados igual devuelve un xlsx válido', async () => {
+    const r = await descargar('/wentop/export.xlsx?desde=2099-01-01', admin.token);
+    assertStatus(r.status, 200, r.buf.toString().slice(0, 200));
+    assert(r.buf.subarray(0, 2).toString() === 'PK', 'el archivo vacío también tiene que ser un xlsx');
+  });
+
+  await scenario('X8 una tarjeta CON foto se exporta sin romper', async () => {
+    const nueva = await post('/wentop', { ...goodCard, sectorObservacionId: sectorA, descripcion: `qa-${KEY}-${TS}-conFoto` }, owner.token);
+    assertStatus(nueva.status, 201, JSON.stringify(nueva.body));
+    cleanup.push(async () => { await del(`/wentop/${nueva.body.id}`, admin.token); });
+    const subida = await uploadFotos(`/wentop/${nueva.body.id}/fotos`, owner.token, [{ name: 'x.png', buf: PNG_BUF, type: 'image/png' }]);
+    assertStatus(subida.status, 201, JSON.stringify(subida.body));
+
+    const r = await descargar('/wentop/export.xlsx', admin.token);
+    assertStatus(r.status, 200, r.buf.toString().slice(0, 200));
+    assert(r.buf.subarray(0, 2).toString() === 'PK', 'no parece un xlsx');
+  });
+
   // ─────────── CLEANUP ───────────
   console.log(C.CY + '\n-- Cleanup --' + C.R);
   for (const fn of cleanup.reverse()) { try { await fn(); } catch { /* ignore */ } }

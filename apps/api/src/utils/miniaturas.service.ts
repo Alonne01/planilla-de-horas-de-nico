@@ -86,6 +86,7 @@ function obtenerWorker(): Worker {
   w.on('message', (r: RespuestaMiniatura) => {
     pendientes.get(r.id)?.(r);
     pendientes.delete(r.id);
+    ajustarRef(w);
   });
   w.on('error', (e) => {
     console.error('Worker de miniaturas caído:', e);
@@ -97,12 +98,30 @@ function obtenerWorker(): Worker {
       resolver({ id, ok: false, error: 'el worker de miniaturas se cayó' });
     }
     pendientes.clear();
+    ajustarRef(w);
   });
-  // No debe impedir que el proceso termine.
+  // Arranca sin retener el proceso; `ajustarRef` lo retiene mientras haya
+  // trabajo en vuelo.
   w.unref();
 
   worker = w;
   return w;
+}
+
+/**
+ * El worker retiene el proceso SÓLO mientras tiene pedidos en vuelo.
+ *
+ * Un `unref()` permanente parece lo correcto —no querés que un worker ocioso
+ * impida cerrar el proceso— pero deja una trampa silenciosa: si lo único que
+ * queda pendiente en el event loop es esperar su respuesta, Node se cierra con
+ * código 0 sin ejecutar nada de lo que venía después. En la API no se nota
+ * porque el servidor HTTP mantiene el loop vivo; en un script suelto (una
+ * exportación por línea de comandos, una migración de miniaturas) el trabajo
+ * desaparece sin error ni mensaje.
+ */
+function ajustarRef(w: Worker): void {
+  if (pendientes.size > 0) w.ref();
+  else w.unref();
 }
 
 /**
@@ -134,8 +153,10 @@ export async function miniaturaDe(urlPublica: string): Promise<Miniatura | null>
     lado: LADO_MINIATURA,
   };
   const respuesta = await new Promise<RespuestaMiniatura>((resolve) => {
+    const w = obtenerWorker();
     pendientes.set(id, resolve);
-    obtenerWorker().postMessage(pedido);
+    ajustarRef(w);
+    w.postMessage(pedido);
   });
 
   if (!respuesta.ok || !respuesta.ruta) {
