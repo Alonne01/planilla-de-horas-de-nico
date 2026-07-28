@@ -3,55 +3,48 @@ import { Users, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fmtDia, hoyKey, ymd } from '@/utils/fechaDia';
 import {
-  type GanttData, type Bloque, type Cat,
+  type GanttData, type Bloque, type Cat, type Ventana,
   MESES, CAT, CAT_LABEL, CAT_ORDER, ESTADO_BADGE, catOf, tipoLabel, computeOverlapPeaks,
-  daysInMonth, monthOffsets,
+  aniosDeVentana, diasDelMes, indiceDeDiaAcotado, rangoEnVentana,
 } from './shared';
 
 interface Props {
   data?: GanttData;
-  anio: number;
+  ventana: Ventana;
   isLoading: boolean;
   onOverlapSelect: (block: Bloque, empId: string, empName: string) => void;
 }
 
-export default function CalendarioCompacto({ data, anio, isLoading, onOverlapSelect }: Props) {
+export default function CalendarioCompacto({ data, ventana, isLoading, onOverlapSelect }: Props) {
   const [hovered, setHovered] = useState<(Bloque & { empNombre: string; cat: Cat }) | null>(null);
 
   // Picos de solape por bloque (pico ≥ 2 ⇒ al menos otra persona afuera esos días).
   const overlapPeaks = useMemo(
-    () => (data ? computeOverlapPeaks(data.empleados, anio) : new Map<string, number>()),
-    [data, anio],
+    () => (data ? computeOverlapPeaks(data.empleados, ventana) : new Map<string, number>()),
+    [data, ventana],
   );
 
+  // Cuando la ventana cruza diciembre se agrega el año a la etiqueta: si no,
+  // aparecen dos "Ene" sin forma de distinguirlos.
+  const cruzaAnios = useMemo(() => aniosDeVentana(ventana).length > 1, [ventana]);
   const months = useMemo(
-    () => MESES.map((label, i) => ({ label, index: i, days: daysInMonth(anio, i) })),
-    [anio],
+    () => ventana.meses.map((m, i) => ({
+      key: `${m.anio}-${m.mes}`,
+      label: cruzaAnios ? `${MESES[m.mes - 1]} ${String(m.anio).slice(2)}` : MESES[m.mes - 1]!,
+      days: diasDelMes(m.anio, m.mes),
+      offset: ventana.offset[i]!,
+    })),
+    [ventana, cruzaAnios],
   );
-  // Misma fuente que `blockDoyRange` (shared.ts), para que las dos vistas del
-  // calendario no calculen el día-del-año de dos maneras distintas.
-  const { monthOffset, totalDays } = useMemo(() => monthOffsets(anio), [anio]);
+  const totalDays = ventana.totalDias;
 
-  /**
-   * Día-del-año (0-based) de una FECHA-DÍA: una clave 'YYYY-MM-DD' o un ISO que
-   * el backend ya normalizó a medianoche UTC.
-   *
-   * NO admite un instante real: lee el día con `slice(0, 10)` sobre el ISO, que
-   * es el día **UTC**. Para "hoy" hay que pasarle `hoyKey()`, no
-   * `new Date().toISOString()`.
-   *
-   * Se calcula por COMPONENTES, no restando milisegundos: entre dos mediodías
-   * separados por un cambio de huso la diferencia es N±1h y el `floor` se queda
-   * con N-1, o sea la barra se dibuja un día antes. El clamp se conserva tal cual
-   * estaba (fuera del año → a la punta más cercana), que es lo que diferencia a
-   * esta función de `blockDoyRange`, que devuelve `null`.
-   */
-  const dateToDayOffset = (dateStr: string) => {
-    const [y, m, d] = ymd(dateStr);
-    if (y < anio) return 0;
-    if (y > anio) return totalDays - 1;
-    return Math.min(monthOffset[m - 1] + (d - 1), totalDays - 1);
-  };
+  // "Hoy" con `hoyKey()` y no `new Date().toISOString()`: lo segundo devuelve el
+  // día UTC, que entre las 21:00 y las 24:00 en Argentina ya es mañana.
+  const hoyIso = hoyKey();
+  const hoyEnVentana = useMemo(() => {
+    const [y, m] = ymd(hoyIso);
+    return ventana.meses.some((mv) => mv.anio === y && mv.mes === m);
+  }, [hoyIso, ventana]);
 
   // Categorías presentes (para la leyenda).
   const activeCats = useMemo(() => {
@@ -100,7 +93,7 @@ export default function CalendarioCompacto({ data, anio, isLoading, onOverlapSel
         {!data?.empleados.length ? (
           <div className="p-12 text-center">
             <Users className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
-            <p className="text-muted-foreground">No hay registros en {anio}</p>
+            <p className="text-muted-foreground">No hay registros en el período elegido</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -113,7 +106,7 @@ export default function CalendarioCompacto({ data, anio, isLoading, onOverlapSel
                 <div className="flex-1 flex">
                   {months.map((m) => (
                     <div
-                      key={m.index}
+                      key={m.key}
                       className="text-center text-xs font-medium text-muted-foreground py-2 border-r border-border/50"
                       style={{ width: `${(m.days / totalDays) * 100}%` }}
                     >
@@ -135,35 +128,37 @@ export default function CalendarioCompacto({ data, anio, isLoading, onOverlapSel
 
                   <div className="flex-1 relative py-1.5 px-0.5" style={{ minHeight: '40px' }}>
                     {/* Gridlines de meses */}
-                    {months.map((m) => {
-                      const offset = months.slice(0, m.index).reduce((s, mm) => s + mm.days, 0);
-                      return (
-                        <div
-                          key={m.index}
-                          className="absolute top-0 bottom-0 border-r border-border/20"
-                          style={{ left: `${(offset / totalDays) * 100}%` }}
-                        />
-                      );
-                    })}
+                    {months.map((m) => (
+                      <div
+                        key={m.key}
+                        className="absolute top-0 bottom-0 border-r border-border/20"
+                        style={{ left: `${(m.offset / totalDays) * 100}%` }}
+                      />
+                    ))}
 
-                    {/* Marcador de hoy */}
-                    {anio === new Date().getFullYear() && (() => {
-                      const todayOffset = dateToDayOffset(hoyKey());
-                      return (
-                        <div
-                          className="absolute top-0 bottom-0 w-px bg-primary/60 z-10"
-                          style={{ left: `${(todayOffset / totalDays) * 100}%` }}
-                        />
-                      );
-                    })()}
+                    {/* Marcador de hoy — sólo si hoy cae DENTRO de la ventana. Con
+                        el clamp de `indiceDeDiaAcotado` se dibujaría igual, pero
+                        pegado a una punta, y una línea de "hoy" en un mes que no
+                        es el de hoy miente. */}
+                    {hoyEnVentana && (
+                      <div
+                        className="absolute top-0 bottom-0 w-px bg-primary/60 z-10"
+                        style={{ left: `${(indiceDeDiaAcotado(hoyIso, ventana) / totalDays) * 100}%` }}
+                      />
+                    )}
 
-                    {/* Barras */}
+                    {/* Barras. `rangoEnVentana` devuelve null para el bloque que
+                        no toca la ventana, y hay que SALTEARLO: acotarlo contra
+                        las puntas —lo que hacía el clamp cuando el eje era el año
+                        entero— amontona todos los bloques del resto del año en una
+                        franja de un día contra el borde. */}
                     {emp.bloques.map((b) => {
+                      const rango = rangoEnVentana(b.fechaInicio, b.fechaFin, ventana);
+                      if (!rango) return null;
                       const cat = catOf(b.tipo);
                       const peak = overlapPeaks.get(b.id);
                       const isOverlap = peak != null;
-                      const startDay = dateToDayOffset(b.fechaInicio);
-                      const endDay = dateToDayOffset(b.fechaFin);
+                      const [startDay, endDay] = rango;
                       const duration = Math.max(endDay - startDay + 1, 1);
                       const leftPct = (startDay / totalDays) * 100;
                       const widthPct = (duration / totalDays) * 100;

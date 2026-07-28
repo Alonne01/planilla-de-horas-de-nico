@@ -218,26 +218,26 @@ async function main() {
   await scenario('C6 GET /wentop list as creator includes card', async () => {
     const r = await get('/wentop', owner.token);
     assertStatus(r.status, 200);
-    assert(r.body.some((t: any) => t.id === cardId), 'card not in list');
+    assert(r.body.tarjetas.some((t: any) => t.id === cardId), 'card not in list');
   });
   await scenario('C7 GET /wentop?estado filter', async () => {
     const a = await get('/wentop?estado=ABIERTA', owner.token);
     assertStatus(a.status, 200);
-    assert(a.body.some((t: any) => t.id === cardId), 'ABIERTA filter missing card');
+    assert(a.body.tarjetas.some((t: any) => t.id === cardId), 'ABIERTA filter missing card');
     const c = await get('/wentop?estado=CERRADA', owner.token);
     assertStatus(c.status, 200);
-    assert(!c.body.some((t: any) => t.id === cardId), 'CERRADA filter wrongly includes card');
+    assert(!c.body.tarjetas.some((t: any) => t.id === cardId), 'CERRADA filter wrongly includes card');
   });
   await scenario('C8 GET /wentop?tipoTarjeta filter', async () => {
     const r = await get('/wentop?tipoTarjeta=CONDICION_INSEGURA', owner.token);
     assertStatus(r.status, 200);
-    assert(r.body.some((t: any) => t.id === cardId), 'tipo filter missing card');
-    assert(r.body.every((t: any) => t.tipoTarjeta === 'CONDICION_INSEGURA'), 'tipo filter leaked other types');
+    assert(r.body.tarjetas.some((t: any) => t.id === cardId), 'tipo filter missing card');
+    assert(r.body.tarjetas.every((t: any) => t.tipoTarjeta === 'CONDICION_INSEGURA'), 'tipo filter leaked other types');
   });
   await scenario('C9 GET /wentop?sectorId filter', async () => {
     const r = await get(`/wentop?sectorId=${sectorA}`, owner.token);
     assertStatus(r.status, 200);
-    assert(r.body.some((t: any) => t.id === cardId), 'sector filter missing card');
+    assert(r.body.tarjetas.some((t: any) => t.id === cardId), 'sector filter missing card');
   });
   await scenario('C10 [ISOLATION] GET /wentop/:id as foreign-sector user -> 404', async () => {
     const r = await get(`/wentop/${cardId}`, foreign.token);
@@ -246,7 +246,7 @@ async function main() {
   await scenario('C10b [ISOLATION] foreign list excludes card', async () => {
     const r = await get('/wentop', foreign.token);
     assertStatus(r.status, 200);
-    assert(!r.body.some((t: any) => t.id === cardId), 'LEAK: card visible in foreign list');
+    assert(!r.body.tarjetas.some((t: any) => t.id === cardId), 'LEAK: card visible in foreign list');
   });
   await scenario('C11 GET /wentop/:id nonexistent -> 404', async () => {
     const r = await get('/wentop/00000000-0000-0000-0000-000000000000', owner.token);
@@ -418,6 +418,242 @@ async function main() {
   await scenario('F8 DELETE foto as creator -> 204', async () => {
     const r = await del(`/wentop/${fotoCard}/fotos/${fotoId}`, owner.token);
     assertStatus(r.status, 204, JSON.stringify(r.body));
+  });
+
+  // ─────────── ALCANCE DEL TABLERO ───────────
+  console.log(C.CY + '\n-- Alcance del tablero --' + C.R);
+
+  // Una tarjeta de `owner` (sector A) sobre el sector B. Es el caso que separa el
+  // alcance del LISTADO del alcance del TABLERO.
+  let cruzada = '';
+  await scenario('A0 owner crea una tarjeta sobre el sector B', async () => {
+    const r = await post('/wentop', { ...goodCard, sectorObservacionId: sectorB, descripcion: `qa-${KEY}-${TS}-cruzada` }, owner.token);
+    assertStatus(r.status, 201, JSON.stringify(r.body));
+    cruzada = r.body.id;
+    cleanup.push(async () => { await del(`/wentop/${cruzada}`, admin.token); });
+  });
+
+  await scenario('A1 GET /wentop/sectores como OPERADOR -> 200', async () => {
+    // El bug: el front pedía esta lista a /analytics/sectores (nivel 70) y un
+    // operador recibía 403, quedándose sin poder elegir el sector de observación
+    // al cargar una tarjeta.
+    const r = await get('/wentop/sectores', owner.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    assert(Array.isArray(r.body) && r.body.length >= 2, `esperaba >=2 sectores: ${JSON.stringify(r.body)}`);
+    assert(r.body.every((s: any) => typeof s.id === 'string' && typeof s.nombre === 'string'), 'forma inesperada');
+  });
+
+  await scenario('A2 mi-alcance de un operador: su sector, no global', async () => {
+    const r = await get('/wentop/mi-alcance', owner.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    assert(r.body.global === false, 'un operador no puede tener alcance global');
+    assert(r.body.sectores.length === 1 && r.body.sectores[0].id === sectorA, `esperaba solo sectorA: ${JSON.stringify(r.body.sectores)}`);
+  });
+
+  await scenario('A3 mi-alcance de admin: global', async () => {
+    const r = await get('/wentop/mi-alcance', admin.token);
+    assertStatus(r.status, 200);
+    assert(r.body.global === true, 'admin tiene que ser global');
+  });
+
+  await scenario('A4 mi-alcance de CMASS: global', async () => {
+    const r = await get('/wentop/mi-alcance', cmass.token);
+    assertStatus(r.status, 200);
+    assert(r.body.global === true, 'CMASS tiene que ver todos los sectores');
+  });
+
+  await scenario('A5 el tablero de un operador solo cuenta su sector', async () => {
+    const r = await get('/wentop/analytics', owner.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    const ajenos = r.body.porSector.filter((s: any) => s.sectorId !== sectorA);
+    assert(ajenos.length === 0, `el tablero de sector A trajo otros sectores: ${JSON.stringify(ajenos)}`);
+  });
+
+  await scenario('A6 el tablero NO cuenta la tarjeta propia de otro sector', async () => {
+    // `buildVisibilityWhere` la incluye por `creadorId` para que el dueño siempre
+    // encuentre su tarjeta; el tablero usa `buildAnalyticsWhere`, que no.
+    const tablero = await get('/wentop/analytics', owner.token);
+    assertStatus(tablero.status, 200);
+    assert(
+      !tablero.body.porSector.some((s: any) => s.sectorId === sectorB),
+      'la tarjeta propia sobre el sector B se coló en el tablero del sector A',
+    );
+    const listado = await get('/wentop', owner.token);
+    assertStatus(listado.status, 200);
+    assert(
+      listado.body.tarjetas.some((t: any) => t.id === cruzada),
+      'el LISTADO sí tiene que mostrarle su propia tarjeta, aunque sea de otro sector',
+    );
+  });
+
+  await scenario('A7 filtrar por un sector ajeno -> 403', async () => {
+    const r = await get(`/wentop/analytics?sectorId=${sectorB}`, owner.token);
+    assertStatus(r.status, 403, JSON.stringify(r.body));
+  });
+
+  await scenario('A8 admin filtra por sector y el tablero se acota', async () => {
+    const todo = await get('/wentop/analytics', admin.token);
+    assertStatus(todo.status, 200);
+    const soloA = await get(`/wentop/analytics?sectorId=${sectorA}`, admin.token);
+    assertStatus(soloA.status, 200, JSON.stringify(soloA.body));
+    assert(soloA.body.totales.total <= todo.body.totales.total, 'el filtro no puede agrandar el total');
+    const ajenos = soloA.body.porSector.filter((s: any) => s.sectorId !== sectorA);
+    assert(ajenos.length === 0, `filtrado por A pero trajo: ${JSON.stringify(ajenos)}`);
+  });
+
+  await scenario('A9 un gestor puede filtrar entre sus sectores', async () => {
+    const alta = await post('/wentop/gestores', { usuarioId: owner.user.id, sectorId: sectorB }, admin.token);
+    assertStatus(alta.status, 201, JSON.stringify(alta.body));
+    cleanup.push(async () => { await del(`/wentop/gestores/${alta.body.id}`, admin.token); });
+
+    const alcance = await get('/wentop/mi-alcance', owner.token);
+    assertStatus(alcance.status, 200);
+    assert(alcance.body.sectores.length === 2, `esperaba 2 sectores: ${JSON.stringify(alcance.body.sectores)}`);
+
+    const r = await get(`/wentop/analytics?sectorId=${sectorB}`, owner.token);
+    assertStatus(r.status, 200, `siendo gestor de B ya no puede ser 403: ${JSON.stringify(r.body)}`);
+  });
+
+  await scenario('A10 el rango de fechas recorta', async () => {
+    const r = await get('/wentop/analytics?desde=2099-01-01', admin.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    assert(r.body.totales.total === 0, `nada puede haberse reportado en 2099: ${r.body.totales.total}`);
+  });
+
+  await scenario('A11 fecha inválida -> 400 (y no 500)', async () => {
+    const r = await get('/wentop/analytics?desde=abc', admin.token);
+    assertStatus(r.status, 400, JSON.stringify(r.body));
+  });
+
+  // ─────────── PAGINADO Y ORDEN ───────────
+  console.log(C.CY + '\n-- Paginado y orden --' + C.R);
+
+  await scenario('P1 el listado devuelve la envoltura con total y páginas', async () => {
+    const r = await get('/wentop', admin.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    assert(Array.isArray(r.body.tarjetas), 'falta el array tarjetas');
+    assert(typeof r.body.total === 'number', 'falta total');
+    assert(r.body.page === 1, `page tendría que ser 1: ${r.body.page}`);
+    assert(r.body.pages >= 1, `pages tendría que ser >= 1: ${r.body.pages}`);
+  });
+
+  await scenario('P2 limit acota la página y pages lo refleja', async () => {
+    const r = await get('/wentop?limit=1', admin.token);
+    assertStatus(r.status, 200);
+    assert(r.body.tarjetas.length <= 1, `pidió 1 y trajo ${r.body.tarjetas.length}`);
+    if (r.body.total > 1) assert(r.body.pages === r.body.total, 'con limit=1, pages == total');
+  });
+
+  await scenario('P3 la página 2 trae otras tarjetas', async () => {
+    const p1 = await get('/wentop?limit=1&page=1', admin.token);
+    const p2 = await get('/wentop?limit=1&page=2', admin.token);
+    assertStatus(p1.status, 200);
+    assertStatus(p2.status, 200);
+    if (p1.body.total >= 2) {
+      assert(p2.body.tarjetas.length === 1, 'la página 2 tendría que traer una');
+      assert(p1.body.tarjetas[0].id !== p2.body.tarjetas[0].id, 'la página 2 repitió la 1');
+    }
+  });
+
+  await scenario('P4 limit se topea en 100 (no se puede pedir todo de una)', async () => {
+    const r = await get('/wentop?limit=99999', admin.token);
+    assertStatus(r.status, 200);
+    assert(r.body.tarjetas.length <= 100, `el tope no se aplicó: ${r.body.tarjetas.length}`);
+  });
+
+  await scenario('P5 una página más allá del final devuelve vacío, no error', async () => {
+    const r = await get('/wentop?limit=1&page=9999', admin.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    assert(r.body.tarjetas.length === 0, 'esperaba una página vacía');
+  });
+
+  await scenario('P6 orden inválido -> 400 (lista blanca)', async () => {
+    const r = await get('/wentop?orden=descripcion', admin.token);
+    assertStatus(r.status, 400, JSON.stringify(r.body));
+  });
+
+  await scenario('P7 orden por fecha ascendente invierte el listado', async () => {
+    const desc = await get('/wentop?orden=fechaReporte&dir=desc&limit=100', admin.token);
+    const asc = await get('/wentop?orden=fechaReporte&dir=asc&limit=100', admin.token);
+    assertStatus(desc.status, 200);
+    assertStatus(asc.status, 200, JSON.stringify(asc.body));
+    const fechas = asc.body.tarjetas.map((t: any) => t.fechaReporte);
+    const ordenadas = [...fechas].sort();
+    assert(JSON.stringify(fechas) === JSON.stringify(ordenadas), 'asc no vino ordenado ascendente');
+  });
+
+  await scenario('P8 orden por relación (sector) no rompe', async () => {
+    const r = await get('/wentop?orden=sector&dir=asc', admin.token);
+    assertStatus(r.status, 200, `el orderBy anidado falló: ${JSON.stringify(r.body)}`);
+  });
+
+  await scenario('P9 orden por creador no rompe', async () => {
+    const r = await get('/wentop?orden=creador&dir=desc', admin.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+  });
+
+  // ─────────── EXPORTACIÓN A EXCEL ───────────
+  console.log(C.CY + '\n-- Exportación a Excel --' + C.R);
+
+  // Los .xlsx son ZIP: los primeros dos bytes son 'PK'. Alcanza para distinguir
+  // un archivo real de un JSON de error servido con el content-type equivocado.
+  async function descargar(path: string, token: string) {
+    const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    const buf = Buffer.from(await res.arrayBuffer());
+    return { status: res.status, buf, tipo: res.headers.get('content-type') ?? '' };
+  }
+
+  await scenario('X1 un operador sin gestoría no puede exportar -> 403', async () => {
+    const r = await descargar('/wentop/export.xlsx', foreign.token);
+    assertStatus(r.status, 403, r.buf.toString().slice(0, 200));
+  });
+
+  await scenario('X2 admin exporta un .xlsx de verdad', async () => {
+    const r = await descargar('/wentop/export.xlsx', admin.token);
+    assertStatus(r.status, 200, r.buf.toString().slice(0, 200));
+    assert(r.tipo.includes('spreadsheetml'), `content-type inesperado: ${r.tipo}`);
+    assert(r.buf.subarray(0, 2).toString() === 'PK', 'no parece un xlsx (falta la firma ZIP)');
+    assert(r.buf.length > 1000, `archivo sospechosamente chico: ${r.buf.length} bytes`);
+  });
+
+  await scenario('X3 CMASS también exporta', async () => {
+    const r = await descargar('/wentop/export.xlsx', cmass.token);
+    assertStatus(r.status, 200, r.buf.toString().slice(0, 200));
+  });
+
+  await scenario('X4 un gestor exporta lo de su sector', async () => {
+    // `owner` quedó gestor del sector B en el caso A9.
+    const r = await descargar('/wentop/export.xlsx', owner.token);
+    assertStatus(r.status, 200, r.buf.toString().slice(0, 200));
+  });
+
+  await scenario('X5 el export respeta los filtros', async () => {
+    const r = await descargar('/wentop/export.xlsx?estado=CERRADA', admin.token);
+    assertStatus(r.status, 200, r.buf.toString().slice(0, 200));
+    assert(r.buf.subarray(0, 2).toString() === 'PK', 'no parece un xlsx');
+  });
+
+  await scenario('X6 un filtro inválido da 400 antes de abrir el stream', async () => {
+    const r = await descargar('/wentop/export.xlsx?estado=NOPE', admin.token);
+    assertStatus(r.status, 400, r.buf.toString().slice(0, 200));
+  });
+
+  await scenario('X7 un rango sin resultados igual devuelve un xlsx válido', async () => {
+    const r = await descargar('/wentop/export.xlsx?desde=2099-01-01', admin.token);
+    assertStatus(r.status, 200, r.buf.toString().slice(0, 200));
+    assert(r.buf.subarray(0, 2).toString() === 'PK', 'el archivo vacío también tiene que ser un xlsx');
+  });
+
+  await scenario('X8 una tarjeta CON foto se exporta sin romper', async () => {
+    const nueva = await post('/wentop', { ...goodCard, sectorObservacionId: sectorA, descripcion: `qa-${KEY}-${TS}-conFoto` }, owner.token);
+    assertStatus(nueva.status, 201, JSON.stringify(nueva.body));
+    cleanup.push(async () => { await del(`/wentop/${nueva.body.id}`, admin.token); });
+    const subida = await uploadFotos(`/wentop/${nueva.body.id}/fotos`, owner.token, [{ name: 'x.png', buf: PNG_BUF, type: 'image/png' }]);
+    assertStatus(subida.status, 201, JSON.stringify(subida.body));
+
+    const r = await descargar('/wentop/export.xlsx', admin.token);
+    assertStatus(r.status, 200, r.buf.toString().slice(0, 200));
+    assert(r.buf.subarray(0, 2).toString() === 'PK', 'no parece un xlsx');
   });
 
   // ─────────── CLEANUP ───────────

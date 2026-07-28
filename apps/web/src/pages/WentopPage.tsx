@@ -21,6 +21,11 @@ import {
   ImageIcon,
   MapPin,
   SlidersHorizontal,
+  LayoutGrid,
+  Table as TableIcon,
+  ArrowUp,
+  ArrowDown,
+  Download,
 } from 'lucide-react';
 import api, { getUploadUrl } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -317,7 +322,11 @@ export default function WentopPage() {
   const { data: sectores = [] } = useQuery<Sector[]>({
     queryKey: ['sectores'],
     queryFn: async () => {
-      const { data } = await api.get('/analytics/sectores');
+      // `/wentop/sectores` y no `/analytics/sectores`: el segundo exige nivel 70,
+      // así que a un operador le daba 403 y se quedaba sin poder elegir el sector
+      // de observación en el formulario de alta, que se alimenta de este mismo
+      // array.
+      const { data } = await api.get('/wentop/sectores');
       return data;
     },
   });
@@ -330,6 +339,12 @@ export default function WentopPage() {
       return data;
     },
   });
+
+  // Espejo de la guardia del endpoint: alcance global (CMASS o nivel >= 90),
+  // gestor de algún sector, o coordinador para arriba. Si esto y el backend se
+  // separan, el botón aparece y descarga un 403.
+  const puedeExportar =
+    user?.rol === 'CMASS' || (user?.rolNivel ?? 0) >= 70 || gestorSectorIds.length > 0;
 
   const canManageCard = useCallback(
     (tarjeta: WentopTarjeta) => {
@@ -345,6 +360,11 @@ export default function WentopPage() {
   );
 
   // --- Tarjetas query ---
+  // Página del listado. Se reinicia sola al cambiar cualquier filtro: quedarse
+  // en la página 7 de un resultado que ahora tiene 2 muestra una tabla vacía que
+  // parece "no hay nada" cuando en realidad hay.
+  const [page, setPage] = useState(1);
+
   const tarjetasQueryParams = useMemo(() => {
     const params: Record<string, string> = {};
     if (filterEstado) params.estado = filterEstado;
@@ -355,13 +375,29 @@ export default function WentopPage() {
     return params;
   }, [filterEstado, filterTipo, filterSector, filterDesde, filterHasta]);
 
-  const { data: tarjetas = [], isLoading: loadingTarjetas } = useQuery<WentopTarjeta[]>({
-    queryKey: ['wentop', 'tarjetas', tarjetasQueryParams],
+  const [orden, setOrden] = useState<OrdenTarjetas>('fechaReporte');
+  const [dir, setDir] = useState<'asc' | 'desc'>('desc');
+
+  // La clave de los filtros, sin la página: cuando cambia, la página vuelve a 1.
+  const filtrosKey = JSON.stringify(tarjetasQueryParams);
+  const [filtrosPrevios, setFiltrosPrevios] = useState(filtrosKey);
+  if (filtrosPrevios !== filtrosKey) {
+    // Ajuste durante el render, no en un efecto: así no hay un frame pidiendo la
+    // página vieja con los filtros nuevos.
+    setFiltrosPrevios(filtrosKey);
+    setPage(1);
+  }
+
+  const { data: listado, isLoading: loadingTarjetas } = useQuery<ListadoTarjetas>({
+    queryKey: ['wentop', 'tarjetas', tarjetasQueryParams, page, orden, dir],
     queryFn: async () => {
-      const { data } = await api.get('/wentop', { params: tarjetasQueryParams });
+      const { data } = await api.get('/wentop', {
+        params: { ...tarjetasQueryParams, page, orden, dir },
+      });
       return data;
     },
   });
+  const tarjetas = listado?.tarjetas ?? [];
 
   // --- Mutations ---
   const deleteMutation = useMutation({
@@ -447,8 +483,22 @@ export default function WentopPage() {
       {activeTab === 'tarjetas' && (
         <TarjetasTab
           tarjetas={tarjetas}
+          total={listado?.total ?? 0}
+          page={listado?.page ?? page}
+          pages={listado?.pages ?? 1}
+          onPage={setPage}
+          orden={orden}
+          dir={dir}
+          onOrden={(campo) => {
+            // Clic en la misma columna invierte; en otra, arranca descendente.
+            if (campo === orden) setDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+            else { setOrden(campo); setDir('desc'); }
+            setPage(1);
+          }}
           loading={loadingTarjetas}
           sectores={sectores}
+          puedeExportar={puedeExportar}
+          filtrosActivos={tarjetasQueryParams}
           filterEstado={filterEstado}
           setFilterEstado={setFilterEstado}
           filterTipo={filterTipo}
@@ -538,8 +588,21 @@ export default function WentopPage() {
 // Tab: Tarjetas (with collapsible filters, FAB, improved cards & empty state)
 // ---------------------------------------------------------------------------
 
+type VistaTarjetas = 'grilla' | 'tabla';
+const VISTA_KEY = 'wentop-vista';
+function loadVista(): VistaTarjetas {
+  try { return localStorage.getItem(VISTA_KEY) === 'tabla' ? 'tabla' : 'grilla'; } catch { return 'grilla'; }
+}
+
 function TarjetasTab({
   tarjetas,
+  total,
+  page,
+  pages,
+  onPage,
+  orden,
+  dir,
+  onOrden,
   loading,
   sectores,
   filterEstado,
@@ -553,10 +616,21 @@ function TarjetasTab({
   filterHasta,
   setFilterHasta,
   canManageGestores,
+  puedeExportar,
+  filtrosActivos,
   onSelect,
   onNew,
 }: {
   tarjetas: WentopTarjeta[];
+  total: number;
+  page: number;
+  pages: number;
+  onPage: (p: number) => void;
+  orden: OrdenTarjetas;
+  dir: 'asc' | 'desc';
+  onOrden: (campo: OrdenTarjetas) => void;
+  puedeExportar: boolean;
+  filtrosActivos: Record<string, string>;
   loading: boolean;
   sectores: Sector[];
   filterEstado: string;
@@ -574,6 +648,33 @@ function TarjetasTab({
   onNew: () => void;
 }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [vista, setVistaState] = useState<VistaTarjetas>(loadVista);
+  const [exportando, setExportando] = useState(false);
+  const setVista = (v: VistaTarjetas) => {
+    setVistaState(v);
+    try { localStorage.setItem(VISTA_KEY, v); } catch { /* ignore */ }
+  };
+
+  const exportar = async () => {
+    setExportando(true);
+    try {
+      const { data } = await api.get('/wentop/export.xlsx', {
+        params: filtrosActivos,
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wentop-${hoyKey()}.xlsx`;
+      a.click();
+      // Sin el revoke, el blob queda en memoria hasta que se recargue la página.
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ title: 'No se pudo generar el Excel', variant: 'destructive' });
+    } finally {
+      setExportando(false);
+    }
+  };
 
   const activeFilterCount = [filterEstado, filterTipo, filterSector, filterDesde, filterHasta].filter(Boolean).length;
 
@@ -712,6 +813,56 @@ function TarjetasTab({
             )}
           </div>
         </div>
+
+        {/* Vista + total. La tabla es la que sirve para hacer seguimiento de un
+            sector entero; la grilla queda para mirar tarjetas de a una. */}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="inline-flex rounded-lg border border-border bg-card p-0.5" role="group" aria-label="Vista del listado">
+            <button
+              type="button"
+              onClick={() => setVista('grilla')}
+              aria-pressed={vista === 'grilla'}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors',
+                vista === 'grilla' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <LayoutGrid className="h-4 w-4" /> Grilla
+            </button>
+            <button
+              type="button"
+              onClick={() => setVista('tabla')}
+              aria-pressed={vista === 'tabla'}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors',
+                vista === 'tabla' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <TableIcon className="h-4 w-4" /> Tabla
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            {total > 0 && (
+              <p className="text-sm text-muted-foreground tabular-nums">
+                {total} {total === 1 ? 'tarjeta' : 'tarjetas'}
+                {pages > 1 && <> · página {page} de {pages}</>}
+              </p>
+            )}
+            {puedeExportar && (
+              <button
+                type="button"
+                onClick={exportar}
+                disabled={exportando || total === 0}
+                title="Exporta TODAS las tarjetas que cumplen los filtros, no sólo esta página"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+              >
+                {exportando
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Generando…</>
+                  : <><Download className="h-4 w-4" /> Exportar a Excel</>}
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Card grid */}
@@ -737,6 +888,8 @@ function TarjetasTab({
             Nueva Tarjeta
           </button>
         </div>
+      ) : vista === 'tabla' ? (
+        <TablaTarjetas tarjetas={tarjetas} orden={orden} dir={dir} onOrden={onOrden} onSelect={onSelect} />
       ) : (
         <div className="grid grid-cols-1 gap-3 md:gap-4 md:grid-cols-2 lg:grid-cols-3">
           {tarjetas.map((t) => (
@@ -809,6 +962,29 @@ function TarjetasTab({
         </div>
       )}
 
+      {/* Paginado — vale para las dos vistas */}
+      {!loading && pages > 1 && (
+        <div className="flex items-center justify-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => onPage(page - 1)}
+            disabled={page <= 1}
+            className="flex h-9 items-center gap-1 rounded-lg border border-border px-3 text-sm text-muted-foreground hover:bg-accent disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+          >
+            <ChevronLeft className="h-4 w-4" /> Anterior
+          </button>
+          <span className="text-sm text-muted-foreground tabular-nums">{page} / {pages}</span>
+          <button
+            type="button"
+            onClick={() => onPage(page + 1)}
+            disabled={page >= pages}
+            className="flex h-9 items-center gap-1 rounded-lg border border-border px-3 text-sm text-muted-foreground hover:bg-accent disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+          >
+            Siguiente <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* Mobile FAB */}
       <button
         onClick={onNew}
@@ -822,29 +998,213 @@ function TarjetasTab({
 }
 
 // ---------------------------------------------------------------------------
+// Vista de tabla — la que sirve para hacer seguimiento de un sector entero
+// ---------------------------------------------------------------------------
+
+const COLUMNAS: { campo: OrdenTarjetas; label: string; className?: string }[] = [
+  { campo: 'fechaReporte', label: 'Fecha' },
+  { campo: 'tipoTarjeta', label: 'Tipo' },
+  { campo: 'estado', label: 'Estado' },
+  { campo: 'sector', label: 'Sector' },
+  { campo: 'creador', label: 'Creador' },
+];
+
+function TablaTarjetas({
+  tarjetas, orden, dir, onOrden, onSelect,
+}: {
+  tarjetas: WentopTarjeta[];
+  orden: OrdenTarjetas;
+  dir: 'asc' | 'desc';
+  onOrden: (campo: OrdenTarjetas) => void;
+  onSelect: (t: WentopTarjeta) => void;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-border bg-card">
+      <table className="w-full min-w-[720px] text-sm">
+        <thead>
+          <tr className="border-b border-border text-left text-xs text-muted-foreground">
+            {COLUMNAS.map((c) => (
+              <th key={c.campo} className="px-3 py-2 font-medium">
+                <button
+                  type="button"
+                  onClick={() => onOrden(c.campo)}
+                  aria-sort={orden === c.campo ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                >
+                  {c.label}
+                  {orden === c.campo && (dir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+                </button>
+              </th>
+            ))}
+            {/* Las fotos no se pueden ordenar: el backend no acepta ese campo y
+                no tiene sentido pedir el conteo como criterio. */}
+            <th className="px-3 py-2 font-medium">Fotos</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tarjetas.map((t) => (
+            <tr
+              key={t.id}
+              onClick={() => onSelect(t)}
+              className="cursor-pointer border-b border-border/50 last:border-0 hover:bg-accent/50 transition-colors"
+            >
+              <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{formatDate(t.fechaReporte)}</td>
+              <td className="px-3 py-2">
+                <span className={cn('rounded-md px-2 py-0.5 text-xs', TIPO_COLORS[t.tipoTarjeta] ?? 'bg-muted text-muted-foreground')}>
+                  {TIPO_LABELS[t.tipoTarjeta] ?? t.tipoTarjeta}
+                </span>
+              </td>
+              <td className="px-3 py-2">
+                <span className={cn('rounded-md px-2 py-0.5 text-xs', ESTADO_COLORS[t.estado] ?? 'bg-muted text-muted-foreground')}>
+                  {ESTADO_LABELS[t.estado] ?? t.estado}
+                </span>
+              </td>
+              <td className="px-3 py-2 text-muted-foreground">{t.sectorObservacion?.nombre ?? '—'}</td>
+              <td className="whitespace-nowrap px-3 py-2">{t.creador.apellido}, {t.creador.nombre}</td>
+              <td className="px-3 py-2 text-muted-foreground tabular-nums">
+                {t.fotos?.length ?? t._count?.fotos ?? 0}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Tab: Analytics
 // ---------------------------------------------------------------------------
 
+interface AlcanceWentop { global: boolean; sectores: Sector[] }
+
+/** Respuesta paginada de `GET /wentop`. */
+interface ListadoTarjetas {
+  tarjetas: WentopTarjeta[];
+  total: number;
+  page: number;
+  pages: number;
+}
+
+/** Columnas por las que el backend acepta ordenar (lista blanca en la API). */
+type OrdenTarjetas = 'fechaReporte' | 'estado' | 'tipoTarjeta' | 'sector' | 'creador';
+
 function AnalyticsTab() {
-  const { data: analytics, isLoading } = useQuery<WentopAnalytics>({
-    queryKey: ['wentop', 'analytics'],
+  const [sectorElegido, setSectorElegido] = useState<string | null>(null);
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+
+  const { data: alcance } = useQuery<AlcanceWentop>({
+    queryKey: ['wentop', 'mi-alcance'],
     queryFn: async () => {
-      const { data } = await api.get('/wentop/analytics');
+      const { data } = await api.get('/wentop/mi-alcance');
       return data;
     },
   });
 
+  // El sector efectivo se DERIVA: lo que el usuario eligió, o —si su alcance no
+  // es global— el primero de su lista. Con alcance acotado, dejarlo vacío
+  // mezclaría sus dos sectores en un solo tablero sin decirlo en ningún lado.
+  // Derivado y no sincronizado con un efecto: un setState dentro de un efecto
+  // encadena renders y deja un frame pidiendo el tablero equivocado.
+  const setSectorId = (v: string) => setSectorElegido(v);
+  const sectorId = sectorElegido
+    ?? (alcance && !alcance.global ? alcance.sectores[0]?.id ?? '' : '');
+
+  const params = useMemo(() => {
+    const p: Record<string, string> = {};
+    if (sectorId) p.sectorId = sectorId;
+    if (desde) p.desde = desde;
+    if (hasta) p.hasta = hasta;
+    return p;
+  }, [sectorId, desde, hasta]);
+
+  const { data: analytics, isLoading } = useQuery<WentopAnalytics>({
+    queryKey: ['wentop', 'analytics', params],
+    queryFn: async () => {
+      const { data } = await api.get('/wentop/analytics', { params });
+      return data;
+    },
+  });
+
+  // Con un solo sector no hay nada que elegir: se muestra el nombre y listo.
+  const puedeElegirSector = !!alcance && (alcance.global || alcance.sectores.length > 1);
+  const sectorUnico = alcance && !alcance.global && alcance.sectores.length === 1
+    ? alcance.sectores[0]!.nombre
+    : null;
+
+  const filtros = (
+    <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4">
+      {puedeElegirSector ? (
+        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          Sector
+          <select
+            value={sectorId}
+            onChange={(e) => setSectorId(e.target.value)}
+            className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+          >
+            {alcance?.global && <option value="">Todos los sectores</option>}
+            {alcance?.sectores.map((s) => (
+              <option key={s.id} value={s.id}>{s.nombre}</option>
+            ))}
+          </select>
+        </label>
+      ) : sectorUnico ? (
+        <p className="text-sm text-muted-foreground">
+          Sector <span className="font-medium text-foreground">{sectorUnico}</span>
+        </p>
+      ) : null}
+
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        Desde
+        <input
+          type="date"
+          value={desde}
+          onChange={(e) => setDesde(e.target.value)}
+          className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        Hasta
+        <input
+          type="date"
+          value={hasta}
+          onChange={(e) => setHasta(e.target.value)}
+          className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+        />
+      </label>
+      {(desde || hasta) && (
+        <button
+          type="button"
+          onClick={() => { setDesde(''); setHasta(''); }}
+          className="rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
+        >
+          Limpiar fechas
+        </button>
+      )}
+    </div>
+  );
+
+  // Los filtros se dibujan también mientras carga y cuando no hay datos: si
+  // desaparecieran, un rango de fechas que no devuelve nada dejaría la pantalla
+  // sin forma de deshacerlo.
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        {filtros}
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
       </div>
     );
   }
 
   if (!analytics) {
     return (
-      <p className="py-10 text-center text-sm text-muted-foreground">Sin datos disponibles</p>
+      <div className="space-y-6">
+        {filtros}
+        <p className="py-10 text-center text-sm text-muted-foreground">Sin datos disponibles</p>
+      </div>
     );
   }
 
@@ -854,6 +1214,8 @@ function AnalyticsTab() {
 
   return (
     <div className="space-y-6">
+      {filtros}
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard label="Total" value={analytics.totales.total} />

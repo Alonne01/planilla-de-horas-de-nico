@@ -16,6 +16,11 @@ const BASE = process.env.QA_BASE ?? 'http://localhost:4000/api/v1';
 const KEY = 'mensajes';
 const TS = Date.now();
 
+// Para AD2, el único caso que necesita mirar el disco (ver su comentario).
+import { readdirSync } from 'node:fs';
+import path from 'node:path';
+const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads');
+
 // ── output ───────────────────────────────────────────────────────────────────
 const C: Record<string, string> = {
   RESET: '\x1b[0m', DIM: '\x1b[2m', GREEN: '\x1b[32m', RED: '\x1b[31m',
@@ -64,15 +69,20 @@ const put = (p: string, b: unknown, tok?: string) => api('PUT', p, { token: tok,
 const del = (p: string, tok?: string) => api('DELETE', p, { token: tok });
 
 // ── HTTP (multipart) ─────────────────────────────────────────────────────────
+type Archivo = { data: Uint8Array; name: string; type: string };
 async function postMultipart(
   path: string,
   fields: Record<string, string>,
   tok?: string,
-  file?: { data: Uint8Array; name: string; type: string },
+  archivos?: Archivo | Archivo[],
 ): Promise<{ status: number; body: any }> {
   const form = new FormData();
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
-  if (file) form.append('archivo', new Blob([file.data], { type: file.type }), file.name);
+  // Un mensaje puede llevar varios: el campo se repite, siempre con el mismo
+  // nombre ('adjuntos'), que es lo que espera `upload.array`.
+  for (const f of archivos ? (Array.isArray(archivos) ? archivos : [archivos]) : []) {
+    form.append('adjuntos', new Blob([f.data], { type: f.type }), f.name);
+  }
   const headers: Record<string, string> = {};
   if (tok) headers['Authorization'] = `Bearer ${tok}`;
   const res = await fetch(`${BASE}${path}`, { method: 'POST', headers, body: form });
@@ -86,17 +96,35 @@ const PNG = Uint8Array.from(Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
   'base64',
 ));
+// PDF mínimo. El fileFilter mira extensión y mimetype, no el contenido, así que
+// alcanza para probar que un adjunto no-imagen se tipa como ARCHIVO.
+const PDF = Uint8Array.from(Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n', 'latin1'));
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 interface Session {
   token: string;
+  cookie: string;
   user: { id: string; nombre: string; apellido: string; email: string; rol: string; rolNivel: number; empresaId: string; sectorId: string | null };
 }
 async function login(email: string): Promise<Session> {
-  const { status, body } = await post('/auth/login', { email, password: 'Test1234!' });
-  assertStatus(status, 200, `Login ${email}: ${JSON.stringify(body)}`);
+  const res = await fetch(`${BASE}/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password: 'Test1234!' }),
+  });
+  const body: any = await res.json();
+  assertStatus(res.status, 200, `Login ${email}: ${JSON.stringify(body)}`);
   assert(typeof body.accessToken === 'string', 'No accessToken');
-  return { token: body.accessToken, user: body.user };
+  // /uploads no mira el header Authorization: autentica con la cookie httpOnly
+  // 'refreshToken', que es lo único que manda un <img> del navegador.
+  const raw = res.headers.get('set-cookie') ?? '';
+  const cookie = raw.split(/,(?=\s*\w+=)/).map(c => c.split(';')[0]!.trim()).filter(Boolean).join('; ');
+  return { token: body.accessToken, cookie, user: body.user };
+}
+
+/** GET a /uploads con la cookie de sesión, como lo haría el navegador. */
+async function getUpload(url: string, ses: Session): Promise<number> {
+  const res = await fetch(`${BASE.replace('/api/v1', '')}${url}`, { headers: { Cookie: ses.cookie } });
+  return res.status;
 }
 
 async function notifCount(tok: string): Promise<number> {
@@ -169,6 +197,7 @@ async function main() {
   // shared state
   let msgMultiId = '';
   let msgSectorId = '';
+  let adjuntoSectorUrl = '';
   let msgRolId = '';
   let msgToA_replyId = '';
   let msgToA_noreplyId = '';
@@ -217,7 +246,11 @@ async function main() {
     const r = await get(`/mensajes/${msgMultiId}`, A.token);
     assertStatus(r.status, 200, JSON.stringify(r.body));
     assert(r.body.id === msgMultiId, 'wrong message');
-    assert(Array.isArray(r.body.destinatarios), 'destinatarios missing');
+    // Un destinatario raso NO ve la lista del resto: es una difusión y enumerar
+    // a los demás sería filtrar quién la recibió. La ve el remitente (o RRHH+),
+    // y eso lo cubre M3b. Esta aserción pedía lo contrario y por eso la suite
+    // nunca corrió verde desde que se agregó el ocultamiento en 7825e14.
+    assert(r.body.destinatarios === undefined, `un destinatario raso no debería ver la lista: ${JSON.stringify(r.body.destinatarios)}`);
     assert(Array.isArray(r.body.respuestas), 'respuestas missing');
     const inbox = await get('/mensajes', A.token);
     const m = inbox.body.mensajes.find((x: any) => x.id === msgMultiId);
@@ -227,6 +260,14 @@ async function main() {
   });
 
   // ── M4: responder (happy) + notif to sender + thread ────────────────────────
+  // ── M3b: el otro lado del ocultamiento de M3 ────────────────────────────────
+  await scenario('M3b GET /mensajes/:id (sender) DOES see destinatarios', async () => {
+    const r = await get(`/mensajes/${msgMultiId}`, sender.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    assert(Array.isArray(r.body.destinatarios) && r.body.destinatarios.length > 0,
+      `el remitente debería ver la lista: ${JSON.stringify(r.body.destinatarios)}`);
+  });
+
   await scenario('M4 POST /mensajes/:id/responder (recipient) -> 201 + notif to sender', async () => {
     const sBefore = await notifCount(sender.token);
     const r = await postMultipart(`/mensajes/${msgMultiId}/responder`, { cuerpo: 'respuesta de A' }, A.token);
@@ -246,12 +287,16 @@ async function main() {
   });
 
   // ── M5: responder WITH file attaches archivo ────────────────────────────────
-  await scenario('M5 responder with PNG file stores archivoUrl/Nombre', async () => {
+  await scenario('M5 responder with PNG file stores adjunto', async () => {
     const r = await postMultipart(`/mensajes/${msgMultiId}/responder`, { cuerpo: 'respuesta con archivo' }, B.token,
       { data: PNG, name: 'evidencia.png', type: 'image/png' });
     assertStatus(r.status, 201, JSON.stringify(r.body));
-    assert(r.body.archivoNombre === 'evidencia.png', `archivoNombre=${r.body.archivoNombre}`);
-    assert(typeof r.body.archivoUrl === 'string' && r.body.archivoUrl.startsWith('/uploads/'), `archivoUrl=${r.body.archivoUrl}`);
+    assert(Array.isArray(r.body.adjuntos) && r.body.adjuntos.length === 1, `adjuntos=${JSON.stringify(r.body.adjuntos)}`);
+    const a = r.body.adjuntos[0];
+    assert(a.nombre === 'evidencia.png', `nombre=${a.nombre}`);
+    assert(typeof a.url === 'string' && a.url.startsWith('/uploads/'), `url=${a.url}`);
+    // El tipo sale del mimetype, no de la extensión.
+    assert(a.tipo === 'IMAGEN', `tipo=${a.tipo}`);
   });
 
   // ── M6: SECTOR broadcast with file + notif to C ─────────────────────────────
@@ -265,8 +310,10 @@ async function main() {
     assertStatus(r.status, 201, JSON.stringify(r.body));
     assert(r.body.destinatariosCount === 3, `destinatariosCount=${r.body.destinatariosCount} expected 3 (A,B,C)`);
     assert(r.body.esDifusion === true, 'SECTOR esDifusion expected true');
-    assert(r.body.archivoNombre === 'aviso.png' && r.body.archivoUrl?.startsWith('/uploads/'), `file fields: ${r.body.archivoUrl}`);
+    assert(r.body.adjuntos?.length === 1 && r.body.adjuntos[0].nombre === 'aviso.png'
+      && r.body.adjuntos[0].url?.startsWith('/uploads/'), `adjuntos: ${JSON.stringify(r.body.adjuntos)}`);
     msgSectorId = r.body.id;
+    adjuntoSectorUrl = r.body.adjuntos[0].url;
     const cAfter = await notifCount(Cc.token);
     assert(cAfter >= cBefore + 1, `C notif ${cBefore}->${cAfter} expected +>=1`);
     const cInbox = await get('/mensajes', Cc.token);
@@ -334,6 +381,25 @@ async function main() {
   // ── NEGATIVE / AUTHZ ────────────────────────────────────────────────────────
   const operador = await login('op1.almacen@test.wenlen.com'); // seed OPERADOR (nivel 10)
   assert(operador.user.rolNivel < 90, `franco nivel ${operador.user.rolNivel} expected <90`);
+
+  // ── U1/U2: quién puede abrir el adjunto por URL directa ─────────────────────
+  // El adjunto ya no se resuelve por la columna `archivo_url` del mensaje sino
+  // por la tabla `mensaje_adjuntos`. Es el camino que decide si un comunicado
+  // interno se puede leer adivinando el nombre del archivo, así que se prueba
+  // con los dos lados: alguien de la difusión y alguien ajeno.
+  await scenario('U1 recipient opens the message attachment -> 200', async () => {
+    assert(adjuntoSectorUrl !== '', 'M6 no dejó la URL del adjunto');
+    const status = await getUpload(adjuntoSectorUrl, Cc);
+    assertStatus(status, 200, `destinatario no pudo abrir ${adjuntoSectorUrl}`);
+  });
+
+  // 404 y no 403 a propósito (ver app.ts): así la respuesta no sirve para
+  // confirmar que el archivo existe ni de quién es.
+  await scenario('U2 non-recipient cannot open the message attachment -> 404', async () => {
+    assert(adjuntoSectorUrl !== '', 'M6 no dejó la URL del adjunto');
+    const status = await getUpload(adjuntoSectorUrl, operador);
+    assertStatus(status, 404, `un ajeno abrió ${adjuntoSectorUrl}`);
+  });
 
   await scenario('N1 OPERADOR POST /mensajes -> 403', async () => {
     const r = await postMultipart('/mensajes', {
@@ -436,6 +502,242 @@ async function main() {
       // If it 400s like the broadcast types, there is no bug
       assertStatus(r.status, 400, JSON.stringify(r.body));
     }
+  });
+
+  // ═══ DIFUSIÓN SEGMENTADA ════════════════════════════════════════════════════
+  //
+  // Cada remitente tiene un ALCANCE MÁXIMO y todo se deriva de ahí. Lo que estos
+  // casos cuidan es el borde: que un coordinador NO pueda escribirle a otro
+  // sector ni siquiera pasando el id a mano, y que un gerente general —que no
+  // tiene sector porque su alcance es la empresa— sí pueda.
+  const secBRes = await post('/admin/sectores', { nombre: `qa.${KEY}.B.${TS}`, color: '#654321' }, admin.token);
+  assertStatus(secBRes.status, 201, `create sector B: ${JSON.stringify(secBRes.body)}`);
+  const sectorBId: string = secBRes.body.id;
+  cleanup.push(async () => { await del(`/admin/sectores/${sectorBId}`, admin.token); });
+
+  const D = await makeUser('d', QAROL, sectorBId);          // destinatario del sector B
+  const coord = await makeUser('coord', 'COORDINADOR', sectorId);
+  const cmass = await makeUser('cmass', 'CMASS', sectorId);
+  const gerente = await makeUser('ger', 'GERENTE', null);   // gerente general: sin sector a propósito
+  const supervisor = await makeUser('sup', 'SUPERVISOR', sectorId);
+  console.log(`\n  coord=${coord.user.rolNivel} cmass=${cmass.user.rolNivel} gerente=${gerente.user.rolNivel} sup=${supervisor.user.rolNivel} sectorB=${sectorBId}\n`);
+
+  /** Los ids de los destinatarios de un mensaje, mirándolo como su remitente. */
+  async function destinatariosDe(mensajeId: string, remitente: Session): Promise<string[]> {
+    const r = await get(`/mensajes/${mensajeId}`, remitente.token);
+    assertStatus(r.status, 200, `ver ${mensajeId}: ${JSON.stringify(r.body)}`);
+    assert(Array.isArray(r.body.destinatarios), 'el remitente debería ver la lista');
+    return r.body.destinatarios.map((d: any) => d.usuarioId);
+  }
+
+  await scenario('D1 COORDINADOR SECTOR -> llega a su sector y a nadie de B', async () => {
+    const r = await postMultipart('/mensajes', {
+      asunto: `D1 ${TS}`, cuerpo: 'para mi sector', destinoTipo: 'SECTOR', destinoValor: sectorId,
+    }, coord.token);
+    assertStatus(r.status, 201, JSON.stringify(r.body));
+    const ids = await destinatariosDe(r.body.id, coord);
+    assert(ids.includes(A.user.id) && ids.includes(B.user.id), `faltan A/B: ${ids.length}`);
+    assert(!ids.includes(D.user.id), 'llegó a alguien del sector B');
+    assert(!ids.includes(coord.user.id), 'el remitente se auto-incluyó');
+  });
+
+  await scenario('D2 COORDINADOR TODOS -> 403 y ROL -> 403', async () => {
+    const todos = await postMultipart('/mensajes', {
+      asunto: `D2a ${TS}`, cuerpo: 'x', destinoTipo: 'TODOS',
+    }, coord.token);
+    assertStatus(todos.status, 403, JSON.stringify(todos.body));
+    const rol = await postMultipart('/mensajes', {
+      asunto: `D2b ${TS}`, cuerpo: 'x', destinoTipo: 'ROL', destinoValor: QAROL,
+    }, coord.token);
+    assertStatus(rol.status, 403, JSON.stringify(rol.body));
+  });
+
+  await scenario('D3 COORDINADOR SECTOR ajeno -> 403', async () => {
+    const r = await postMultipart('/mensajes', {
+      asunto: `D3 ${TS}`, cuerpo: 'x', destinoTipo: 'SECTOR', destinoValor: sectorBId,
+    }, coord.token);
+    assertStatus(r.status, 403, JSON.stringify(r.body));
+  });
+
+  await scenario('D4 COORDINADOR USUARIO de otro sector -> 400 sin destinatarios', async () => {
+    const r = await postMultipart('/mensajes', {
+      asunto: `D4 ${TS}`, cuerpo: 'x', destinoTipo: 'USUARIO', destinoValor: D.user.id,
+    }, coord.token);
+    assertStatus(r.status, 400, JSON.stringify(r.body));
+  });
+
+  await scenario('D5 COORDINADOR TURNO -> sólo los de ese turno', async () => {
+    // A/B/C se crean sin diagrama asignado, así que su clave de turno es 'SIN'.
+    // El cálculo de las claves ROTATIVO/FIJO_SEMANA lo cubre turnos.test.ts; acá
+    // se prueba el cableado: agrupar el alcance y filtrar por la clave elegida.
+    const grupos = await get('/mensajes/grupos-difusion', coord.token);
+    assertStatus(grupos.status, 200, JSON.stringify(grupos.body));
+    assert(grupos.body.alcance === 'SECTOR', `alcance=${grupos.body.alcance}`);
+    const sinDiagrama = grupos.body.turnos.find((t: any) => t.clave === 'SIN');
+    assert(sinDiagrama && sinDiagrama.cantidad >= 3, `grupo SIN: ${JSON.stringify(grupos.body.turnos)}`);
+
+    const r = await postMultipart('/mensajes', {
+      asunto: `D5 ${TS}`, cuerpo: 'x', destinoTipo: 'TURNO', destinoValor: 'SIN',
+    }, coord.token);
+    assertStatus(r.status, 201, JSON.stringify(r.body));
+    const ids = await destinatariosDe(r.body.id, coord);
+    assert(ids.includes(A.user.id), 'no llegó a A');
+    assert(!ids.includes(D.user.id), 'llegó a alguien del sector B');
+  });
+
+  await scenario('D6 COORDINADOR TURNO inexistente -> 400 sin destinatarios', async () => {
+    const r = await postMultipart('/mensajes', {
+      asunto: `D6 ${TS}`, cuerpo: 'x', destinoTipo: 'TURNO', destinoValor: 'R|99|99|0',
+    }, coord.token);
+    assertStatus(r.status, 400, JSON.stringify(r.body));
+  });
+
+  await scenario('D7 CMASS elige: TODOS llega a los dos sectores', async () => {
+    const grupos = await get('/mensajes/grupos-difusion', cmass.token);
+    assertStatus(grupos.status, 200, JSON.stringify(grupos.body));
+    assert(grupos.body.alcance === 'EMPRESA', `CMASS alcance=${grupos.body.alcance}`);
+    const r = await postMultipart('/mensajes', {
+      asunto: `D7 ${TS}`, cuerpo: 'x', destinoTipo: 'TODOS',
+    }, cmass.token);
+    assertStatus(r.status, 201, JSON.stringify(r.body));
+    const ids = await destinatariosDe(r.body.id, cmass);
+    assert(ids.includes(A.user.id) && ids.includes(D.user.id), 'TODOS no cruzó los sectores');
+  });
+
+  await scenario('D8 CMASS SECTOR ajeno -> sólo ese sector', async () => {
+    const r = await postMultipart('/mensajes', {
+      asunto: `D8 ${TS}`, cuerpo: 'x', destinoTipo: 'SECTOR', destinoValor: sectorBId,
+    }, cmass.token);
+    assertStatus(r.status, 201, JSON.stringify(r.body));
+    const ids = await destinatariosDe(r.body.id, cmass);
+    assert(ids.includes(D.user.id), 'no llegó a B');
+    assert(!ids.includes(A.user.id), 'se filtró a alguien del sector A');
+  });
+
+  await scenario('D9 GERENTE sin sector es transversal: SECTOR B -> llega a B', async () => {
+    const grupos = await get('/mensajes/grupos-difusion', gerente.token);
+    assertStatus(grupos.status, 200, JSON.stringify(grupos.body));
+    assert(grupos.body.alcance === 'EMPRESA', `gerente general alcance=${grupos.body.alcance}`);
+    assert(grupos.body.sectorPropio === null, `sectorPropio=${grupos.body.sectorPropio}`);
+    const r = await postMultipart('/mensajes', {
+      asunto: `D9 ${TS}`, cuerpo: 'x', destinoTipo: 'SECTOR', destinoValor: sectorBId,
+    }, gerente.token);
+    assertStatus(r.status, 201, JSON.stringify(r.body));
+    const ids = await destinatariosDe(r.body.id, gerente);
+    assert(ids.includes(D.user.id), 'el gerente general no alcanzó al sector B');
+  });
+
+  await scenario('D10 GERENTE (nivel 80) ROL -> 403, reservado a nivel >= 90', async () => {
+    const r = await postMultipart('/mensajes', {
+      asunto: `D10 ${TS}`, cuerpo: 'x', destinoTipo: 'ROL', destinoValor: QAROL,
+    }, gerente.token);
+    assertStatus(r.status, 403, JSON.stringify(r.body));
+  });
+
+  await scenario('D11 SUPERVISOR (nivel 60) no difunde -> 403', async () => {
+    const r = await postMultipart('/mensajes', {
+      asunto: `D11 ${TS}`, cuerpo: 'x', destinoTipo: 'SECTOR', destinoValor: sectorId,
+    }, supervisor.token);
+    assertStatus(r.status, 403, JSON.stringify(r.body));
+    const grupos = await get('/mensajes/grupos-difusion', supervisor.token);
+    assertStatus(grupos.status, 403, JSON.stringify(grupos.body));
+  });
+
+  // ── ADJUNTOS MÚLTIPLES ──────────────────────────────────────────────────────
+  await scenario('AD1 un mensaje con imagen Y PDF devuelve los dos, tipados', async () => {
+    const r = await postMultipart('/mensajes', {
+      asunto: `AD1 ${TS}`, cuerpo: 'con dos adjuntos', destinoTipo: 'SECTOR', destinoValor: sectorId,
+    }, coord.token, [
+      { data: PNG, name: 'foto.png', type: 'image/png' },
+      { data: PDF, name: 'instructivo.pdf', type: 'application/pdf' },
+    ]);
+    assertStatus(r.status, 201, JSON.stringify(r.body));
+    const detalle = await get(`/mensajes/${r.body.id}`, coord.token);
+    const adj: any[] = detalle.body.adjuntos;
+    assert(Array.isArray(adj) && adj.length === 2, `adjuntos=${JSON.stringify(adj)}`);
+    const img = adj.find(a => a.nombre === 'foto.png');
+    const pdf = adj.find(a => a.nombre === 'instructivo.pdf');
+    assert(img?.tipo === 'IMAGEN', `foto.png tipo=${img?.tipo}`);
+    assert(pdf?.tipo === 'ARCHIVO', `instructivo.pdf tipo=${pdf?.tipo}`);
+    assert(img.tamanioBytes > 0, `tamanioBytes=${img.tamanioBytes}`);
+  });
+
+  await scenario('AD2 un rechazo no deja los archivos en disco', async () => {
+    // El destino es ajeno, así que da 403 DESPUÉS de que multer ya escribió el
+    // archivo. Si la ruta no lo descarta, cada intento fallido deja basura.
+    //
+    // Se cuenta el directorio, que es lo único que prueba el borrado: la
+    // respuesta HTTP se ve igual con o sin limpieza. Vale porque la suite corre
+    // en la misma máquina que la API; si algún día no fuera así, este caso hay
+    // que moverlo a un test de integración.
+    const antes = readdirSync(UPLOADS_DIR).length;
+    // Si la ruta apuntara al directorio equivocado, el caso pasaría contando
+    // 0 == 0 sin probar nada. AD1 acaba de subir dos archivos, así que no puede
+    // estar vacío.
+    assert(antes > 0, `UPLOADS_DIR vacío o mal resuelto: ${UPLOADS_DIR}`);
+    const r = await postMultipart('/mensajes', {
+      asunto: `AD2 ${TS}`, cuerpo: 'x', destinoTipo: 'SECTOR', destinoValor: sectorBId,
+    }, coord.token, { data: PNG, name: 'huerfana.png', type: 'image/png' });
+    assertStatus(r.status, 403, JSON.stringify(r.body));
+    const despues = readdirSync(UPLOADS_DIR).length;
+    assert(despues === antes, `quedaron ${despues - antes} archivos huérfanos en uploads/`);
+  });
+
+  // ── CONFIRMACIÓN DE RECEPCIÓN ───────────────────────────────────────────────
+  let msgConfirmaId = '';
+  await scenario('C1 sin requiereConfirmacion, confirmar -> 400', async () => {
+    const r = await postMultipart('/mensajes', {
+      asunto: `C1 ${TS}`, cuerpo: 'x', destinoTipo: 'SECTOR', destinoValor: sectorId,
+    }, coord.token);
+    assertStatus(r.status, 201, JSON.stringify(r.body));
+    assert(r.body.requiereConfirmacion === false, `requiereConfirmacion=${r.body.requiereConfirmacion}`);
+    const c = await post(`/mensajes/${r.body.id}/confirmar`, {}, A.token);
+    assertStatus(c.status, 400, JSON.stringify(c.body));
+  });
+
+  await scenario('C2 con requiereConfirmacion: confirma, repite y no cambia la fecha', async () => {
+    const r = await postMultipart('/mensajes', {
+      asunto: `C2 ${TS}`, cuerpo: 'acusar recibo', destinoTipo: 'SECTOR', destinoValor: sectorId,
+      requiereConfirmacion: 'true',
+    }, coord.token);
+    assertStatus(r.status, 201, JSON.stringify(r.body));
+    assert(r.body.requiereConfirmacion === true, 'no se guardó el flag');
+    msgConfirmaId = r.body.id;
+
+    const primera = await post(`/mensajes/${msgConfirmaId}/confirmar`, {}, A.token);
+    assertStatus(primera.status, 200, JSON.stringify(primera.body));
+    assert(!!primera.body.confirmadoAt, 'no devolvió la fecha');
+
+    // Idempotente: reconfirmar no puede mover el dato que se quiere conservar.
+    const segunda = await post(`/mensajes/${msgConfirmaId}/confirmar`, {}, A.token);
+    assertStatus(segunda.status, 200, JSON.stringify(segunda.body));
+    assert(segunda.body.confirmadoAt === primera.body.confirmadoAt,
+      `la fecha se movió: ${primera.body.confirmadoAt} -> ${segunda.body.confirmadoAt}`);
+  });
+
+  await scenario('C3 un ajeno no puede confirmar -> 403', async () => {
+    const r = await post(`/mensajes/${msgConfirmaId}/confirmar`, {}, D.token);
+    assertStatus(r.status, 403, JSON.stringify(r.body));
+  });
+
+  await scenario('C4 el remitente ve quién confirmó y quién no', async () => {
+    const r = await get(`/mensajes/${msgConfirmaId}`, coord.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    const dests: any[] = r.body.destinatarios;
+    const deA = dests.find(d => d.usuarioId === A.user.id);
+    const deB = dests.find(d => d.usuarioId === B.user.id);
+    assert(!!deA?.confirmadoAt, 'A confirmó y no figura');
+    assert(deB && deB.confirmadoAt === null, `B no confirmó y figura: ${deB?.confirmadoAt}`);
+    assert(!!deA.usuario?.apellido, 'falta el nombre para mostrar la lista');
+  });
+
+  await scenario('C5 /no-leidos cuenta lo pendiente de confirmar aparte', async () => {
+    // B no confirmó. Leer no confirma: son dos estados distintos.
+    await put(`/mensajes/${msgConfirmaId}/leer`, {}, B.token);
+    const r = await get('/mensajes/no-leidos', B.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    assert(typeof r.body.pendientesConfirmacion === 'number', `falta pendientesConfirmacion: ${JSON.stringify(r.body)}`);
+    assert(r.body.pendientesConfirmacion >= 1, `leído pero sin confirmar debería seguir pendiente: ${r.body.pendientesConfirmacion}`);
   });
 
   // ── CLEANUP ─────────────────────────────────────────────────────────────────

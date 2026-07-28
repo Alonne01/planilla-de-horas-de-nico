@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
 import { Search, Users, Loader2, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { diaLocal } from '@/utils/fechaDia';
+import { diaLocal, hoyKey } from '@/utils/fechaDia';
 import { esDiaFranco } from '@/utils/planillaHelpers';
 import { francoDelDia, tramoDelDia } from '@/utils/tramosDiagrama';
 import { turnoKey } from '@/utils/turnos';
 import {
-  type GanttData, type Empleado, type TramoEmp, type Bloque, type Cat,
+  type GanttData, type Empleado, type TramoEmp, type Bloque, type Cat, type Ventana,
   MESES, DOW_SHORT, CAT, CAT_LABEL, ESTADO_BADGE, COUNTABLE, CAT_ORDER,
-  catOf, tipoLabel, ymd, daysInMonth, fmtDate, norm,
+  catOf, tipoLabel, ymd, fmtDate, norm,
+  aniosDeVentana, diasDelMes, indiceDeDia, rangoEnVentana,
 } from './shared';
 
 // ── Turno derivation: se agrupa por el tramo vigente HOY (con un cambio a mitad
@@ -65,7 +66,8 @@ interface Segment {
   key: string;
   cat: Cat;
   estado: string;
-  monthIndex: number;
+  /** Posición del mes DENTRO DE LA VENTANA, no el mes 0-based del año. */
+  mesIdx: number;
   d0: number;
   days: number;
   dim: number;
@@ -90,36 +92,39 @@ function edgeOf(roundL: boolean, roundR: boolean): string {
   return 'open-both';
 }
 
-// Split one block into per-month segments, clamped to the visible year.
-function buildSegments(block: Bloque, year: number, emp: string): Segment[] {
+/**
+ * Parte un bloque en segmentos por mes, recortado a la ventana visible.
+ *
+ * La punta se redondea sólo si el bloque REALMENTE empieza o termina ahí. Si lo
+ * cortó la ventana, va cuadrada: una barra que sigue fuera de la vista tiene que
+ * verse cortada, no terminada. `indiceDeDia` devuelve `null` justo cuando el día
+ * cae fuera de la ventana, que —habiendo un rango— sólo puede ser por recorte.
+ */
+function buildSegments(block: Bloque, v: Ventana, emp: string): Segment[] {
+  const rango = rangoEnVentana(block.fechaInicio, block.fechaFin, v);
+  if (!rango) return [];
+  const [desde, hasta] = rango;
   const [y1, m1, d1] = ymd(block.fechaInicio);
   const [y2, m2, d2] = ymd(block.fechaFin);
-  if (y1 > year || y2 < year) return [];
-  const spillL = y1 < year;
-  const spillR = y2 > year;
-  const startMonth = spillL ? 0 : m1 - 1;
-  const startDay = spillL ? 1 : d1;
-  const endMonth = spillR ? 11 : m2 - 1;
-  const endDay = spillR ? 31 : d2;
+  const recortadoIzq = indiceDeDia(y1, m1, d1, v) === null;
+  const recortadoDer = indiceDeDia(y2, m2, d2, v) === null;
   const cat = catOf(block.tipo);
   const segs: Segment[] = [];
-  for (let mo = startMonth; mo <= endMonth; mo++) {
-    const dim = daysInMonth(year, mo);
-    const segStart = mo === startMonth ? startDay : 1;
-    const segEnd = Math.min(mo === endMonth ? endDay : dim, dim);
-    const days = segEnd - segStart + 1;
-    if (days <= 0) continue;
-    const roundL = mo === startMonth && !spillL;
-    const roundR = mo === endMonth && !spillR;
+  for (let i = 0; i < v.meses.length; i++) {
+    const base = v.offset[i]!;
+    const dim = diasDelMes(v.meses[i]!.anio, v.meses[i]!.mes);
+    const segStart = Math.max(desde, base);
+    const segEnd = Math.min(hasta, base + dim - 1);
+    if (segEnd < segStart) continue;
     segs.push({
-      key: `${block.id}-${mo}`,
+      key: `${block.id}-${i}`,
       cat,
       estado: block.estado,
-      monthIndex: mo,
-      d0: segStart - 1,
-      days,
+      mesIdx: i,
+      d0: segStart - base,
+      days: segEnd - segStart + 1,
       dim,
-      edge: edgeOf(roundL, roundR),
+      edge: edgeOf(segStart === desde && !recortadoIzq, segEnd === hasta && !recortadoDer),
       block,
       emp,
     });
@@ -127,16 +132,14 @@ function buildSegments(block: Bloque, year: number, emp: string): Segment[] {
   return segs;
 }
 
-const GRID_STYLE: React.CSSProperties = { gridTemplateColumns: 'minmax(180px,230px) repeat(12, minmax(56px,1fr))' };
-
 interface Props {
   data?: GanttData;
-  anio: number;
+  ventana: Ventana;
   isLoading: boolean;
   onOverlapSelect: (block: Bloque, empId: string, empName: string) => void;
 }
 
-export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSelect }: Props) {
+export default function CalendarioDetallado({ data, ventana, isLoading, onOverlapSelect }: Props) {
   const [q, setQ] = useState('');
   const [turnoSel, setTurnoSel] = useState('');
   const [vis, setVis] = useState<Record<Cat, boolean>>({
@@ -144,51 +147,50 @@ export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSe
   });
   const [hover, setHover] = useState<{ seg: Segment; x: number; y: number } | null>(null);
 
-  // Day-of-year offsets per month (leap-aware), used by the overlap pass.
-  const { monthOffset } = useMemo(() => {
-    const off: number[] = [];
-    let acc = 0;
-    for (let mi = 0; mi < 12; mi++) { off[mi] = acc; acc += daysInMonth(anio, mi); }
-    return { monthOffset: off };
-  }, [anio]);
+  const nMeses = ventana.meses.length;
 
   // One pass: per-employee segments (gated by vis) + rest-day runs (if DESCANSO) + overlap counts.
   const { rows, catCounts } = useMemo(() => {
     const cc: Record<Cat, number> = { VACACION: 0, AUSENCIA: 0, FRANCO: 0, CAPACITACION: 0, DESCANSO: 0 };
     if (!data) return { rows: [] as RowData[], catCounts: cc };
 
-    const counts = new Int16Array(366);
+    // El contador va del largo de la VENTANA, no de un año fijo: con zoom, el
+    // pico de solape se mide sobre lo visible.
+    const counts = new Int16Array(ventana.totalDias);
 
     const built: RowData[] = data.empleados.map((emp) => {
-      const byMonth: Segment[][] = Array.from({ length: 12 }, () => []);
+      const byMonth: Segment[][] = Array.from({ length: nMeses }, () => []);
       const name = `${emp.apellido}, ${emp.nombre}`;
-      const doySet = new Set<number>();
+      const diasOcupados = new Set<number>();
       for (const b of emp.bloques) {
         const cat = catOf(b.tipo);
         cc[cat] += 1; // total available (before the visibility gate), for the chip badge
         if (!vis[cat]) continue;
-        for (const seg of buildSegments(b, anio, name)) {
-          byMonth[seg.monthIndex].push(seg);
+        for (const seg of buildSegments(b, ventana, name)) {
+          byMonth[seg.mesIdx]!.push(seg);
           if (COUNTABLE[cat]) {
-            for (let k = 0; k < seg.days; k++) doySet.add(monthOffset[seg.monthIndex] + seg.d0 + k);
+            for (let k = 0; k < seg.days; k++) diasOcupados.add(ventana.offset[seg.mesIdx]! + seg.d0 + k);
           }
         }
       }
-      for (const doy of doySet) counts[doy]++;
+      for (const d of diasOcupados) counts[d]++;
 
       let restByMonth: { d0: number; days: number }[][] | null = null;
       const tramos = emp.tramos ?? [];
       if (vis.DESCANSO && tramos.length > 0) {
-        restByMonth = Array.from({ length: 12 }, () => [] as { d0: number; days: number }[]);
-        for (let mi = 0; mi < 12; mi++) {
-          const dim = daysInMonth(anio, mi);
+        restByMonth = Array.from({ length: nMeses }, () => [] as { d0: number; days: number }[]);
+        for (let mi = 0; mi < nMeses; mi++) {
+          const { anio: ma, mes } = ventana.meses[mi]!;
+          const dim = diasDelMes(ma, mes);
           let start = -1;
           for (let d = 1; d <= dim; d++) {
-            const isF = francoDelDia(tramos, new Date(anio, mi, d));
+            // `francoDelDia` espera un Date LOCAL (no una fecha-día), por eso el
+            // constructor con componentes y el mes 0-based.
+            const isF = francoDelDia(tramos, new Date(ma, mes - 1, d));
             if (isF && start === -1) start = d;
-            else if (!isF && start !== -1) { restByMonth[mi].push({ d0: start - 1, days: d - start }); start = -1; }
+            else if (!isF && start !== -1) { restByMonth[mi]!.push({ d0: start - 1, days: d - start }); start = -1; }
           }
-          if (start !== -1) restByMonth[mi].push({ d0: start - 1, days: dim - start + 1 });
+          if (start !== -1) restByMonth[mi]!.push({ d0: start - 1, days: dim - start + 1 });
         }
       }
       return { emp, byMonth, restByMonth };
@@ -200,14 +202,14 @@ export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSe
         for (const s of m) {
           if (!COUNTABLE[s.cat]) continue;
           let peak = 0;
-          const base = monthOffset[s.monthIndex] + s.d0;
-          for (let k = 0; k < s.days; k++) { const c = counts[base + k]; if (c > peak) peak = c; }
+          const base = ventana.offset[s.mesIdx]! + s.d0;
+          for (let k = 0; k < s.days; k++) { const c = counts[base + k]!; if (c > peak) peak = c; }
           if (peak >= 2) { s.overlap = true; s.overlapPeak = peak; }
         }
       }
     }
     return { rows: built, catCounts: cc };
-  }, [data, anio, vis, monthOffset]);
+  }, [data, ventana, nMeses, vis]);
 
   // Turnos derived from diagramas (letters assigned over the present keys).
   const { turnoKeyByEmp, turnos, hasDiagramas } = useMemo(() => {
@@ -223,10 +225,11 @@ export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSe
       if (g) g.count++; else groups.set(k, { count: 1, tramos });
     }
     const entries = [...groups.entries()].filter(([k]) => k !== 'SIN').sort((a, b) => a[0].localeCompare(b[0]));
-    const list = entries.map(([key, g], i) => ({ key, letra: letterOf(i), subtitle: turnoSubtitle(g.tramos, anio), count: g.count }));
+    const anioBase = ventana.meses[0]!.anio;
+    const list = entries.map(([key, g], i) => ({ key, letra: letterOf(i), subtitle: turnoSubtitle(g.tramos, anioBase), count: g.count }));
     if (groups.has('SIN')) list.push({ key: 'SIN', letra: '—', subtitle: 'Sin diagrama', count: groups.get('SIN')!.count });
     return { turnoKeyByEmp: keyByEmp, turnos: list, hasDiagramas: hasDiag };
-  }, [rows, anio]);
+  }, [rows, ventana]);
 
   const chipCats = useMemo(() => {
     const present = CAT_ORDER.filter((c) => (catCounts[c] ?? 0) > 0);
@@ -245,10 +248,18 @@ export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSe
   }, [rows, q, turnoSel, turnoKeyByEmp]);
 
 
-  const now = new Date();
-  const isCurrentYear = anio === now.getFullYear();
-  const todayMonth = now.getMonth();
-  const todayDay = now.getDate();
+  // "Hoy" con `hoyKey()`: `new Date().toISOString()` da el día UTC, que entre las
+  // 21:00 y las 24:00 en Argentina ya es mañana.
+  const [hoyAnio, hoyMes, todayDay] = ymd(hoyKey());
+  const hoyMesIdx = ventana.meses.findIndex((m) => m.anio === hoyAnio && m.mes === hoyMes);
+
+  const gridStyle = useMemo<React.CSSProperties>(
+    // Con 1 o 3 meses las columnas se ensanchan solas por el `1fr`: eso ES el zoom.
+    () => ({ gridTemplateColumns: `minmax(180px,230px) repeat(${nMeses}, minmax(56px,1fr))` }),
+    [nMeses],
+  );
+  const cruzaAnios = useMemo(() => aniosDeVentana(ventana).length > 1, [ventana]);
+
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
 
@@ -332,20 +343,20 @@ export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSe
           <div className="p-12 text-center">
             <Users className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
             <p className="text-muted-foreground">
-              {rows.length ? 'Sin resultados para los filtros aplicados' : `No hay registros en ${anio}`}
+              {rows.length ? 'Sin resultados para los filtros aplicados' : 'No hay registros en el período elegido'}
             </p>
           </div>
         ) : (
           <div className="overflow-auto max-h-[72vh]">
             <div className="min-w-[900px]">
               {/* Month header */}
-              <div className="grid sticky top-0 z-20 bg-card border-b border-border" style={GRID_STYLE}>
+              <div className="grid sticky top-0 z-20 bg-card border-b border-border" style={gridStyle}>
                 <div className="sticky left-0 z-30 bg-card px-3 py-2 text-xs font-semibold text-muted-foreground border-r border-border">
                   Empleado
                 </div>
-                {MESES.map((m, i) => (
-                  <div key={i} className="text-center text-xs font-medium text-muted-foreground py-2 border-r border-border/40">
-                    {m}
+                {ventana.meses.map((m) => (
+                  <div key={`${m.anio}-${m.mes}`} className="text-center text-xs font-medium text-muted-foreground py-2 border-r border-border/40">
+                    {cruzaAnios ? `${MESES[m.mes - 1]} ${String(m.anio).slice(2)}` : MESES[m.mes - 1]}
                   </div>
                 ))}
               </div>
@@ -355,7 +366,7 @@ export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSe
                 const tk = turnoKeyByEmp.get(r.emp.id) || 'SIN';
                 const turno = turnos.find((t) => t.key === tk);
                 return (
-                  <div key={r.emp.id} className="av-row grid border-b border-border/40 hover:bg-muted/10 transition-colors" style={GRID_STYLE}>
+                  <div key={r.emp.id} className="av-row grid border-b border-border/40 hover:bg-muted/10 transition-colors" style={gridStyle}>
                     <div className="sticky left-0 z-10 bg-card px-2 py-1.5 border-r border-border flex items-center gap-1.5 min-w-0">
                       {turno && tk !== 'SIN' ? (
                         <button
@@ -378,14 +389,14 @@ export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSe
                         </span>
                       </div>
                     </div>
-                    {Array.from({ length: 12 }, (_, mi) => {
-                      const dim = daysInMonth(anio, mi);
+                    {ventana.meses.map((mv, mi) => {
+                      const dim = diasDelMes(mv.anio, mv.mes);
                       const runs = r.restByMonth?.[mi];
                       const cellStyle: React.CSSProperties = { ['--av-days']: dim } as React.CSSProperties;
                       if (runs && runs.length) (cellStyle as Record<string, string>)['--av-rest'] = restGradient(runs, dim);
                       return (
-                        <div key={mi} className="av-daygrid relative h-9 border-r border-border/40" style={cellStyle}>
-                          {r.byMonth[mi].map((s) => (
+                        <div key={`${mv.anio}-${mv.mes}`} className="av-daygrid relative h-9 border-r border-border/40" style={cellStyle}>
+                          {r.byMonth[mi]!.map((s) => (
                             <div
                               key={s.key}
                               className={cn('av-seg absolute top-1/2 -translate-y-1/2 h-3.5 cursor-pointer outline-none focus:ring-2 focus:ring-ring', CAT[s.cat])}
@@ -415,7 +426,7 @@ export default function CalendarioDetallado({ data, anio, isLoading, onOverlapSe
                               )}
                             </div>
                           ))}
-                          {isCurrentYear && mi === todayMonth && (
+                          {mi === hoyMesIdx && (
                             <div
                               className="absolute top-0 bottom-0 w-px bg-primary/70 z-[5]"
                               style={{ left: `${((todayDay - 0.5) / dim) * 100}%` }}
