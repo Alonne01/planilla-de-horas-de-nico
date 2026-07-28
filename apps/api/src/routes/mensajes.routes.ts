@@ -5,6 +5,10 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.middleware.js';
 import { requireLevel, LEVEL_RRHH } from '../middleware/roles.middleware.js';
 import { upload } from '../middleware/upload.middleware.js';
 import { crearNotificacion } from '../utils/notificacion.utils.js';
+import { alcanceDeDifusion, destinosPermitidos, NIVEL_MINIMO_DIFUSION, type AlcanceDifusion } from '../utils/difusion.utils.js';
+import { turnoKey, etiquetaTurno } from '../utils/turnos.utils.js';
+import { tramoDelDia, type TramoDiagrama } from '../utils/diagrama-vigencia.utils.js';
+import { hoyLocalEmpresa } from '../utils/fecha-dia.utils.js';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -26,6 +30,69 @@ function adjuntosDesdeArchivo(file: Express.Multer.File | undefined) {
     tipo: file.mimetype.startsWith('image/') ? 'IMAGEN' : 'ARCHIVO',
     tamanioBytes: file.size,
   }];
+}
+
+// ─── Difusión: alcance y agrupamiento por turno ──────────────────────────────
+
+/** El alcance del remitente y los destinos que ese alcance habilita. */
+async function contextoDeDifusion(user: { userId: string; rol: string; rolNivel: number }): Promise<{
+  sectorId: string | null;
+  alcance: AlcanceDifusion;
+  permitidos: string[];
+}> {
+  const remitente = await prisma.usuario.findUnique({
+    where: { id: user.userId },
+    select: { sectorId: true },
+  });
+  // El sector sale de la BASE y no del token: el token se emitió al iniciar
+  // sesión y un cambio de sector posterior no lo invalida.
+  const sectorId = remitente?.sectorId ?? null;
+  const alcance = alcanceDeDifusion({ rol: user.rol, rolNivel: user.rolNivel, sectorId });
+  return { sectorId, alcance, permitidos: destinosPermitidos(alcance, user.rolNivel) };
+}
+
+/**
+ * El turno de cada usuario, evaluando el tramo VIGENTE HOY.
+ *
+ * Si alguien cambió de diagrama la semana pasada cae en su grupo nuevo, que es
+ * lo que espera quien manda el mensaje.
+ */
+async function turnosDeUsuarios(
+  usuarioIds: string[],
+): Promise<Map<string, { clave: string; tramo: TramoDiagrama | null }>> {
+  const hoy = hoyLocalEmpresa();
+  const salida = new Map<string, { clave: string; tramo: TramoDiagrama | null }>();
+  if (usuarioIds.length === 0) return salida;
+
+  // `fechaInicio` guarda la HORA REAL de la aprobación, no la medianoche del día
+  // (ver `tramosDeUsuario`). Con `lte: hoy` una asignación aprobada hoy a las
+  // 15:32 quedaría afuera aunque por día calendario ya rija. Se amplía a fin del
+  // día y el recorte fino por clave lo hace `tramoDelDia`.
+  const finDeHoy = new Date(hoy.getTime() + 86_400_000 - 1);
+  const asignaciones = await prisma.usuarioDiagrama.findMany({
+    where: {
+      usuarioId: { in: usuarioIds },
+      fechaInicio: { lte: finDeHoy },
+      OR: [{ fechaFin: null }, { fechaFin: { gte: hoy } }],
+    },
+    orderBy: { fechaInicio: 'asc' },
+    select: {
+      usuarioId: true, fechaInicio: true, fechaFin: true,
+      diagrama: { select: { id: true, nombre: true, tipo: true, diasTrabajo: true, diasDescanso: true, diasSemana: true } },
+    },
+  });
+
+  const porUsuario = new Map<string, TramoDiagrama[]>();
+  for (const a of asignaciones) {
+    const lista = porUsuario.get(a.usuarioId) ?? [];
+    lista.push({ diagrama: a.diagrama, fechaInicio: a.fechaInicio, fechaFin: a.fechaFin });
+    porUsuario.set(a.usuarioId, lista);
+  }
+  for (const uid of usuarioIds) {
+    const vigente = tramoDelDia(porUsuario.get(uid) ?? [], hoy);
+    salida.set(uid, { clave: turnoKey(vigente), tramo: vigente });
+  }
+  return salida;
 }
 
 // ─── GET /mensajes — User's inbox ─────────────────
@@ -89,8 +156,10 @@ router.get('/no-leidos', async (req: AuthRequest, res: Response): Promise<void> 
   }
 });
 
-// ─── GET /mensajes/enviados — Sent messages (RRHH+) ──
-router.get('/enviados', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: Response): Promise<void> => {
+// ─── GET /mensajes/enviados — Sent messages (COORDINADOR+) ──
+// Ya filtra por `remitenteId`, así que bajar el nivel no expone nada ajeno: cada
+// uno ve lo que mandó él.
+router.get('/enviados', requireLevel(NIVEL_MINIMO_DIFUSION), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const mensajes = await prisma.mensaje.findMany({
       where: { remitenteId: req.user!.userId },
@@ -116,6 +185,84 @@ router.put('/leer-todas', async (req: AuthRequest, res: Response): Promise<void>
     });
     res.json({ ok: true });
   } catch (error) {
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── GET /mensajes/grupos-difusion — A quiénes puedo escribirle ────
+//
+// Va ANTES de `GET /:id`, si no Express lo toma como un id.
+//
+// Devuelve el alcance del remitente y los grupos reales de su alcance, con el
+// tamaño de cada uno. La idea es que antes de mandar vea a cuánta gente le está
+// por escribir y cuándo arranca cada turno, en vez de elegir a ciegas de una
+// lista fija que puede no corresponder a nadie.
+router.get('/grupos-difusion', requireLevel(NIVEL_MINIMO_DIFUSION), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const empresaId = req.user!.empresaId;
+    const { sectorId, alcance, permitidos } = await contextoDeDifusion(req.user!);
+    if (alcance === 'NINGUNO') {
+      res.status(403).json({ error: 'No podés enviar difusiones' });
+      return;
+    }
+
+    // Con alcance SECTOR el filtro es siempre el sector propio, ignorando lo que
+    // pida el cliente. Con alcance EMPRESA, `sectorId` de la query acota los
+    // turnos al sector elegido (para que el conteo coincida con lo que se manda).
+    const sectorPedido = typeof req.query.sectorId === 'string' && req.query.sectorId ? req.query.sectorId : null;
+    const sectorFiltro = alcance === 'SECTOR' ? sectorId : sectorPedido;
+
+    // Alcance SECTOR sin sector propio no debería existir —`alcanceDeDifusion`
+    // devuelve EMPRESA en ese caso— pero si pasara, el alcance queda vacío en vez
+    // de abarcar la empresa entera por omitir el filtro.
+    if (alcance === 'SECTOR' && !sectorFiltro) {
+      res.json({ alcance, sectorPropio: null, destinosPermitidos: permitidos, sectores: [], turnos: [], totalAlcance: 0 });
+      return;
+    }
+
+    const where: { empresaId: string; activo: boolean; id: { not: string }; sectorId?: string } = {
+      empresaId, activo: true, id: { not: req.user!.userId },
+    };
+    if (sectorFiltro) where.sectorId = sectorFiltro;
+
+    const usuarios = await prisma.usuario.findMany({ where, select: { id: true } });
+    const turnos = await turnosDeUsuarios(usuarios.map((u) => u.id));
+
+    const hoy = hoyLocalEmpresa();
+    const grupos = new Map<string, { clave: string; etiqueta: string; proximoInicio: string | null; cantidad: number }>();
+    for (const { clave, tramo } of turnos.values()) {
+      const ya = grupos.get(clave);
+      if (ya) { ya.cantidad++; continue; }
+      const { etiqueta, proximoInicio } = etiquetaTurno(tramo, hoy);
+      grupos.set(clave, { clave, etiqueta, proximoInicio, cantidad: 1 });
+    }
+
+    const listaTurnos = [...grupos.values()].sort((a, b) => {
+      // "Sin diagrama asignado" siempre último: es el cajón de sobras, no un turno.
+      if (a.clave === 'SIN') return 1;
+      if (b.clave === 'SIN') return -1;
+      return b.cantidad - a.cantidad;
+    });
+
+    // Los sectores sólo tienen sentido si se puede elegir uno distinto al propio.
+    const sectores = alcance === 'EMPRESA'
+      ? await prisma.sector.findMany({
+          where: { empresaId, activo: true },
+          select: { id: true, nombre: true },
+          orderBy: { nombre: 'asc' },
+        })
+      : [];
+
+    res.json({
+      alcance,
+      sectorPropio: sectorId,
+      destinosPermitidos: permitidos,
+      sectores,
+      turnos: listaTurnos,
+      totalAlcance: usuarios.length,
+    });
+  } catch (error) {
+    console.error('Error listing grupos de difusión:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -188,16 +335,19 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   }
 });
 
-// ─── POST /mensajes — Send message (RRHH/ADMIN) ───
+// ─── POST /mensajes — Send message (COORDINADOR+) ───
 const createMensajeSchema = z.object({
   asunto: z.string().min(1).max(200),
   cuerpo: z.string().min(1).max(5000),
   permiteRespuesta: z.boolean().optional().default(false),
-  destinoTipo: z.enum(['TODOS', 'SECTOR', 'ROL', 'USUARIO']),
+  destinoTipo: z.enum(['TODOS', 'SECTOR', 'ROL', 'TURNO', 'USUARIO']),
   destinoValor: z.string().optional(),
+  // Sólo lo mira quien tiene alcance EMPRESA: acota la difusión a un sector sin
+  // que el destino deje de ser TODOS o TURNO.
+  destinoSectorId: z.string().uuid().optional(),
 });
 
-router.post('/', requireLevel(LEVEL_RRHH), upload.single('archivo'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requireLevel(NIVEL_MINIMO_DIFUSION), upload.single('archivo'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     // Parse JSON fields from multipart form
     const body = {
@@ -211,39 +361,68 @@ router.post('/', requireLevel(LEVEL_RRHH), upload.single('archivo'), async (req:
       return;
     }
 
-    const { asunto, cuerpo, permiteRespuesta, destinoTipo, destinoValor } = parsed.data;
+    const { asunto, cuerpo, permiteRespuesta, destinoTipo, destinoValor, destinoSectorId } = parsed.data;
     const empresaId = req.user!.empresaId;
     const remitenteId = req.user!.userId;
+
+    const { sectorId, alcance, permitidos } = await contextoDeDifusion(req.user!);
+    if (!permitidos.includes(destinoTipo)) {
+      res.status(403).json({ error: 'No podés difundir con ese destino' });
+      return;
+    }
+
+    // Sector efectivo: con alcance SECTOR nunca es otro que el propio, mande lo
+    // que mande el cliente. Es la única línea que impide que un coordinador le
+    // escriba a otro sector poniendo un id a mano.
+    const sectorEfectivo = alcance === 'SECTOR' ? sectorId : (destinoSectorId ?? null);
+
+    // Piso común de TODA resolución de destinatarios: misma empresa, activo, y
+    // nunca el propio remitente. Cada destino sólo agrega condiciones encima.
+    const baseWhere: { empresaId: string; activo: boolean; id: { not: string }; sectorId?: string; rol?: string } = {
+      empresaId, activo: true, id: { not: remitenteId },
+    };
+    if (sectorEfectivo) baseWhere.sectorId = sectorEfectivo;
 
     // Resolve recipients
     let userIds: string[] = [];
 
     if (destinoTipo === 'TODOS') {
-      const users = await prisma.usuario.findMany({
-        where: { empresaId, activo: true, id: { not: remitenteId } },
-        select: { id: true },
-      });
+      const users = await prisma.usuario.findMany({ where: baseWhere, select: { id: true } });
       userIds = users.map(u => u.id);
     } else if (destinoTipo === 'SECTOR') {
       if (!destinoValor) { res.status(400).json({ error: 'Se requiere el sector' }); return; }
+      // Con alcance SECTOR el sector es el propio, aunque el cliente pida otro.
+      if (alcance === 'SECTOR' && destinoValor !== sectorId) {
+        res.status(403).json({ error: 'Sólo podés difundir a tu propio sector' });
+        return;
+      }
       const users = await prisma.usuario.findMany({
-        where: { empresaId, activo: true, sectorId: destinoValor, id: { not: remitenteId } },
+        where: { ...baseWhere, sectorId: destinoValor },
         select: { id: true },
       });
       userIds = users.map(u => u.id);
     } else if (destinoTipo === 'ROL') {
       if (!destinoValor) { res.status(400).json({ error: 'Se requiere el rol' }); return; }
       const users = await prisma.usuario.findMany({
-        where: { empresaId, activo: true, rol: destinoValor, id: { not: remitenteId } },
+        where: { ...baseWhere, rol: destinoValor },
         select: { id: true },
       });
       userIds = users.map(u => u.id);
+    } else if (destinoTipo === 'TURNO') {
+      if (!destinoValor) { res.status(400).json({ error: 'Se requiere el turno' }); return; }
+      // El turno no es una columna: sale del diagrama vigente hoy de cada uno.
+      // Por eso se trae el alcance entero y se filtra en memoria, en vez de en SQL.
+      const users = await prisma.usuario.findMany({ where: baseWhere, select: { id: true } });
+      const turnos = await turnosDeUsuarios(users.map(u => u.id));
+      userIds = users.map(u => u.id).filter(uid => turnos.get(uid)?.clave === destinoValor);
     } else if (destinoTipo === 'USUARIO') {
       if (!destinoValor) { res.status(400).json({ error: 'Se requiere el usuario' }); return; }
-      // Validate all recipient IDs belong to sender's empresa; never self-address
+      // Validate all recipient IDs belong to sender's empresa; never self-address.
+      // Van contra `baseWhere`, así que un coordinador no puede escribirle a
+      // alguien de otro sector pasando su id a mano.
       const rawIds = destinoValor.split(',').map(id => id.trim()).filter(Boolean).filter(id => id !== remitenteId);
       const validUsers = await prisma.usuario.findMany({
-        where: { id: { in: rawIds }, empresaId, activo: true },
+        where: { ...baseWhere, id: { in: rawIds, not: remitenteId } },
         select: { id: true },
       });
       userIds = validUsers.map(u => u.id);
@@ -264,6 +443,7 @@ router.post('/', requireLevel(LEVEL_RRHH), upload.single('archivo'), async (req:
         esDifusion: destinoTipo !== 'USUARIO' || userIds.length > 1,
         destinoTipo,
         destinoValor: destinoValor ?? null,
+        destinoSectorId: sectorEfectivo,
         destinatarios: {
           create: userIds.map(uid => ({ usuarioId: uid })),
         },
