@@ -11,6 +11,23 @@ const router = Router();
 
 router.use(authMiddleware);
 
+/**
+ * Los adjuntos de un mensaje, listos para el `create` anidado.
+ *
+ * El tipo sale del mimetype que ya validó el `fileFilter` del middleware y no de
+ * la extensión: el nombre lo elige quien sube el archivo y renombrar un .docx a
+ * .png haría que el front intentara pintarlo como imagen.
+ */
+function adjuntosDesdeArchivo(file: Express.Multer.File | undefined) {
+  if (!file) return [];
+  return [{
+    url: `/uploads/${file.filename}`,
+    nombre: file.originalname,
+    tipo: file.mimetype.startsWith('image/') ? 'IMAGEN' : 'ARCHIVO',
+    tamanioBytes: file.size,
+  }];
+}
+
 // ─── GET /mensajes — User's inbox ─────────────────
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -26,6 +43,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
           mensaje: {
             include: {
               remitente: { select: { id: true, nombre: true, apellido: true, rol: true } },
+              adjuntos: true,
               _count: { select: { respuestas: true } },
             },
           },
@@ -77,6 +95,7 @@ router.get('/enviados', requireLevel(LEVEL_RRHH), async (req: AuthRequest, res: 
     const mensajes = await prisma.mensaje.findMany({
       where: { remitenteId: req.user!.userId },
       include: {
+        adjuntos: true,
         _count: { select: { destinatarios: true, respuestas: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -111,9 +130,11 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       where: { id: mensajeId },
       include: {
         remitente: { select: { id: true, nombre: true, apellido: true, rol: true } },
+        adjuntos: true,
         respuestas: {
           include: {
             usuario: { select: { id: true, nombre: true, apellido: true, rol: true } },
+            adjuntos: true,
           },
           orderBy: { createdAt: 'asc' },
         },
@@ -233,17 +254,12 @@ router.post('/', requireLevel(LEVEL_RRHH), upload.single('archivo'), async (req:
       return;
     }
 
-    const archivoUrl = req.file ? `/uploads/${req.file.filename}` : null;
-    const archivoNombre = req.file ? req.file.originalname : null;
-
     const mensaje = await prisma.mensaje.create({
       data: {
         empresaId,
         remitenteId,
         asunto,
         cuerpo,
-        archivoUrl,
-        archivoNombre,
         permiteRespuesta,
         esDifusion: destinoTipo !== 'USUARIO' || userIds.length > 1,
         destinoTipo,
@@ -251,7 +267,9 @@ router.post('/', requireLevel(LEVEL_RRHH), upload.single('archivo'), async (req:
         destinatarios: {
           create: userIds.map(uid => ({ usuarioId: uid })),
         },
+        adjuntos: { create: adjuntosDesdeArchivo(req.file) },
       },
+      include: { adjuntos: true },
     });
 
     // Notify all recipients
@@ -324,19 +342,16 @@ router.post('/:id/responder', upload.single('archivo'), async (req: AuthRequest,
       return;
     }
 
-    const archivoUrl = req.file ? `/uploads/${req.file.filename}` : null;
-    const archivoNombre = req.file ? req.file.originalname : null;
-
     const respuesta = await prisma.mensajeRespuesta.create({
       data: {
         mensajeId,
         usuarioId: userId,
         cuerpo: parsed.data.cuerpo,
-        archivoUrl,
-        archivoNombre,
+        adjuntos: { create: adjuntosDesdeArchivo(req.file) },
       },
       include: {
         usuario: { select: { id: true, nombre: true, apellido: true, rol: true } },
+        adjuntos: true,
       },
     });
 

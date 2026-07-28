@@ -29,12 +29,18 @@ interface Remitente {
   rol: string;
 }
 
+interface Adjunto {
+  id: string;
+  url: string;
+  nombre: string;
+  tipo: string;
+}
+
 interface MensajeInbox {
   id: string;
   asunto: string;
   cuerpo: string;
-  archivoUrl: string | null;
-  archivoNombre: string | null;
+  adjuntos: Adjunto[];
   permiteRespuesta: boolean;
   esDifusion: boolean;
   destinoTipo: string | null;
@@ -60,8 +66,7 @@ interface MensajeEnviado {
 interface Respuesta {
   id: string;
   cuerpo: string;
-  archivoUrl: string | null;
-  archivoNombre: string | null;
+  adjuntos: Adjunto[];
   createdAt: string;
   usuario: Remitente;
 }
@@ -70,8 +75,7 @@ interface MensajeDetalle {
   id: string;
   asunto: string;
   cuerpo: string;
-  archivoUrl: string | null;
-  archivoNombre: string | null;
+  adjuntos: Adjunto[];
   permiteRespuesta: boolean;
   esDifusion: boolean;
   destinoTipo: string | null;
@@ -345,7 +349,7 @@ export default function MensajesPage() {
                         {destinoLabel(m.destinoTipo, null)}
                       </span>
                     )}
-                    {m.archivoUrl && <Paperclip className="h-3 w-3 text-muted-foreground shrink-0" />}
+                    {m.adjuntos.length > 0 && <Paperclip className="h-3 w-3 text-muted-foreground shrink-0" />}
                   </div>
                   <p className={cn('text-sm truncate', !m.leido ? 'font-medium text-foreground' : 'text-muted-foreground')}>
                     {m.asunto}
@@ -412,6 +416,37 @@ export default function MensajesPage() {
 }
 
 // ─── Message Detail View ────────────────────────────
+/**
+ * Los adjuntos de un mensaje o de una respuesta.
+ *
+ * Un mensaje puede llevar varios (una foto y el instructivo en PDF, por ejemplo),
+ * así que se listan todos en vez de mostrar sólo el primero.
+ */
+function ListaAdjuntos({ adjuntos, chico = false }: { adjuntos: Adjunto[]; chico?: boolean }) {
+  if (adjuntos.length === 0) return null;
+  return (
+    <div className={cn('flex flex-wrap gap-2', chico ? 'mt-2' : 'mt-4 pt-3 border-t border-border')}>
+      {adjuntos.map((a) => (
+        <a
+          key={a.id}
+          href={getUploadUrl(a.url)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(
+            'inline-flex items-center gap-1.5 transition-colors',
+            chico
+              ? 'text-xs text-primary hover:underline'
+              : 'gap-2 px-3 py-2 rounded-lg bg-accent text-sm text-foreground hover:bg-accent/80',
+          )}
+        >
+          <Paperclip className={chico ? 'h-3 w-3' : 'h-4 w-4'} />
+          {a.nombre}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function MensajeDetalleView({ mensaje, currentUserId }: { mensaje: MensajeDetalle; currentUserId: string }) {
   const queryClient = useQueryClient();
   const [replyText, setReplyText] = useState('');
@@ -466,20 +501,8 @@ function MensajeDetalleView({ mensaje, currentUserId }: { mensaje: MensajeDetall
           {mensaje.cuerpo}
         </div>
 
-        {/* Attachment */}
-        {mensaje.archivoUrl && (
-          <div className="mt-4 pt-3 border-t border-border">
-            <a
-              href={getUploadUrl(mensaje.archivoUrl)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-accent text-sm text-foreground hover:bg-accent/80 transition-colors"
-            >
-              <Paperclip className="h-4 w-4" />
-              {mensaje.archivoNombre ?? 'Archivo adjunto'}
-            </a>
-          </div>
-        )}
+        {/* Attachments */}
+        <ListaAdjuntos adjuntos={mensaje.adjuntos} />
 
         {/* Read status for sender */}
         {mensaje.remitenteId === currentUserId && mensaje.destinatarios && (
@@ -513,17 +536,7 @@ function MensajeDetalleView({ mensaje, currentUserId }: { mensaje: MensajeDetall
                 <span className="text-xs text-muted-foreground">{formatDateFull(r.createdAt)}</span>
               </div>
               <p className="text-sm text-foreground whitespace-pre-wrap">{r.cuerpo}</p>
-              {r.archivoUrl && (
-                <a
-                  href={getUploadUrl(r.archivoUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 mt-2 text-xs text-primary hover:underline"
-                >
-                  <Paperclip className="h-3 w-3" />
-                  {r.archivoNombre ?? 'Archivo adjunto'}
-                </a>
-              )}
+              <ListaAdjuntos adjuntos={r.adjuntos} chico />
             </div>
           ))}
         </div>

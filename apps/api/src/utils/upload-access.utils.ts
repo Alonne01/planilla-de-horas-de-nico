@@ -28,30 +28,35 @@ type DuenoArchivo =
   | { tipo: 'publico-empresa'; empresaId: string };
 
 export async function duenoDelArchivo(url: string): Promise<DuenoArchivo | null> {
-  const [ausencia, avatar, mensaje, respuesta, capacitacion, exportacion, foto, logo] =
+  const [ausencia, avatar, adjunto, capacitacion, exportacion, foto, logo] =
     await Promise.all([
       prisma.ausencia.findFirst({
         where: { archivoUrl: url },
         select: { usuarioId: true, usuario: { select: { empresaId: true } } },
       }),
       prisma.usuario.findFirst({ where: { avatarUrl: url }, select: { empresaId: true } }),
-      prisma.mensaje.findFirst({
-        where: { archivoUrl: url },
+      // Un solo `findFirst` cubre los adjuntos del mensaje y los de sus respuestas:
+      // desde que viven en `mensaje_adjuntos`, la fila dice de cuál de los dos cuelga.
+      prisma.mensajeAdjunto.findFirst({
+        where: { url },
         select: {
-          empresaId: true,
-          remitenteId: true,
-          destinatarios: { select: { usuarioId: true } },
-        },
-      }),
-      prisma.mensajeRespuesta.findFirst({
-        where: { archivoUrl: url },
-        select: {
-          usuarioId: true,
           mensaje: {
             select: {
               empresaId: true,
               remitenteId: true,
               destinatarios: { select: { usuarioId: true } },
+            },
+          },
+          respuesta: {
+            select: {
+              usuarioId: true,
+              mensaje: {
+                select: {
+                  empresaId: true,
+                  remitenteId: true,
+                  destinatarios: { select: { usuarioId: true } },
+                },
+              },
             },
           },
         },
@@ -90,15 +95,17 @@ export async function duenoDelArchivo(url: string): Promise<DuenoArchivo | null>
       generadaPorId: exportacion.generadaPorId,
     };
   }
-  if (mensaje) {
+  if (adjunto?.mensaje) {
+    const { mensaje } = adjunto;
     return {
       tipo: 'mensaje',
       empresaId: mensaje.empresaId,
       habilitados: [mensaje.remitenteId, ...mensaje.destinatarios.map((d) => d.usuarioId)],
     };
   }
-  if (respuesta) {
+  if (adjunto?.respuesta) {
     // La respuesta la ven los mismos que el mensaje padre, más quien la escribió.
+    const { respuesta } = adjunto;
     return {
       tipo: 'mensaje',
       empresaId: respuesta.mensaje.empresaId,

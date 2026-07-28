@@ -90,13 +90,28 @@ const PNG = Uint8Array.from(Buffer.from(
 // ── Auth ─────────────────────────────────────────────────────────────────────
 interface Session {
   token: string;
+  cookie: string;
   user: { id: string; nombre: string; apellido: string; email: string; rol: string; rolNivel: number; empresaId: string; sectorId: string | null };
 }
 async function login(email: string): Promise<Session> {
-  const { status, body } = await post('/auth/login', { email, password: 'Test1234!' });
-  assertStatus(status, 200, `Login ${email}: ${JSON.stringify(body)}`);
+  const res = await fetch(`${BASE}/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password: 'Test1234!' }),
+  });
+  const body: any = await res.json();
+  assertStatus(res.status, 200, `Login ${email}: ${JSON.stringify(body)}`);
   assert(typeof body.accessToken === 'string', 'No accessToken');
-  return { token: body.accessToken, user: body.user };
+  // /uploads no mira el header Authorization: autentica con la cookie httpOnly
+  // 'refreshToken', que es lo único que manda un <img> del navegador.
+  const raw = res.headers.get('set-cookie') ?? '';
+  const cookie = raw.split(/,(?=\s*\w+=)/).map(c => c.split(';')[0]!.trim()).filter(Boolean).join('; ');
+  return { token: body.accessToken, cookie, user: body.user };
+}
+
+/** GET a /uploads con la cookie de sesión, como lo haría el navegador. */
+async function getUpload(url: string, ses: Session): Promise<number> {
+  const res = await fetch(`${BASE.replace('/api/v1', '')}${url}`, { headers: { Cookie: ses.cookie } });
+  return res.status;
 }
 
 async function notifCount(tok: string): Promise<number> {
@@ -169,6 +184,7 @@ async function main() {
   // shared state
   let msgMultiId = '';
   let msgSectorId = '';
+  let adjuntoSectorUrl = '';
   let msgRolId = '';
   let msgToA_replyId = '';
   let msgToA_noreplyId = '';
@@ -217,7 +233,11 @@ async function main() {
     const r = await get(`/mensajes/${msgMultiId}`, A.token);
     assertStatus(r.status, 200, JSON.stringify(r.body));
     assert(r.body.id === msgMultiId, 'wrong message');
-    assert(Array.isArray(r.body.destinatarios), 'destinatarios missing');
+    // Un destinatario raso NO ve la lista del resto: es una difusión y enumerar
+    // a los demás sería filtrar quién la recibió. La ve el remitente (o RRHH+),
+    // y eso lo cubre M3b. Esta aserción pedía lo contrario y por eso la suite
+    // nunca corrió verde desde que se agregó el ocultamiento en 7825e14.
+    assert(r.body.destinatarios === undefined, `un destinatario raso no debería ver la lista: ${JSON.stringify(r.body.destinatarios)}`);
     assert(Array.isArray(r.body.respuestas), 'respuestas missing');
     const inbox = await get('/mensajes', A.token);
     const m = inbox.body.mensajes.find((x: any) => x.id === msgMultiId);
@@ -227,6 +247,14 @@ async function main() {
   });
 
   // ── M4: responder (happy) + notif to sender + thread ────────────────────────
+  // ── M3b: el otro lado del ocultamiento de M3 ────────────────────────────────
+  await scenario('M3b GET /mensajes/:id (sender) DOES see destinatarios', async () => {
+    const r = await get(`/mensajes/${msgMultiId}`, sender.token);
+    assertStatus(r.status, 200, JSON.stringify(r.body));
+    assert(Array.isArray(r.body.destinatarios) && r.body.destinatarios.length > 0,
+      `el remitente debería ver la lista: ${JSON.stringify(r.body.destinatarios)}`);
+  });
+
   await scenario('M4 POST /mensajes/:id/responder (recipient) -> 201 + notif to sender', async () => {
     const sBefore = await notifCount(sender.token);
     const r = await postMultipart(`/mensajes/${msgMultiId}/responder`, { cuerpo: 'respuesta de A' }, A.token);
@@ -246,12 +274,16 @@ async function main() {
   });
 
   // ── M5: responder WITH file attaches archivo ────────────────────────────────
-  await scenario('M5 responder with PNG file stores archivoUrl/Nombre', async () => {
+  await scenario('M5 responder with PNG file stores adjunto', async () => {
     const r = await postMultipart(`/mensajes/${msgMultiId}/responder`, { cuerpo: 'respuesta con archivo' }, B.token,
       { data: PNG, name: 'evidencia.png', type: 'image/png' });
     assertStatus(r.status, 201, JSON.stringify(r.body));
-    assert(r.body.archivoNombre === 'evidencia.png', `archivoNombre=${r.body.archivoNombre}`);
-    assert(typeof r.body.archivoUrl === 'string' && r.body.archivoUrl.startsWith('/uploads/'), `archivoUrl=${r.body.archivoUrl}`);
+    assert(Array.isArray(r.body.adjuntos) && r.body.adjuntos.length === 1, `adjuntos=${JSON.stringify(r.body.adjuntos)}`);
+    const a = r.body.adjuntos[0];
+    assert(a.nombre === 'evidencia.png', `nombre=${a.nombre}`);
+    assert(typeof a.url === 'string' && a.url.startsWith('/uploads/'), `url=${a.url}`);
+    // El tipo sale del mimetype, no de la extensión.
+    assert(a.tipo === 'IMAGEN', `tipo=${a.tipo}`);
   });
 
   // ── M6: SECTOR broadcast with file + notif to C ─────────────────────────────
@@ -265,8 +297,10 @@ async function main() {
     assertStatus(r.status, 201, JSON.stringify(r.body));
     assert(r.body.destinatariosCount === 3, `destinatariosCount=${r.body.destinatariosCount} expected 3 (A,B,C)`);
     assert(r.body.esDifusion === true, 'SECTOR esDifusion expected true');
-    assert(r.body.archivoNombre === 'aviso.png' && r.body.archivoUrl?.startsWith('/uploads/'), `file fields: ${r.body.archivoUrl}`);
+    assert(r.body.adjuntos?.length === 1 && r.body.adjuntos[0].nombre === 'aviso.png'
+      && r.body.adjuntos[0].url?.startsWith('/uploads/'), `adjuntos: ${JSON.stringify(r.body.adjuntos)}`);
     msgSectorId = r.body.id;
+    adjuntoSectorUrl = r.body.adjuntos[0].url;
     const cAfter = await notifCount(Cc.token);
     assert(cAfter >= cBefore + 1, `C notif ${cBefore}->${cAfter} expected +>=1`);
     const cInbox = await get('/mensajes', Cc.token);
@@ -334,6 +368,25 @@ async function main() {
   // ── NEGATIVE / AUTHZ ────────────────────────────────────────────────────────
   const operador = await login('op1.almacen@test.wenlen.com'); // seed OPERADOR (nivel 10)
   assert(operador.user.rolNivel < 90, `franco nivel ${operador.user.rolNivel} expected <90`);
+
+  // ── U1/U2: quién puede abrir el adjunto por URL directa ─────────────────────
+  // El adjunto ya no se resuelve por la columna `archivo_url` del mensaje sino
+  // por la tabla `mensaje_adjuntos`. Es el camino que decide si un comunicado
+  // interno se puede leer adivinando el nombre del archivo, así que se prueba
+  // con los dos lados: alguien de la difusión y alguien ajeno.
+  await scenario('U1 recipient opens the message attachment -> 200', async () => {
+    assert(adjuntoSectorUrl !== '', 'M6 no dejó la URL del adjunto');
+    const status = await getUpload(adjuntoSectorUrl, Cc);
+    assertStatus(status, 200, `destinatario no pudo abrir ${adjuntoSectorUrl}`);
+  });
+
+  // 404 y no 403 a propósito (ver app.ts): así la respuesta no sirve para
+  // confirmar que el archivo existe ni de quién es.
+  await scenario('U2 non-recipient cannot open the message attachment -> 404', async () => {
+    assert(adjuntoSectorUrl !== '', 'M6 no dejó la URL del adjunto');
+    const status = await getUpload(adjuntoSectorUrl, operador);
+    assertStatus(status, 404, `un ajeno abrió ${adjuntoSectorUrl}`);
+  });
 
   await scenario('N1 OPERADOR POST /mensajes -> 403', async () => {
     const r = await postMultipart('/mensajes', {
