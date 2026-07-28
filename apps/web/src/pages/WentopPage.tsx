@@ -317,7 +317,11 @@ export default function WentopPage() {
   const { data: sectores = [] } = useQuery<Sector[]>({
     queryKey: ['sectores'],
     queryFn: async () => {
-      const { data } = await api.get('/analytics/sectores');
+      // `/wentop/sectores` y no `/analytics/sectores`: el segundo exige nivel 70,
+      // así que a un operador le daba 403 y se quedaba sin poder elegir el sector
+      // de observación en el formulario de alta, que se alimenta de este mismo
+      // array.
+      const { data } = await api.get('/wentop/sectores');
       return data;
     },
   });
@@ -825,26 +829,124 @@ function TarjetasTab({
 // Tab: Analytics
 // ---------------------------------------------------------------------------
 
+interface AlcanceWentop { global: boolean; sectores: Sector[] }
+
 function AnalyticsTab() {
-  const { data: analytics, isLoading } = useQuery<WentopAnalytics>({
-    queryKey: ['wentop', 'analytics'],
+  const [sectorElegido, setSectorElegido] = useState<string | null>(null);
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+
+  const { data: alcance } = useQuery<AlcanceWentop>({
+    queryKey: ['wentop', 'mi-alcance'],
     queryFn: async () => {
-      const { data } = await api.get('/wentop/analytics');
+      const { data } = await api.get('/wentop/mi-alcance');
       return data;
     },
   });
 
+  // El sector efectivo se DERIVA: lo que el usuario eligió, o —si su alcance no
+  // es global— el primero de su lista. Con alcance acotado, dejarlo vacío
+  // mezclaría sus dos sectores en un solo tablero sin decirlo en ningún lado.
+  // Derivado y no sincronizado con un efecto: un setState dentro de un efecto
+  // encadena renders y deja un frame pidiendo el tablero equivocado.
+  const setSectorId = (v: string) => setSectorElegido(v);
+  const sectorId = sectorElegido
+    ?? (alcance && !alcance.global ? alcance.sectores[0]?.id ?? '' : '');
+
+  const params = useMemo(() => {
+    const p: Record<string, string> = {};
+    if (sectorId) p.sectorId = sectorId;
+    if (desde) p.desde = desde;
+    if (hasta) p.hasta = hasta;
+    return p;
+  }, [sectorId, desde, hasta]);
+
+  const { data: analytics, isLoading } = useQuery<WentopAnalytics>({
+    queryKey: ['wentop', 'analytics', params],
+    queryFn: async () => {
+      const { data } = await api.get('/wentop/analytics', { params });
+      return data;
+    },
+  });
+
+  // Con un solo sector no hay nada que elegir: se muestra el nombre y listo.
+  const puedeElegirSector = !!alcance && (alcance.global || alcance.sectores.length > 1);
+  const sectorUnico = alcance && !alcance.global && alcance.sectores.length === 1
+    ? alcance.sectores[0]!.nombre
+    : null;
+
+  const filtros = (
+    <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4">
+      {puedeElegirSector ? (
+        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          Sector
+          <select
+            value={sectorId}
+            onChange={(e) => setSectorId(e.target.value)}
+            className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+          >
+            {alcance?.global && <option value="">Todos los sectores</option>}
+            {alcance?.sectores.map((s) => (
+              <option key={s.id} value={s.id}>{s.nombre}</option>
+            ))}
+          </select>
+        </label>
+      ) : sectorUnico ? (
+        <p className="text-sm text-muted-foreground">
+          Sector <span className="font-medium text-foreground">{sectorUnico}</span>
+        </p>
+      ) : null}
+
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        Desde
+        <input
+          type="date"
+          value={desde}
+          onChange={(e) => setDesde(e.target.value)}
+          className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        Hasta
+        <input
+          type="date"
+          value={hasta}
+          onChange={(e) => setHasta(e.target.value)}
+          className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+        />
+      </label>
+      {(desde || hasta) && (
+        <button
+          type="button"
+          onClick={() => { setDesde(''); setHasta(''); }}
+          className="rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
+        >
+          Limpiar fechas
+        </button>
+      )}
+    </div>
+  );
+
+  // Los filtros se dibujan también mientras carga y cuando no hay datos: si
+  // desaparecieran, un rango de fechas que no devuelve nada dejaría la pantalla
+  // sin forma de deshacerlo.
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        {filtros}
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
       </div>
     );
   }
 
   if (!analytics) {
     return (
-      <p className="py-10 text-center text-sm text-muted-foreground">Sin datos disponibles</p>
+      <div className="space-y-6">
+        {filtros}
+        <p className="py-10 text-center text-sm text-muted-foreground">Sin datos disponibles</p>
+      </div>
     );
   }
 
@@ -854,6 +956,8 @@ function AnalyticsTab() {
 
   return (
     <div className="space-y-6">
+      {filtros}
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard label="Total" value={analytics.totales.total} />
